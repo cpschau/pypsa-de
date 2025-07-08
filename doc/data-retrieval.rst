@@ -10,7 +10,13 @@ Specific retrieval rules
 Data in this section is retrieved and extracted in rules specified in ``rules/retrieve.smk``.
 
 
-``data/fraunhofer_heat_source_utilisation_potentials``
+``data/bgr/``
+- **Source:** Bundesanstalt für Geowissenschaften und Rohstoffe (BGR)
+- **Link:** https://www.bgr.bund.de/DE/Themen/Wasser/Projekte/laufend/Beratung/Ihme1500/ihme1500_projektbeschr.html?nn=1546102
+- **License:** `custom <https://www.bgr.bund.de/DE/Gemeinsames/Produkte/Produktcenter/faq_inhalt.html?nn=6951010#doc5914388bodyText5>` and `custom <https://www.bgr.bund.de/DE/Gemeinsames/Produkte/produkte_agb.html>`
+- **Description:** Contains data on geothermal energy resources in Europe.
+
+``data/fraunhofer_heat_source_utilisation_potentials`` and ``data/dh_areas.gpkg``
 
 - **Source:** Fraunhofer Fordatis
 - **Link:** https://fordatis.fraunhofer.de/handle/fordatis/341.3?mode=simple
