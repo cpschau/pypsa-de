@@ -1,7 +1,4 @@
 import logging
-
-logger = logging.getLogger(__name__)
-
 import os
 import sys
 
@@ -9,10 +6,6 @@ import geopandas as gpd
 import pandas as pd
 import pypsa
 import xarray as xr
-from typing import Dict, List
-
-import os
-import sys
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -22,6 +15,8 @@ from scripts._helpers import (
     update_config_from_wildcards,
 )
 from scripts.prepare_network import maybe_adjust_costs_and_potentials
+
+logger = logging.getLogger(__name__)
 
 
 def add_buses(n: pypsa.Network, subnode: pd.Series, name: str) -> None:
@@ -54,6 +49,30 @@ def add_buses(n: pypsa.Network, subnode: pd.Series, name: str) -> None:
         .set_index("Bus")
     )
     n.add("Bus", buses.index, **buses)
+
+
+def get_district_heating_loads(n: pypsa.Network):
+    """
+    Get the district heating loads from the network.
+
+    Parameters
+    ----------
+    n : pypsa.Network
+        The PyPSA network object from which to extract district heating loads.
+
+    Returns
+    -------
+    float
+        The total district heating load in MWh/a.
+    """
+    return (
+        n.snapshot_weightings.generators
+        @ n.loads_t.p_set.filter(
+            like="urban central heat",
+        )
+    ).sum() + n.loads.filter(like="low-temperature heat for industry", axis=0)[
+        "p_set"
+    ].sum() * 8760
 
 
 def add_loads(
@@ -157,11 +176,11 @@ def add_loads(
 
     # Adjust loads of cluster buses
     n.loads_t.p_set.loc[
-        :, f'{subnode["cluster"]} urban central heat'
+        :, f"{subnode['cluster']} urban central heat"
     ] -= urban_central_heat_load
 
     n.loads.loc[
-        f'{subnode["cluster"]} low-temperature heat for industry', "p_set"
+        f"{subnode['cluster']} low-temperature heat for industry", "p_set"
     ] -= low_temperature_heat_for_industry_load
 
     if lost_load > 0:
@@ -315,11 +334,11 @@ def add_links(
     name: str,
     cop: xr.DataArray,
     direct_heat_source_utilisation_profile: xr.DataArray,
-    heat_pump_sources: List[str],
-    direct_utilisation_heat_sources: List[str],
+    heat_pump_sources: list[str],
+    direct_utilisation_heat_sources: list[str],
     time_dep_hp_cop: bool,
-    limited_heat_sources: List[str],
-    heat_source_potentials: Dict[str, str],
+    limited_heat_sources: list[str],
+    heat_source_potentials: dict[str, str],
 ) -> None:
     """
     Add links for a district heating subnode.
@@ -458,11 +477,11 @@ def add_subnodes(
     head: int = 40,
     dynamic_ptes_capacity: bool = False,
     limit_ptes_potential_mother_nodes: bool = True,
-    heat_pump_sources: List[str] = None,
-    direct_utilisation_heat_sources: List[str] = None,
+    heat_pump_sources: list[str] = None,
+    direct_utilisation_heat_sources: list[str] = None,
     time_dep_hp_cop: bool = False,
-    limited_heat_sources: List[str] = None,
-    heat_source_potentials: Dict[str, str] = None,
+    limited_heat_sources: list[str] = None,
+    heat_source_potentials: dict[str, str] = None,
     output_path: str = None,
 ) -> None:
     """
@@ -506,6 +525,7 @@ def add_subnodes(
         Dictionary mapping heat sources to paths with potential data.
     output_path : str
         Path to save the subnodes_head GeoDataFrame.
+
     Returns
     -------
     None
@@ -523,9 +543,10 @@ def add_subnodes(
 
     n_copy = n.copy()
 
+    dh_loads_before = get_district_heating_loads(n)
     # Add subnodes to network
     for _, subnode in subnodes_head.iterrows():
-        name = f'{subnode["cluster"]} {subnode["Stadt"]} urban central'
+        name = f"{subnode['cluster']} {subnode['Stadt']} urban central"
 
         # Add different component types
         add_buses(n, subnode, name)
@@ -552,6 +573,11 @@ def add_subnodes(
             limited_heat_sources,
             heat_source_potentials,
         )
+    dh_loads_after = get_district_heating_loads(n)
+    # Check if the total district heating load is preserved
+    assert (
+        dh_loads_before == dh_loads_after
+    ), "Total district heating load is not preserved after adding subnodes."
 
 
 def extend_heating_distribution(
@@ -625,7 +651,7 @@ if __name__ == "__main__":
             ll="vopt",
             sector_opts="none",
             planning_horizons="2045",
-            run="No_PTES",
+            run="Baseline",
         )
 
     configure_logging(snakemake)
@@ -638,7 +664,6 @@ if __name__ == "__main__":
 
     lau = gpd.read_file(
         f"{snakemake.input.lau_regions}!LAU_RG_01M_2019_3035.geojson",
-        # "/home/cpschau/Downloads/ref-lau-2019-01m.geojson/LAU_RG_01M_2019_3035.geojson",
         crs="EPSG:3035",
     ).to_crs("EPSG:4326")
 

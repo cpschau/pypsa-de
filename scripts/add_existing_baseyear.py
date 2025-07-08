@@ -618,6 +618,8 @@ def add_chp_plants(n, grouping_years, costs, baseyear):
                     n.links.loc[bus + suffix, "efficiency2"] = efficiency_heat.loc[bus]
                     continue
 
+                # bus1 represents electricity transmission node
+                bus1 = " ".join(bus.split()[:2])
                 if generator != "urban central solid biomass CHP":
                     # lignite CHPs are not in DEA database - use coal CHP parameters
                     key = keys[generator]
@@ -625,12 +627,13 @@ def add_chp_plants(n, grouping_years, costs, baseyear):
                         bus0 = vars(spatial)[generator].nodes[0]
                     else:
                         bus0 = vars(spatial)[generator].df.loc[bus, "nodes"]
+
                     n.add(
                         "Link",
                         bus,
                         suffix=f" urban central {generator} CHP-{grouping_year}",
                         bus0=bus0,
-                        bus1=" ".join(bus.split()[:2]),
+                        bus1=bus1,
                         bus2=bus + " urban central heat",
                         bus3="co2 atmosphere",
                         carrier=f"urban central {generator} CHP",
@@ -652,8 +655,8 @@ def add_chp_plants(n, grouping_years, costs, baseyear):
                         "Link",
                         bus,
                         suffix=f" urban {key}-{grouping_year}",
-                        bus0=spatial.biomass.df.loc[" ".join(bus.split()[:2])]["nodes"],
-                        bus1=" ".join(bus.split()[:2]),
+                        bus0=spatial.biomass.df.loc[bus1]["nodes"],
+                        bus1=bus1,
                         bus2=bus + " urban central heat",
                         carrier=generator,
                         p_nom=p_nom[bus],
@@ -693,6 +696,8 @@ def add_chp_plants(n, grouping_years, costs, baseyear):
                 n.links.loc[bus + suffix, "p_nom"] = p_nom.loc[bus]
                 continue
 
+            # bus1 represents electricity transmission node
+            bus1 = " ".join(bus.split()[:2])
             # CHPs are represented as EOP if no urban central heat bus is available
             if f"{bus} urban central heat" in n.buses.index:
                 bus2 = bus + " urban central heat"
@@ -714,7 +719,7 @@ def add_chp_plants(n, grouping_years, costs, baseyear):
                     bus,
                     suffix=f" urban central {generator} CHP-{grouping_year}",
                     bus0=bus0,
-                    bus1=" ".join(bus.split()[:2]),
+                    bus1=bus1,
                     bus2=bus2,
                     bus3="co2 atmosphere",
                     carrier=f"urban central {generator} CHP",
@@ -736,8 +741,8 @@ def add_chp_plants(n, grouping_years, costs, baseyear):
                     "Link",
                     p_nom.index,
                     suffix=f" urban {key}-{grouping_year}",
-                    bus0=spatial.biomass.df.loc[" ".join(bus.split()[:2])]["nodes"],
-                    bus1=" ".join(bus.split()[:2]),
+                    bus0=spatial.biomass.df.loc[bus1]["nodes"],
+                    bus1=bus1,
                     bus2=bus2,
                     carrier=generator,
                     p_nom=p_nom[bus] / costs.at[key, "efficiency"],
@@ -894,13 +899,20 @@ def add_heating_capacities_installed_before_baseyear(
 
             assert valid_grouping_years.is_monotonic_increasing
 
-            # get number of years of each interval
-            _years = valid_grouping_years.diff()
-            # Fill NA from .diff() with value for the first interval
-            if valid_grouping_years.size > 1:
-                _years[0] = valid_grouping_years[0] - baseyear + default_lifetime
-            # Installation is assumed to be linear for the past
-            ratios = _years / _years.sum()
+            if len(valid_grouping_years) == 0:
+                logger.warning(
+                    f"No valid grouping years found for {heat_system}. "
+                    "No existing capacities will be added."
+                )
+                ratios = []
+            else:
+                # get number of years of each interval
+                _years = valid_grouping_years.diff()
+                # Fill NA from .diff() with value for the first interval
+                if valid_grouping_years.size > 1:
+                    _years[0] = valid_grouping_years[0] - baseyear + default_lifetime
+                # Installation is assumed to be linear for the past
+                ratios = _years / _years.sum()
 
         for ratio, grouping_year in zip(ratios, valid_grouping_years):
             # Add heat pumps

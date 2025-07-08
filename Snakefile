@@ -39,7 +39,7 @@ benchmarks = path_provider("benchmarks/", RDIR, shared_resources, exclude_from_s
 resources = path_provider("resources/", RDIR, shared_resources, exclude_from_shared)
 
 cutout_dir = config["atlite"]["cutout_directory"]
-CDIR = join(cutout_dir, ("" if run["shared_cutouts"] else RDIR))
+CDIR = Path(cutout_dir).joinpath("" if run["shared_cutouts"] else RDIR)
 RESULTS = "results/" + RDIR
 
 
@@ -174,37 +174,90 @@ rule purge:
             raise Exception(f"Input {do_purge}. Aborting purge.")
 
 
+rule dump_graph_config:
+    """Dump the current Snakemake configuration to a YAML file for graph generation."""
+    output:
+        config_file=temp(resources("dag_final_config.yaml")),
+    run:
+        import yaml
+
+        with open(output.config_file, "w") as f:
+            yaml.dump(config, f)
+
+
 rule rulegraph:
+    """Generates Rule DAG in DOT, PDF, PNG, and SVG formats using the final configuration."""
     message:
-        "Creating RULEGRAPH dag of workflow."
+        "Creating RULEGRAPH dag in multiple formats using the final configuration."
+    input:
+        config_file=rules.dump_graph_config.output.config_file,
     output:
         dot=resources("dag_rulegraph.dot"),
         pdf=resources("dag_rulegraph.pdf"),
         png=resources("dag_rulegraph.png"),
+        svg=resources("dag_rulegraph.svg"),
     conda:
         "envs/environment.yaml"
     shell:
         r"""
-        snakemake --rulegraph all | sed -n "/digraph/,\$p" > {output.dot}
-        dot -Tpdf -o {output.pdf} {output.dot}
-        dot -Tpng -o {output.png} {output.dot}
+        # Generate DOT file using nested snakemake with the dumped final config
+        echo "[Rule rulegraph] Using final config file: {input.config_file}"
+        snakemake --rulegraph all --configfile {input.config_file} --quiet | sed -n "/digraph/,\$p" > {output.dot}
+
+        # Generate visualizations from the DOT file
+        if [ -s {output.dot} ]; then
+            echo "[Rule rulegraph] Generating PDF from DOT"
+            dot -Tpdf -o {output.pdf} {output.dot} || {{ echo "Error: Failed to generate PDF. Is graphviz installed?" >&2; exit 1; }}
+            
+            echo "[Rule rulegraph] Generating PNG from DOT"
+            dot -Tpng -o {output.png} {output.dot} || {{ echo "Error: Failed to generate PNG. Is graphviz installed?" >&2; exit 1; }}
+            
+            echo "[Rule rulegraph] Generating SVG from DOT"
+            dot -Tsvg -o {output.svg} {output.dot} || {{ echo "Error: Failed to generate SVG. Is graphviz installed?" >&2; exit 1; }}
+            
+            echo "[Rule rulegraph] Successfully generated all formats."
+        else
+            echo "[Rule rulegraph] Error: Failed to generate valid DOT content." >&2
+            exit 1
+        fi
         """
 
 
 rule filegraph:
+    """Generates File DAG in DOT, PDF, PNG, and SVG formats using the final configuration."""
     message:
-        "Creating FILEGRAPH dag of workflow."
+        "Creating FILEGRAPH dag in multiple formats using the final configuration."
+    input:
+        config_file=rules.dump_graph_config.output.config_file,
     output:
         dot=resources("dag_filegraph.dot"),
         pdf=resources("dag_filegraph.pdf"),
         png=resources("dag_filegraph.png"),
+        svg=resources("dag_filegraph.svg"),
     conda:
         "envs/environment.yaml"
     shell:
         r"""
-        snakemake --filegraph all | sed -n "/digraph/,\$p" > {output.dot}
-        dot -Tpdf -o {output.pdf} {output.dot}
-        dot -Tpng -o {output.png} {output.dot}
+        # Generate DOT file using nested snakemake with the dumped final config
+        echo "[Rule filegraph] Using final config file: {input.config_file}"
+        snakemake --filegraph all --configfile {input.config_file} --quiet | sed -n "/digraph/,\$p" > {output.dot}
+
+        # Generate visualizations from the DOT file
+        if [ -s {output.dot} ]; then
+            echo "[Rule filegraph] Generating PDF from DOT"
+            dot -Tpdf -o {output.pdf} {output.dot} || {{ echo "Error: Failed to generate PDF. Is graphviz installed?" >&2; exit 1; }}
+            
+            echo "[Rule filegraph] Generating PNG from DOT"
+            dot -Tpng -o {output.png} {output.dot} || {{ echo "Error: Failed to generate PNG. Is graphviz installed?" >&2; exit 1; }}
+            
+            echo "[Rule filegraph] Generating SVG from DOT"
+            dot -Tsvg -o {output.svg} {output.dot} || {{ echo "Error: Failed to generate SVG. Is graphviz installed?" >&2; exit 1; }}
+            
+            echo "[Rule filegraph] Successfully generated all formats."
+        else
+            echo "[Rule filegraph] Error: Failed to generate valid DOT content." >&2
+            exit 1
+        fi
         """
 
 
@@ -385,7 +438,8 @@ rule prepare_district_heating_subnodes:
         "scripts/pypsa-de/prepare_district_heating_subnodes.py"
 
 
-baseyear_value = config["scenario"]["planning_horizons"][0]
+def baseyear_value(wildcards):
+    return config_provider("scenario", "planning_horizons", 0)(wildcards)
 
 
 rule add_district_heating_subnodes:
@@ -417,8 +471,8 @@ rule add_district_heating_subnodes:
         direct_heat_source_utilisation_profiles=resources(
             "direct_heat_source_utilisation_profiles_base_s_{clusters}_{planning_horizons}.nc"
         ),
-        existing_heating_distribution=resources(
-            f"existing_heating_distribution_base_s_{{clusters}}_{baseyear_value}.csv"
+        existing_heating_distribution=lambda w: resources(
+            f"existing_heating_distribution_base_s_{{clusters}}_{baseyear_value(w)}.csv"
         ),
         lau_regions="data/lau_regions.zip",
     output:
@@ -604,9 +658,9 @@ rule build_existing_chp_de:
             keep_local=True,
         ),
         regions=resources("regions_onshore_base_s_{clusters}.geojson"),
-        district_heating_subnodes=(
+        district_heating_subnodes=lambda w: (
             resources("district_heating_subnodes_base_s_{clusters}.geojson")
-            if config_provider("sector", "district_heating", "subnodes", "enable")
+            if config_provider("sector", "district_heating", "subnodes", "enable")(w)
             else []
         ),
     output:

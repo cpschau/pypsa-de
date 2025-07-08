@@ -96,6 +96,8 @@ sector:
     limited_heat_sources:
       geothermal:
         ignore_missing_regions: true
+    ptes:
+      dynamic_capacity: false
   heat_pump_sources:
     urban central:
     - air
