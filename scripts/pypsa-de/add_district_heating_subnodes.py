@@ -677,9 +677,11 @@ if __name__ == "__main__":
     subnodes = gpd.read_file(snakemake.input.subnodes)
 
     # Create a dictionary of heat source potentials for the limited heat sources
+    heat_pump_sources = snakemake.params.heat_pump_sources
     heat_source_potentials = {}
     for source in snakemake.params.district_heating["limited_heat_sources"]:
-        heat_source_potentials[source] = snakemake.input[source]
+        if source in heat_pump_sources:
+            heat_source_potentials[source] = snakemake.input[source]
 
     add_subnodes(
         n,
@@ -695,7 +697,7 @@ if __name__ == "__main__":
         limit_ptes_potential_mother_nodes=snakemake.params.district_heating["subnodes"][
             "limit_ptes_potential"
         ]["limit_mother_nodes"],
-        heat_pump_sources=snakemake.params.heat_pump_sources,
+        heat_pump_sources=heat_pump_sources,
         direct_utilisation_heat_sources=snakemake.params.district_heating[
             "direct_utilisation_heat_sources"
         ],
