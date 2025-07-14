@@ -65,7 +65,7 @@ if __name__ == "__main__":
     urban_fraction = pop_layout.urban / pop_layout[["rural", "urban"]].sum(axis=1)
 
     # maximum potential of urban demand covered by district heating
-    central_fraction = snakemake.config["sector"]["district_heating"]["potential"]
+    central_fraction = snakemake.params["sector"]["district_heating"]["potential"]
     if isinstance(central_fraction, dict):
         other_countries = set(pop_layout.ct.unique()).difference(
             central_fraction.keys()

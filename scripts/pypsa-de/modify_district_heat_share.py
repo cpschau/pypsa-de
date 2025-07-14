@@ -58,30 +58,43 @@ def cluster_egon(heat_techs, regions_onshore):
     return heat_techs_clustered
 
 
-def update_district_heat_share(heat_techs_clustered, dh_shares):
+def update_district_heat_share(
+    heat_techs_clustered: gpd.GeoDataFrame,
+    dh_shares: pd.DataFrame,
+    urban_fraction: pd.Series,
+    max_dh_share: float,
+    progress: float,
+) -> pd.DataFrame:
     """
     Update district heating demands of clusters according to shares in eGo^N
     data on NUTS3 level for Germany taking into account expansion of systems.
 
-    Inputs:
-        - heat_techs_clustered (GeoDataFrame): GeoDataFrame containing clustered heating technologies data.
-        - dh_shares (DataFrame): DataFrame containing district heating shares and urban fractions to be updated.
+    Parameters
+    ----------
+    heat_techs_clustered : geopandas.GeoDataFrame
+        GeoDataFrame containing clustered heating technologies data.
+    dh_shares : pandas.DataFrame
+        DataFrame containing district heating shares and urban fractions to be updated.
+    urban_fraction : pandas.Series
+        Series representing the urban fraction of district heating shares.
+    max_dh_share : float
+        Maximum potential district heating share.
+    progress : float
+        Progress factor for district heating share expansion.
 
-    Outputs:
-        - DataFrame: Updated DataFrame with adjusted district heating shares and urban fractions.
+    Returns
+    -------
+    pandas.DataFrame
+        Updated DataFrame with adjusted district heating shares and urban fractions.
     """
 
     nodal_dh_shares = heat_techs_clustered[
         "Fernwaerme"
     ] / heat_techs_clustered.drop(  # Fernwaerme is the German term for district heating
         "pop", axis=1
-    ).sum(axis=1)
-
-    urban_fraction = dh_shares["urban fraction"]
-    max_dh_share = snakemake.params.district_heating["potential"]
-    progress = snakemake.params.district_heating["progress"][
-        int(snakemake.wildcards.planning_horizons)
-    ]
+    ).sum(
+        axis=1
+    )
 
     diff = ((urban_fraction * max_dh_share) - nodal_dh_shares).clip(lower=0).dropna()
     nodal_dh_shares += diff * progress
@@ -116,6 +129,32 @@ if __name__ == "__main__":
 
     heat_techs_clustered = cluster_egon(heat_techs, regions_onshore)
 
-    dh_shares = update_district_heat_share(heat_techs_clustered, dh_shares)
+    urban_fraction = dh_shares["urban fraction"]
+    max_dh_share = snakemake.params.district_heating["potential"]
+    pop_layout = pd.read_csv(snakemake.input.pop_layout, index_col=0)
+    if isinstance(max_dh_share, dict):
+        other_countries = set(pop_layout.ct.unique()).difference(max_dh_share.keys())
+        if other_countries:
+            default_value = max_dh_share.get("default")
+            if default_value is None:
+                raise ValueError(
+                    "No default district heating potential was provided in the config."
+                )
+            logger.warning(
+                "Some countries do not have a district heating potential defined. "
+                f"Using default value {default_value:.2%} for these countries."
+            )
+            max_dh_share = {
+                **max_dh_share,
+                **{ct: default_value for ct in other_countries},
+            }
+        max_dh_share = pop_layout.ct.map(max_dh_share)
+    progress = snakemake.params.district_heating["progress"][
+        int(snakemake.wildcards.planning_horizons)
+    ]
+
+    dh_shares = update_district_heat_share(
+        heat_techs_clustered, dh_shares, urban_fraction, max_dh_share, progress
+    )
 
     dh_shares.to_csv(snakemake.output.district_heat_share)
