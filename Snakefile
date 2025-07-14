@@ -459,7 +459,7 @@ rule prepare_district_heating_subnodes:
         cities="data/fernwaermeatlas/cities_geolocations.geojson",
         lau_regions="data/lau_regions.zip",
         census=storage(
-            "https://www.zensus2022.de/static/Zensus_Veroeffentlichung/Zensus2022_Heizungsart.zip",
+            "https://www.destatis.de/static/DE/zensus/gitterdaten/Zensus2022_Heizungsart.zip",
             keep_local=True,
         ),
         osm_land_cover=storage(
@@ -556,6 +556,7 @@ rule modify_district_heat_share:
         district_heat_share=resources(
             "district_heat_share_base_s_{clusters}_{planning_horizons}.csv"
         ),
+        pop_layout=resources("pop_layout_base_s_{clusters}.csv"),
     output:
         district_heat_share=resources(
             "district_heat_share_base_s_{clusters}_{planning_horizons}-modified.csv"
