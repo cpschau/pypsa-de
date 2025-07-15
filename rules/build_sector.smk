@@ -571,8 +571,10 @@ rule build_cop_profiles:
         ),
         temp_soil_total=resources("temp_soil_total_base_s_{clusters}.nc"),
         temp_air_total=resources("temp_air_total_base_s_{clusters}.nc"),
-        temp_ptes_total=resources(
-            "ptes_top_temperature_profiles_s_{clusters}_{planning_horizons}.nc"
+        temp_ptes_total=lambda w: (
+            resources("ptes_top_temperature_profiles_s_{clusters}_{planning_horizons}.nc")
+            if "ptes" in config_provider("sector", "heat_pump_sources", "urban central")(w)
+            else []
         ),
         regions_onshore=lambda w: (
             resources("regions_onshore_base-extended_s_{clusters}.geojson")
