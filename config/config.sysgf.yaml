@@ -98,6 +98,13 @@ sector:
         ignore_missing_regions: true
     ptes:
       dynamic_capacity: false
+      supplemental_heating:
+        enable: false
+        booster_heat_pump: false
+      max_top_temperature: 90
+      min_bottom_temperature: 35
+    ates:
+      enable: false
   heat_pump_sources:
     urban central:
     - air

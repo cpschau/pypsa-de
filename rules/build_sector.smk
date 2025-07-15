@@ -442,8 +442,13 @@ rule build_river_heat_potential:
     input:
         hera_river_discharge=f"data/hera_{hera_data_key}/river_discharge_{hera_data_key}.nc",
         hera_ambient_temperature=f"data/hera_{hera_data_key}/ambient_temp_{hera_data_key}.nc",
-        regions_onshore=resources("regions_onshore_base_s_{clusters}.geojson"),
+        regions_onshore=lambda w: (
+            resources("regions_onshore_base-extended_s_{clusters}.geojson")
+            if config_provider("sector", "district_heating", "subnodes", "enable")(w)
+            else resources("regions_onshore_base_s_{clusters}.geojson")
+        ),
         dh_areas="data/dh_areas.gpkg",
+        clustered_pop_layout=resources("pop_layout_base_s_{clusters}.csv"),
     output:
         heat_source_power=resources(
             "heat_source_power_river_water_base_s_{clusters}.csv"
@@ -515,7 +520,11 @@ rule build_sea_heat_potential:
         snapshots=config_provider("snapshots"),
         dh_area_buffer=config_provider("sector", "district_heating", "dh_area_buffer"),
     input:
-        regions_onshore=resources("regions_onshore_base_s_{clusters}.geojson"),
+        regions_onshore=lambda w: (
+            resources("regions_onshore_base-extended_s_{clusters}.geojson")
+            if config_provider("sector", "district_heating", "subnodes", "enable")(w)
+            else resources("regions_onshore_base_s_{clusters}.geojson")
+        ),
         seawater_temperature="data/seawater_temperature.nc",
         dh_areas="data/dh_areas.gpkg",
     output:

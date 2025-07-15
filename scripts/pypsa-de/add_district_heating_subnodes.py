@@ -463,10 +463,19 @@ def add_links(
                 index_col=0,
             ).squeeze()[f"{subnode['cluster']} {subnode['Stadt']}"]
             # add potential to generator
-            n.generators.loc[
-                f"{subnode['cluster']} {subnode['Stadt']} urban central {heat_source} heat",
-                "p_nom_max",
-            ] = p_max_source
+            if isinstance(p_max_source, pd.Series):
+                n.generators.loc[
+                    f"{subnode['cluster']} {subnode['Stadt']} urban central {heat_source} heat",
+                    "p_nom_max",
+                ] = p_max_source.max()
+                n.generators_t.p_max_pu[
+                    f"{subnode['cluster']} {subnode['Stadt']} urban central {heat_source} heat"
+                ] = (p_max_source / p_max_source.max())
+            else:
+                n.generators.loc[
+                    f"{subnode['cluster']} {subnode['Stadt']} urban central {heat_source} heat",
+                    "p_nom_max",
+                ] = p_max_source
 
 
 def add_subnodes(

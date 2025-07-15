@@ -112,6 +112,26 @@ if __name__ == "__main__":
     dh_areas["geometry"] = dh_areas.geometry.buffer(snakemake.params.dh_area_buffer)
     dh_areas = dh_areas.to_crs("EPSG:4326")
 
+    pop_layout = pd.read_csv(snakemake.input["clustered_pop_layout"], index_col=0)
+    missing_countries = set(pop_layout.ct) - set(dh_areas.country)
+    if missing_countries:
+        logging.warning(
+            f"Missing countries in district heating areas: {missing_countries}. "
+            "This may lead to missing data in the heat source power calculation."
+        )
+
+    logger.info(
+        f"regions_onshore looks like this:\n{regions_onshore}\n and pop_layout looks like this:\n{pop_layout}\n"
+    )
+
+    regions_onshore_with_data = regions_onshore.loc[
+        regions_onshore.index.str.split(" ")
+        .str[:2]
+        .str.join(" ")
+        .map(pop_layout.ct)
+        .isin(dh_areas.country)
+    ]
+
     cluster = LocalCluster(
         n_workers=int(snakemake.threads),
         threads_per_worker=1,
@@ -120,7 +140,7 @@ if __name__ == "__main__":
     client = Client(cluster)
 
     futures = []
-    for region_name in regions_onshore.index:
+    for region_name in regions_onshore_with_data.index:
         logging.info(f"Processing region {region_name}")
         region = gpd.GeoSeries(regions_onshore.loc[region_name].copy(deep=True))
         futures.append(
@@ -137,17 +157,18 @@ if __name__ == "__main__":
     power = pd.DataFrame(
         {
             region_name: res["spatial aggregate"]["total_power"].to_pandas()
-            for res in results
-            for region_name, res in zip(regions_onshore.index, results)
+            for region_name, res in zip(regions_onshore_with_data.index, results)
         }
     )
 
-    power = power.reindex(snapshots, method="nearest")
+    power = power.reindex(snapshots, method="nearest").reindex(
+        regions_onshore.index, fill_value=0, axis=1
+    )
     power.to_csv(snakemake.output.heat_source_power)
 
     temperature = xr.concat(
         [res["spatial aggregate"]["average_temperature"] for res in results], dim="name"
-    ).assign_coords(name=regions_onshore.index)
+    ).assign_coords(name=regions_onshore_with_data.index)
 
     temperature = temperature.sel(time=snapshots, method="nearest").assign_coords(
         time=snapshots
@@ -157,10 +178,10 @@ if __name__ == "__main__":
     # Merge the temporal aggregate results
     xr.concat(
         [res["temporal aggregate"]["total_energy"] for res in results],
-        dim=regions_onshore.index,
+        dim=regions_onshore_with_data.index,
     ).to_netcdf(snakemake.output.heat_source_energy_temporal_aggregate)
 
     xr.concat(
         [res["temporal aggregate"]["average_temperature"] for res in results],
-        dim=regions_onshore.index,
+        dim=regions_onshore_with_data.index,
     ).to_netcdf(snakemake.output.heat_source_temperature_temporal_aggregate)
