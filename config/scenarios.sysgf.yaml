@@ -10,37 +10,26 @@ Baseline_control:
 LowDH:
   sector:
     district_heating:
-      potential: 0.3
+      potential:
+        DE: 0.2
+
 HighDH:
   sector:
     district_heating:
-      potential: 0.8
+      potential:
+        DE: 0.8
 
-Baseline_fix_foreign_investments_.01slack:
-  run:
-    scenarios:
-      fix_foreign_investments:
-        enable: true
-        reference_scenario: Baseline
-        slack: 0.0001
+LowSupplyTemperature:
+  sector:
+    district_heating:
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.015
 
-Baseline_fix_foreign_investments_.1slack:
-  run:
-    scenarios:
-      fix_foreign_investments:
-        enable: true
-        reference_scenario: Baseline
-        slack: 0.001
-
-Baseline_fix_foreign_investments_1slack:
-  run:
-    scenarios:
-      fix_foreign_investments:
-        enable: true
-        reference_scenario: Baseline
-        slack: 0.01
-
-
+HighSupplyTemperature:
+  sector:
+    district_heating:
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.0
 
 PTES_DE_leq_0TWh:
   solving:
@@ -51,7 +40,7 @@ PTES_DE_leq_0TWh:
             DE:
               2020: 0        
               2025: 0        
-              2030: 0        
+              2030: 0
               2035: 0        
               2040: 0        
               2045: 0        
@@ -130,11 +119,6 @@ TES_DE_leq_0TWh:
               2045: 0
 
 LowPTESCAPEX:
-  run:
-    scenarios:
-      fix_foreign_investments:
-        enable: true
-        slack: 0.0001
   adjustments:
     electricity: false
     sector:
@@ -142,19 +126,8 @@ LowPTESCAPEX:
         Store:
           urban central water pits:
             capital_cost: 0.5
-      absolute:
-        Store:
-          urban central water pits:
-            standing_loss: 0.00012121
-          urban central water tanks:
-            standing_loss: 0.00015476
 
 HighPTESCAPEX:
-  run:
-    scenarios:
-      fix_foreign_investments:
-        enable: true
-        slack: 0.0001
   adjustments:
     electricity: false
     sector:
@@ -162,12 +135,6 @@ HighPTESCAPEX:
         Store:
           urban central water pits:
             capital_cost: 2
-      absolute:
-        Store:
-          urban central water pits:
-            standing_loss: 0.00012121
-          urban central water tanks:
-            standing_loss: 0.00015476
 
 LowStandingLosses:
   adjustments:

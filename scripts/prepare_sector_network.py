@@ -3600,6 +3600,10 @@ def add_heat(
                     heat_system.central_or_decentral + " water tank storage",
                     "capital_cost",
                 ],
+                overnight_cost=costs.at[
+                    heat_system.central_or_decentral + " water tank storage",
+                    "investment",
+                ],
                 lifetime=costs.at[
                     heat_system.central_or_decentral + " water tank storage", "lifetime"
                 ],

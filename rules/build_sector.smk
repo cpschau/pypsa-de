@@ -571,6 +571,9 @@ rule build_cop_profiles:
         ),
         temp_soil_total=resources("temp_soil_total_base_s_{clusters}.nc"),
         temp_air_total=resources("temp_air_total_base_s_{clusters}.nc"),
+        temp_ptes_total=resources(
+            "ptes_top_temperature_profiles_s_{clusters}_{planning_horizons}.nc"
+        ),
         regions_onshore=lambda w: (
             resources("regions_onshore_base-extended_s_{clusters}.geojson")
             if config_provider("sector", "district_heating", "subnodes", "enable")(w)

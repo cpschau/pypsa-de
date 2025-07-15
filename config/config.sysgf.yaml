@@ -3,25 +3,14 @@
 # SPDX-License-Identifier: CC0-1.0
 
 run:
-  prefix: 20250704_fix_neighbours
+  prefix: 20250715_fixing_whsp_boosting_deactivated
   name:
   - Baseline
-  - LowDH
-  - HighDH
-  - LowPTESCAPEX
-  - HighPTESCAPEX
-  # - Baseline_control
-  # - Baseline_fix_foreign_investments_.01slack
-  # - Baseline_fix_foreign_investments_.1slack
-  # - Baseline_fix_foreign_investments_1slack
-  # - Baseline_fix_foreign_investments_5slack
-  # - Baseline_fix_foreign_investments_10slack
-  # - Baseline_fix_foreign_investments_20slack
-  # - Baseline_fix_foreign_investments_90slack
-  # - TES_DE_leq_0TWh
-  # - PTES_DE_leq_0TWh
-  # - PTES_DE_leq_3TWh
-  # - PTES_DE_leq_1TWh
+  # - No_PTES
+  # - LowSupplyTemperature
+  # - HighSupplyTemperature
+  # - LowDH
+  # - HighDH
   # - LowPTESCAPEX
   # - HighPTESCAPEX
   # - LowStandingLosses
@@ -34,12 +23,6 @@ run:
     enable: true
     manual_file: config/scenarios.sysgf.yaml
     file: config/scenarios.automated.yaml
-    fix_foreign_investments:
-      enable: false
-      nom_min: true
-      nom_max: false
-      reference_scenario: Baseline
-      slack: 0.01
   shared_resources:
     policy: base #stops recalculating
     exclude:
@@ -62,16 +45,23 @@ scenario:
   sector_opts:
   - none
   planning_horizons:
-  - 2020
+  # - 2020
   # - 2025
   # - 2030
   # - 2035
   # - 2040
   - 2045
 
+fix_foreign_investments:
+  enable: false
+  reference_scenario: No_PTES
+  nom_min: true
+  nom_max: true
+  slack: 0
+
 clustering:
   temporal:
-    resolution_sector: 7H
+    resolution_sector: 365H
 
 adjustments:
   electricity: false
@@ -89,7 +79,27 @@ sector:
   chp:
     enable: true
   district_heating:
-    potential: 0.5
+    potential:
+      DE: 0.5
+      default: 0.5
+    supply_temperature_approximation:
+      max_forward_temperature_baseyear:
+        FR: 110
+        DK: 75
+        DE: 109
+        CZ: 130
+        FI: 115
+        PL: 130
+        SE: 102
+        IT: 90
+      min_forward_temperature_baseyear:
+        DE: 82
+      return_temperature_baseyear:
+        DE: 58
+      lower_threshold_ambient_temperature: 0
+      upper_threshold_ambient_temperature: 10
+      rolling_window_ambient_temperature: 72
+      relative_annual_temperature_reduction: 0.01
     subnodes:
       enable: true
       nlargest: 40
@@ -133,7 +143,7 @@ solving:
     limits_capacity_min:
       Generator: {}
   options:
-    noisy_costs: false
+    noisy_costs: true
   solver_options:
     gurobi-default:
       Seed: 123
