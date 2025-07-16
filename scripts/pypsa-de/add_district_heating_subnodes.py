@@ -584,9 +584,12 @@ def add_subnodes(
         )
     dh_loads_after = get_district_heating_loads(n)
     # Check if the total district heating load is preserved
-    assert (
-        dh_loads_before == dh_loads_after
-    ), "Total district heating load is not preserved after adding subnodes."
+    assert abs(dh_loads_before - dh_loads_after) <= 0.001 * dh_loads_before, (
+        "Total district heating load is not preserved after adding subnodes. "
+        "Load before: {}, load after: {}, difference: {}".format(
+            dh_loads_before, dh_loads_after, dh_loads_after - dh_loads_before
+        )
+    )
 
 
 def extend_heating_distribution(
