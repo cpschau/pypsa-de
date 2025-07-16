@@ -12,9 +12,9 @@ run:
   # - LowDH
   - HighDH
   # - NoPTES_LowDH
-  # - NoPTES_HighDH
+  - NoPTES_HighDH
   # - NoPTES_LowSupplyTemperature
-  # - NoPTES_HighSupplyTemperature
+  - NoPTES_HighSupplyTemperature
   # - 0.25PTESCAPEX
   # - 0.5PTESCAPEX
   # - 1.25PTESCAPEX
@@ -127,6 +127,7 @@ sector:
     urban central:
     - air
     - geothermal
+    - river_water
     urban decentral:
     - air
     rural:
@@ -150,8 +151,8 @@ solving:
   solver_options:
     gurobi-default:
       Seed: 123
-      BarConvTol: 1.e-8
-      FeasibilityTol: 1.e-8
+      BarConvTol: 1.e-6
+      FeasibilityTol: 1.e-6
       # Crossover: 1
       # NumericFocus: 3
 
