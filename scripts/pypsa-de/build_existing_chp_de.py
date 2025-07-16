@@ -308,15 +308,4 @@ if __name__ == "__main__":
             head=snakemake.params.district_heating_subnodes["nlargest"],
         )
 
-    if snakemake.params.district_heating_subnodes["enable"]:
-        subnodes = gpd.read_file(
-            snakemake.input.district_heating_subnodes,
-            columns=["Stadt", "yearly_heat_demand_MWh", "lau_shape"],
-        ).set_index("Stadt")
-        CHP_de = assign_subnode(
-            CHP_de,
-            subnodes,
-            head=snakemake.params.district_heating_subnodes["nlargest"],
-        )
-
     CHP_de.to_csv(snakemake.output.german_chp, index=False)
