@@ -15,24 +15,32 @@ NoPTES:
             e_nom_max: 0
 
 LowDH:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_LowDH
   sector:
     district_heating:
       potential:
         DE: 0.2
 
 HighDH:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_HighDH
   sector:
     district_heating:
       potential:
         DE: 0.8
 
 LowSupplyTemperature:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_LowSupplyTemperature
   sector:
     district_heating:
       supply_temperature_approximation:
         relative_annual_temperature_reduction: 0.015
 
 HighSupplyTemperature:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_HighSupplyTemperature
   sector:
     district_heating:
       supply_temperature_approximation:
@@ -40,7 +48,7 @@ HighSupplyTemperature:
 
 NoPTES_LowDH:
   fix_foreign_investments:
-    reference_scenario: LowDH
+    enable: false
   sector:
     district_heating:
       potential:
@@ -55,7 +63,7 @@ NoPTES_LowDH:
 
 NoPTES_HighDH:
   fix_foreign_investments:
-    reference_scenario: HighDH
+    enable: false
   sector:
     district_heating:
       potential:
@@ -70,7 +78,7 @@ NoPTES_HighDH:
 
 NoPTES_LowSupplyTemperature:
   fix_foreign_investments:
-    reference_scenario: LowSupplyTemperature
+    enable: false
   sector:
     district_heating:
       supply_temperature_approximation:
@@ -85,7 +93,7 @@ NoPTES_LowSupplyTemperature:
 
 NoPTES_HighSupplyTemperature:
   fix_foreign_investments:
-    reference_scenario: HighSupplyTemperature
+    enable: false
   sector:
     district_heating:
       supply_temperature_approximation:
