@@ -6,11 +6,19 @@ run:
   prefix: 20250715_fixing_whsp_boosting_deactivated
   name:
   - Baseline
-  # - No_PTES
+  - NoPTES
   # - LowSupplyTemperature
-  # - HighSupplyTemperature
+  - HighSupplyTemperature
   # - LowDH
-  # - HighDH
+  - HighDH
+  # - NoPTES_LowDH
+  # - NoPTES_HighDH
+  # - NoPTES_LowSupplyTemperature
+  # - NoPTES_HighSupplyTemperature
+  # - 0.25PTESCAPEX
+  # - 0.5PTESCAPEX
+  # - 1.25PTESCAPEX
+  # - 1.5PTESCAPEX
   # - LowPTESCAPEX
   # - HighPTESCAPEX
   # - LowStandingLosses
@@ -53,15 +61,15 @@ scenario:
   - 2045
 
 fix_foreign_investments:
-  enable: false
-  reference_scenario: No_PTES
+  enable: true
+  reference_scenario: NoPTES
   nom_min: true
   nom_max: true
   slack: 0
 
 clustering:
   temporal:
-    resolution_sector: 365H
+    resolution_sector: 9H
 
 adjustments:
   electricity: false
@@ -133,11 +141,6 @@ solving:
     BAU: false
     SAFE: false
     efuel_export_ban: false
-    limits_capacity_max: {}
-    limits_capacity_min: {}
-    limits_volume_max: {}
-    limits_volume_min: {}
-    limits_power_max: {}
     limits_capacity_max:
       Generator: {}
     limits_capacity_min:

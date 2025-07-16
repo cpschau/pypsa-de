@@ -5,7 +5,14 @@
 
 Baseline:
 
-Baseline_control:
+NoPTES:
+  adjustments:
+    electricity: false
+    sector:
+      absolute:
+        Store:
+          urban central water pits:
+            e_nom_max: 0
 
 LowDH:
   sector:
@@ -30,6 +37,103 @@ HighSupplyTemperature:
     district_heating:
       supply_temperature_approximation:
         relative_annual_temperature_reduction: 0.0
+
+NoPTES_LowDH:
+  fix_foreign_investments:
+    reference_scenario: LowDH
+  sector:
+    district_heating:
+      potential:
+        DE: 0.2
+  adjustments:
+    electricity: false
+    sector:
+      absolute:
+        Store:
+          urban central water pits:
+            e_nom_max: 0
+
+NoPTES_HighDH:
+  fix_foreign_investments:
+    reference_scenario: HighDH
+  sector:
+    district_heating:
+      potential:
+        DE: 0.8
+  adjustments:
+    electricity: false
+    sector:
+      absolute:
+        Store:
+          urban central water pits:
+            e_nom_max: 0
+
+NoPTES_LowSupplyTemperature:
+  fix_foreign_investments:
+    reference_scenario: LowSupplyTemperature
+  sector:
+    district_heating:
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.015
+  adjustments:
+    electricity: false
+    sector:
+      absolute:
+        Store:
+          urban central water pits:
+            e_nom_max: 0
+
+NoPTES_HighSupplyTemperature:
+  fix_foreign_investments:
+    reference_scenario: HighSupplyTemperature
+  sector:
+    district_heating:
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.0
+  adjustments:
+    electricity: false
+    sector:
+      absolute:
+        Store:
+          urban central water pits:
+            e_nom_max: 0
+
+
+0.25PTESCAPEX:
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 0.25
+
+0.5PTESCAPEX:
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 0.5
+
+1.25PTESCAPEX:
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 1.25
+
+1.5PTESCAPEX:
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 1.5
 
 PTES_DE_leq_0TWh:
   solving:
@@ -87,14 +191,7 @@ PTES_DE_leq_1TWh:
               2040: 1000        
               2045: 1000        
               
-No_PTES:
-  adjustments:
-    electricity: false
-    sector:
-      absolute:
-        Store:
-          urban central water pits:
-            e_nom_max: 0
+
             
 TES_DE_leq_0TWh:
   solving:
