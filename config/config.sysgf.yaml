@@ -65,7 +65,7 @@ fix_foreign_investments:
   reference_scenario: NoPTES
   nom_min: true
   nom_max: true
-  slack: 0
+  slack: 1e-5
 
 clustering:
   temporal:
@@ -148,6 +148,9 @@ solving:
       Generator: {}
   options:
     noisy_costs: true
+    skip_iterations: false
+    min_iterations: 1
+    max_iterations: 1
   solver_options:
     gurobi-default:
       Seed: 123
