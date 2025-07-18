@@ -425,13 +425,11 @@ rule build_ates_potentials:
         "../scripts/build_ates_potentials.py"
 
 
-# dynamic inputs/outputs for hera data retrieval
-if config["atlite"]["default_cutout"] == "be-03-2013-era5":
-    hera_data_key = "be_2013-03-01_to_2013-03-08"
-else:
-    start_snapshot = config["snapshots"]["start"]
-    snapshot_year = start_snapshot[:4]
-    hera_data_key = snapshot_year
+def get_hera_data_key(wildcards):
+    if config_provider("atlite", "default_cutout")(wildcards) == "be-03-2013-era5":
+        return "be_2013-03-01_to_2013-03-08"
+    else:
+        return config_provider("snapshots", "start")(wildcards)[:4]
 
 
 rule build_river_heat_potential:
@@ -440,8 +438,8 @@ rule build_river_heat_potential:
         snapshots=config_provider("snapshots"),
         dh_area_buffer=config_provider("sector", "district_heating", "dh_area_buffer"),
     input:
-        hera_river_discharge=f"data/hera_{hera_data_key}/river_discharge_{hera_data_key}.nc",
-        hera_ambient_temperature=f"data/hera_{hera_data_key}/ambient_temp_{hera_data_key}.nc",
+        hera_river_discharge=lambda w: f"data/hera_{get_hera_data_key(w)}/river_discharge_{get_hera_data_key(w)}.nc",
+        hera_ambient_temperature=lambda w: f"data/hera_{get_hera_data_key(w)}/ambient_temp_{get_hera_data_key(w)}.nc",
         regions_onshore=lambda w: (
             resources("regions_onshore_base-extended_s_{clusters}.geojson")
             if config_provider("sector", "district_heating", "subnodes", "enable")(w)
@@ -527,6 +525,7 @@ rule build_sea_heat_potential:
         ),
         seawater_temperature="data/seawater_temperature.nc",
         dh_areas="data/dh_areas.gpkg",
+        clustered_pop_layout=resources("pop_layout_base_s_{clusters}.csv"),
     output:
         heat_source_temperature=resources("temp_sea_water_base_s_{clusters}.nc"),
         heat_source_temperature_temporal_aggregate=resources(
