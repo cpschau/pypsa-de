@@ -754,15 +754,20 @@ if config["enable"]["retrieve"]:
                 unpack_archive(input[0], params.folder)
 
     else:
-        start_snapshot = config["snapshots"]["start"]
-        snapshot_year = start_snapshot[:4]
+
+        # Define a function to generate output files dynamically
+        def hera_output_files(wildcards):
+            snapshot_year = config_provider("snapshots", "start")(wildcards)[:4]
+            return {
+                "river_discharge": f"data/hera_{snapshot_year}/river_discharge_{snapshot_year}.nc",
+                "ambient_temperature": f"data/hera_{snapshot_year}/ambient_temp_{snapshot_year}.nc"
+            }
 
         rule retrieve_hera_data:
             output:
-                river_discharge=f"data/hera_{snapshot_year}/river_discharge_{snapshot_year}.nc",
-                ambient_temperature=f"data/hera_{snapshot_year}/ambient_temp_{snapshot_year}.nc",
+                unpack(hera_output_files)
             params:
-                snapshot_year=snapshot_year,
+                snapshot_year=lambda w: config_provider("snapshots", "start")(w)[:4],
             log:
                 "logs/retrieve_hera_data.log",
             resources:
@@ -770,8 +775,8 @@ if config["enable"]["retrieve"]:
             retries: 2
             shell:
                 """
-                wget -nv -c https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/CEMS-EFAS/HERA/VER1-0/Data/NetCDF/river_discharge/dis.HERA{params.snapshot_year}.nc -O {{output.river_discharge}}
-                wget -nv -c https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/CEMS-EFAS/HERA/VER1-0/Data/NetCDF/climate_inputs/ta6/ta6_{params.snapshot_year}.nc -O {{output.ambient_temperature}}
+                wget -nv -c https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/CEMS-EFAS/HERA/VER1-0/Data/NetCDF/river_discharge/dis.HERA{params.snapshot_year}.nc -O {output.river_discharge}
+                wget -nv -c https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/CEMS-EFAS/HERA/VER1-0/Data/NetCDF/climate_inputs/ta6/ta6_{params.snapshot_year}.nc -O {output.ambient_temperature}
                 """
 
 
