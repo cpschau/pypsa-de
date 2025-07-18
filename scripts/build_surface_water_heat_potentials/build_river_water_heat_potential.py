@@ -6,13 +6,15 @@ import logging
 import geopandas as gpd
 import pandas as pd
 import xarray as xr
-from _helpers import (
+from scripts._helpers import (
     configure_logging,
     get_snapshots,
     set_scenario_config,
     update_config_from_wildcards,
 )
-from approximators.river_water_heat_approximator import RiverWaterHeatApproximator
+from approximators.river_water_heat_approximator import (
+    RiverWaterHeatApproximator,
+)
 from dask.distributed import Client, LocalCluster
 
 logger = logging.getLogger(__name__)
