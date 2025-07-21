@@ -12,7 +12,7 @@ import logging
 import numpy as np
 import pandas as pd
 import xarray as xr
-from _helpers import configure_logging
+from scripts._helpers import configure_logging
 from bokeh.io import output_file, save
 from bokeh.layouts import column, row
 from bokeh.models import (
