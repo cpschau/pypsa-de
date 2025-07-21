@@ -102,3 +102,12 @@ rule plot_statistics:
                 run=config["run"]["name"],
             ),
         ],
+
+
+rule plot_power_networks_clustered:
+    input:
+        expand(
+            resources("maps/power-network-s-{clusters}.pdf"),
+            **config["scenario"],
+            run=config["run"]["name"],
+        ),
