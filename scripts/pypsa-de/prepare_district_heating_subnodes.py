@@ -589,6 +589,56 @@ def extend_regions_onshore(
     }
 
 
+def modify_dh_areas(
+    dh_areas: gpd.GeoDataFrame,
+    subnodes: gpd.GeoDataFrame,
+    regions_onshore_extended: gpd.GeoDataFrame,
+    head: int = 40,
+) -> gpd.GeoDataFrame:
+    """
+    Modify district heating areas by replacing geometries with those
+    of the subnode within associated LAU region.
+
+    Parameters
+    ----------
+    dh_areas : gpd.GeoDataFrame
+        GeoDataFrame containing district heating areas.
+    subnodes : gpd.GeoDataFrame
+        GeoDataFrame containing district heating subnodes.
+    regions_onshore_extended : gpd.GeoDataFrame
+        GeoDataFrame containing extended onshore regions with LAU regions of subnodes.
+    head : int, optional
+        Number of top subnodes to consider based on yearly district heat feed-in.
+        Default is 40.
+    Returns
+    -------
+    gpd.GeoDataFrame
+        Modified district heating areas with updated geometries.
+    """
+    subnodes = subnodes.sort_values(
+        by="Wärmeeinspeisung in GWh/a", ascending=False
+    ).head(head)
+    regions_onshore_extended = regions_onshore_extended.to_crs(dh_areas.crs)
+
+    # Split dh_areas by onshore regions and subnode regions
+    dh_areas_lau_split = dh_areas.overlay(
+        regions_onshore_extended, how="intersection"
+    ).reset_index()
+
+    # Replace geometries of dh_areas that lie within LAU regions of subnodes
+    # with dedicated subnodal geometries
+    dh_areas_in_subnodes = dh_areas_lau_split.loc[
+        dh_areas_lau_split.name.isin(subnodes.name)
+    ].index
+    dh_areas_lau_split.loc[dh_areas_in_subnodes, "geometry"] = dh_areas_lau_split.loc[
+        dh_areas_in_subnodes
+    ].apply(
+        lambda x: subnodes.loc[subnodes.name == x["name"], "geometry"].values[0], axis=1
+    )
+
+    return dh_areas_lau_split
+
+
 if __name__ == "__main__":
     if "snakemake" not in globals():
         import os
@@ -698,3 +748,14 @@ if __name__ == "__main__":
     regions_onshore_modified["restricted"].to_file(
         snakemake.output.regions_onshore_restricted, driver="GeoJSON"
     )
+
+    dh_areas = (
+        gpd.read_file(snakemake.input.dh_areas).set_index("name").to_crs("EPSG:4326")
+    )
+    dh_areas_modified = modify_dh_areas(
+        dh_areas,
+        subnodes,
+        regions_onshore_modified["extended"],
+        snakemake.params.district_heating["subnodes"]["nlargest"],
+    )
+    dh_areas_modified.to_file(snakemake.output.dh_areas_modified, driver="GeoJSON")

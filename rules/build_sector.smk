@@ -445,7 +445,9 @@ rule build_river_heat_potential:
             if config_provider("sector", "district_heating", "subnodes", "enable")(w)
             else resources("regions_onshore_base_s_{clusters}.geojson")
         ),
-        dh_areas="data/dh_areas.gpkg",
+        dh_areas=lambda w: resources(
+            "dh_areas_base_s_{clusters}-modified.geojson"
+        ) if config_provider("sector", "district_heating", "subnodes", "enable")(w) else "data/dh_areas.gpkg",
         clustered_pop_layout=resources("pop_layout_base_s_{clusters}.csv"),
     output:
         heat_source_power=resources(
@@ -524,7 +526,9 @@ rule build_sea_heat_potential:
             else resources("regions_onshore_base_s_{clusters}.geojson")
         ),
         seawater_temperature="data/seawater_temperature.nc",
-        dh_areas="data/dh_areas.gpkg",
+        dh_areas=lambda w: resources(
+            "dh_areas_base_s_{clusters}-modified.geojson"
+        ) if config_provider("sector", "district_heating", "subnodes", "enable")(w) else "data/dh_areas.gpkg",
         clustered_pop_layout=resources("pop_layout_base_s_{clusters}.csv"),
     output:
         heat_source_temperature=resources("temp_sea_water_base_s_{clusters}.nc"),
