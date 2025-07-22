@@ -459,7 +459,7 @@ rule build_river_heat_potential:
             "heat_source_energy_river_water_base_s_{clusters}_temporal_aggregate.nc"
         ),
     resources:
-        mem_mb=100000,
+        mem_mb=150000,
     log:
         logs("build_river_water_heat_potential_base_s_{clusters}.log"),
     benchmark:
@@ -532,7 +532,7 @@ rule build_sea_heat_potential:
             "temp_sea_water_base_s_{clusters}_temporal_aggregate.nc"
         ),
     resources:
-        mem_mb=10000,
+        mem_mb=150000,
     log:
         logs("build_sea_water_heat_potential_base_s_{clusters}.log"),
     benchmark:
