@@ -618,8 +618,9 @@ def modify_dh_areas(
     subnodes = subnodes.sort_values(
         by="Wärmeeinspeisung in GWh/a", ascending=False
     ).head(head)
-    regions_onshore_extended = regions_onshore_extended.to_crs(dh_areas.crs)
-
+    regions_onshore_extended = regions_onshore_extended.to_crs(
+        dh_areas.crs
+    ).reset_index()
     # Split dh_areas by onshore regions and subnode regions
     dh_areas_lau_split = dh_areas.overlay(
         regions_onshore_extended, how="intersection"
