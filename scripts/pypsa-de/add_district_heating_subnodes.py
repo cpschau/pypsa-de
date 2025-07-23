@@ -412,13 +412,18 @@ def add_links(
             .set_index("Link")
         )
         if heat_pump["bus2"].str.match("$").any():
-            n.add("Link", heat_pump.index, efficiency=cop_heat_pump, **heat_pump)
+            n.add(
+                "Link",
+                heat_pump.index,
+                efficiency=(1 / cop_heat_pump.clip(lower=0.001)).replace(1000, 0),
+                **heat_pump,
+            )
         else:
             n.add(
                 "Link",
                 heat_pump.index,
-                efficiency=-(cop_heat_pump - 1),
-                efficiency2=cop_heat_pump,
+                efficiency=(1 / (cop_heat_pump - 1).clip(lower=0.001)).replace(1000, 0),
+                efficiency2=(1 / cop_heat_pump.clip(lower=0.001)).replace(1000, 0),
                 **heat_pump,
             )
 
