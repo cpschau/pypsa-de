@@ -750,9 +750,7 @@ if __name__ == "__main__":
         snakemake.output.regions_onshore_restricted, driver="GeoJSON"
     )
 
-    dh_areas = (
-        gpd.read_file(snakemake.input.dh_areas).set_index("name").to_crs("EPSG:4326")
-    )
+    dh_areas = gpd.read_file(snakemake.input.dh_areas)
     dh_areas_modified = modify_dh_areas(
         dh_areas,
         subnodes,
