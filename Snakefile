@@ -471,6 +471,7 @@ rule prepare_district_heating_subnodes:
             "http://thredds-gfnl.usc.es/thredds/fileServer/GLOBALWTDFTP/annualmeans/EURASIA_WTD_annualmean.nc",
             keep_local=True,
         ),
+        dh_areas="data/dh_areas.gpkg",
     output:
         district_heating_subnodes=resources(
             "district_heating_subnodes_base_s_{clusters}.geojson"
@@ -480,6 +481,9 @@ rule prepare_district_heating_subnodes:
         ),
         regions_onshore_restricted=resources(
             "regions_onshore_base-restricted_s_{clusters}.geojson"
+        ),
+        dh_areas_modified=resources(
+            "dh_areas_base_s_{clusters}-modified.geojson"
         ),
     resources:
         mem_mb=20000,
