@@ -608,6 +608,12 @@ rule build_ptes_operations:
             "min_bottom_temperature",
         ),
         snapshots=config_provider("snapshots"),
+        ptes_forward_temperature_boosting=config_provider(
+            "sector",
+            "district_heating",
+            "ptes",
+            "forward_temperature_boosting",
+        )
     input:
         central_heating_forward_temperature_profiles=resources(
             "central_heating_forward_temperature_profiles_base_s_{clusters}_{planning_horizons}.nc"
@@ -625,6 +631,12 @@ rule build_ptes_operations:
         ),
         ptes_e_max_pu_profiles=resources(
             "ptes_e_max_pu_profiles_base_s_{clusters}_{planning_horizons}.nc"
+        ),
+        ptes_temperature_boost_ratio_profiles=resources(
+            "ptes_temperature_boost_ratio_profiles_base_s_{clusters}_{planning_horizons}.nc"
+        ),
+        ptes_forward_temperature_boost_ratio_profiles=resources(
+            "ptes_forward_temperature_boost_ratio_profiles_base_s_{clusters}_{planning_horizons}.nc"
         ),
     resources:
         mem_mb=2000,
@@ -1437,7 +1449,6 @@ rule prepare_sector_network:
         temperature_limited_stores=config_provider(
             "sector", "district_heating", "temperature_limited_stores"
         ),
-        base=config_provider("electricity", "base_network"),
     input:
         unpack(input_profile_offwind),
         unpack(input_heat_source_power),
@@ -1510,21 +1521,21 @@ rule prepare_sector_network:
         temp_soil_total=resources("temp_soil_total_base_s_{clusters}.nc"),
         temp_air_total=resources("temp_air_total_base_s_{clusters}.nc"),
         cop_profiles=resources("cop_profiles_base_s_{clusters}_{planning_horizons}.nc"),
+        ptes_direct_utilisation_profiles= lambda w: (
+            resources(
+                "ptes_direct_utilisation_profiles_s_{clusters}_{planning_horizons}.nc"
+            )
+            if config_provider(
+                "sector","district_heating","ptes","storage_temperature_boosting",
+            )(w)
+            else []
+        ),
         ptes_e_max_pu_profiles=lambda w: (
             resources(
                 "ptes_e_max_pu_profiles_base_s_{clusters}_{planning_horizons}.nc"
             )
             if config_provider(
                 "sector", "district_heating", "ptes", "dynamic_capacity"
-            )(w)
-            else []
-        ),
-        ptes_direct_utilisation_profiles=lambda w: (
-            resources(
-                "ptes_direct_utilisation_profiles_base_s_{clusters}_{planning_horizons}.nc"
-            )
-            if config_provider(
-                "sector", "district_heating", "ptes", "supplemental_heating", "enable"
             )(w)
             else []
         ),
