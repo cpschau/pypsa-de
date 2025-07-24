@@ -408,7 +408,7 @@ def add_links(
                 {f"{subnode['cluster']} urban central": name},
                 regex=True,
             )
-            .drop(["efficiency", "efficiency2"], axis=1)
+            .drop(["efficiency", "efficiency2", "p_min_pu"], axis=1)
             .set_index("Link")
         )
         if heat_pump["bus2"].str.match("$").any():
@@ -416,14 +416,16 @@ def add_links(
                 "Link",
                 heat_pump.index,
                 efficiency=(1 / cop_heat_pump.clip(lower=0.001)).replace(1000, 0),
+                p_min_pu=-cop_heat_pump / cop_heat_pump.clip(lower=0.001),
                 **heat_pump,
             )
         else:
             n.add(
                 "Link",
                 heat_pump.index,
-                efficiency=(1 / (cop_heat_pump - 1).clip(lower=0.001)).replace(1000, 0),
-                efficiency2=(1 / cop_heat_pump.clip(lower=0.001)).replace(1000, 0),
+                efficiency=(1 / (cop_heat_pump).clip(lower=0.001)).replace(1000, 0),
+                efficiency2=1 - (1 / cop_heat_pump.clip(lower=0.001)).replace(1000, 0),
+                p_min_pu=-cop_heat_pump / cop_heat_pump.clip(lower=0.001),
                 **heat_pump,
             )
 
