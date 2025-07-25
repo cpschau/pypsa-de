@@ -1009,10 +1009,18 @@ def add_storage_temperature_boosting_constraints(
     cop = xr.open_dataarray(cop_profiles_file)
     tes_systems = {t.value for t in TesSystem}
 
+    uch_buses = (
+        n.buses.filter(like="urban central heat", axis=0)
+        .index.str.split(" urban")
+        .str[0]
+    )
+    bus_to_charger = {
+        bus: f"{bus} urban central water pits charger-2045" for bus in uch_buses
+    }
     ptes_direct_utilisation_profiles = (
         ptes_direct_utilisation_profiles_dataary.to_pandas()
-        .reindex(index=n.snapshots)
-        .set_axis(ptes_discharger_ext, axis=1)
+        .reindex(index=n.snapshots)[uch_buses]
+        .rename(bus_to_charger, axis=1)
     )
 
     # Get model variable for Link dispatch
@@ -1026,8 +1034,10 @@ def add_storage_temperature_boosting_constraints(
             & n.links.index.str.contains(tech)
         ].index
         if booster_technologies_links_ext.empty:
-            raise ValueError(f"No extendable links found for booster technology '{tech}', check if the component exists")
-
+            raise ValueError(
+                f"No extendable links found for booster technology '{tech}', check if the component exists"
+            )
+        bus_to_booster = {bus: f"{bus} urban central {tech}-2045" for bus in uch_buses}
         if tech in tes_systems:
             cop_heat_pump = (
                 cop.sel(
@@ -1035,8 +1045,8 @@ def add_storage_temperature_boosting_constraints(
                     heat_source=tech,
                 )
                 .to_pandas()
-                .reindex(index=n.snapshots)
-                .set_axis(booster_technologies_links_ext, axis=1)
+                .reindex(index=n.snapshots)[uch_buses]
+                .rename(bus_to_booster, axis=1)
             )
             alpha = (cop_heat_pump - 1).clip(lower=0)
             expr = - (p.loc[:, booster_technologies_links_ext] * alpha)
@@ -1044,10 +1054,9 @@ def add_storage_temperature_boosting_constraints(
 
         else:
             ptes_temperature_boost_ratio = (
-                ptes_temperature_boost_ratio_dataaray
-                .to_pandas()
-                .reindex(index=n.snapshots)
-                .set_axis(booster_technologies_links_ext, axis=1)
+                ptes_temperature_boost_ratio_dataaray.to_pandas()
+                .reindex(index=n.snapshots)[uch_buses]
+                .rename(bus_to_booster, axis=1)
             )
             # per‑tech expression
             expr = - (p.loc[:, booster_technologies_links_ext] * ptes_temperature_boost_ratio)
@@ -1079,10 +1088,19 @@ def add_forward_temperature_boosting_constraints(
     ptes_direct_utilisation_profiles_dataary = xr.open_dataarray(ptes_direct_utilisation_profiles_file)
     tes_values = {t.value for t in TesSystem}
 
+    uch_buses = (
+        n.buses.filter(like="urban central heat", axis=0)
+        .index.str.split(" urban")
+        .str[0]
+    )
+    bus_to_charger = {
+        bus: f"{bus} urban central water pits charger-2045" for bus in uch_buses
+    }
+
     ptes_direct_utilisation_profiles = (
         ptes_direct_utilisation_profiles_dataary.to_pandas()
-        .reindex(index=n.snapshots)
-        .set_axis(ptes_charger_ext, axis=1)
+        .reindex(index=n.snapshots)[uch_buses]
+        .rename(bus_to_charger, axis=1)
     )
 
     # Get model variable for Link dispatch
@@ -1096,16 +1114,17 @@ def add_forward_temperature_boosting_constraints(
             & n.links.index.str.contains(tech)
         ].index
         if booster_technologies_links_ext.empty:
-            raise ValueError(f"No extendable links found for booster technology '{tech}', check if the component exists")
-
+            raise ValueError(
+                f"No extendable links found for booster technology '{tech}', check if the component exists"
+            )
+        bus_to_booster = {bus: f"{bus} urban central {tech}-2045" for bus in uch_buses}
         if tech in tes_values:
             continue
 
         ptes_forward_temperature_boost_ratio = (
-            ptes_forward_temperature_boost_ratio_dataaray
-            .to_pandas()
-            .reindex(index=n.snapshots)
-            .set_axis(booster_technologies_links_ext, axis=1)
+            ptes_forward_temperature_boost_ratio_dataaray.to_pandas()
+            .reindex(index=n.snapshots)[uch_buses]
+            .rename(bus_to_booster, axis=1)
         )
         # per‑tech expression
         expr = - (p.loc[:, booster_technologies_links_ext] * ptes_forward_temperature_boost_ratio)
