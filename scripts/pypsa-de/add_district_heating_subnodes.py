@@ -373,10 +373,13 @@ def add_links(
     # Replicate district heating links of mother node for subnodes with separate treatment for links with dynamic efficiencies
     links = (
         n.links.loc[~n.links.carrier.str.contains("heat pump|direct", regex=True)]
-        .filter(like=f"{subnode['cluster']} urban central|waste CHP", axis=0)
+        .filter(like=f"{subnode['cluster']} (urban central|waste CHP)", axis=0)
         .reset_index()
         .replace(
-            {f"{subnode['cluster']} urban central": name},
+            {
+                f"{subnode['cluster']} urban central": name,
+                f"{subnode['cluster']} waste CHP": f"{subnode['cluster']} {subnode['Stadt']} waste CHP",
+            },
             regex=True,
         )
         .set_index("Link")
