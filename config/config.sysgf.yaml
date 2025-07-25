@@ -3,22 +3,25 @@
 # SPDX-License-Identifier: CC0-1.0
 
 run:
-  prefix: 20250715_fixing_whsp_boosting_deactivated
+  prefix: 20250725_boosting_fixed
   name:
   - Baseline
+  - Baseline_noboosting
+  - Baseline_notesboosting
+  - Baseline_nogridboosting
   - NoPTES
-  # - LowSupplyTemperature
+  - LowSupplyTemperature
   - HighSupplyTemperature
-  # - LowDH
+  - LowDH
   - HighDH
-  # - NoPTES_LowDH
+  - NoPTES_LowDH
   - NoPTES_HighDH
-  # - NoPTES_LowSupplyTemperature
+  - NoPTES_LowSupplyTemperature
   - NoPTES_HighSupplyTemperature
-  # - 0.25PTESCAPEX
-  # - 0.5PTESCAPEX
-  # - 1.25PTESCAPEX
-  # - 1.5PTESCAPEX
+  - 0.25PTESCAPEX
+  - 0.5PTESCAPEX
+  - 1.25PTESCAPEX
+  - 1.5PTESCAPEX
   # - LowPTESCAPEX
   # - HighPTESCAPEX
   # - LowStandingLosses
@@ -115,25 +118,35 @@ sector:
       geothermal:
         ignore_missing_regions: true
     ptes:
+      enable: true
       dynamic_capacity: false
-      supplemental_heating:
-        enable: false
-        booster_heat_pump: false
+      booster_technologies: ["resistive heater", "air heat pump", "ptes"]
+      storage_temperature_boosting: true  # discharge temperature boosting
+      forward_temperature_boosting: true # charging temperature boosting
       max_top_temperature: 90
       min_bottom_temperature: 35
+    ttes:
+      enable: true
     ates:
       enable: false
+    tes: true
+    tes_tau:
+      decentral: 3
+      central: 180
+    dh_area_buffer: 1000
   heat_pump_sources:
     urban central:
     - air
     - geothermal
     - river_water
     - sea_water
+    - ptes
     urban decentral:
     - air
     rural:
     - air
     - ground
+  electrobiofuels: false
 
 solving:
   mem_mb: 140000

@@ -5,6 +5,25 @@
 
 Baseline:
 
+Baseline_noboosting:
+  sector:
+    district_heating:
+      ptes:
+        storage_temperature_boosting: false  # discharge temperature boosting
+        forward_temperature_boosting: false # charging temperature boosting
+
+Baseline_notesboosting:
+    sector:
+      district_heating:
+        ptes:
+          storage_temperature_boosting: false  # discharge temperature boosting
+
+Baseline_nogridboosting:
+    sector:
+      district_heating:
+        ptes:
+          forward_temperature_boosting: false # charging temperature boosting
+
 NoPTES:
   adjustments:
     electricity: false
