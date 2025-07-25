@@ -1000,10 +1000,9 @@ def add_storage_temperature_boosting_constraints(
     if not ptes_booster_technologies:
         return
 
-    ptes_discharger_ext = (
-        n.links[n.links.index.str.contains("urban central water pits discharger")]
-        .query("p_nom_extendable").index
-    )
+    ptes_discharger_ext = n.links[
+        n.links.index.str.contains("urban central water pits discharger")
+    ].index
 
     ptes_temperature_boost_ratio_dataaray = xr.open_dataarray(ptes_temperature_boost_ratio_profile_file)
     ptes_direct_utilisation_profiles_dataary = xr.open_dataarray(ptes_direct_utilisation_profiles_file)
@@ -1022,11 +1021,10 @@ def add_storage_temperature_boosting_constraints(
     lhs = None
 
     for tech in ptes_booster_technologies:
-        booster_technologies_links_ext = (
-            n.links[n.links.index.str.contains("urban central") &
-            n.links.index.str.contains(tech)]
-            .query("p_nom_extendable").index
-        )
+        booster_technologies_links_ext = n.links[
+            n.links.index.str.contains("urban central")
+            & n.links.index.str.contains(tech)
+        ].index
         if booster_technologies_links_ext.empty:
             raise ValueError(f"No extendable links found for booster technology '{tech}', check if the component exists")
 
@@ -1073,10 +1071,9 @@ def add_forward_temperature_boosting_constraints(
     if not ptes_booster_technologies:
         return
 
-    ptes_charger_ext = (
-        n.links[n.links.index.str.contains("urban central water pits charger")]
-        .query("p_nom_extendable").index
-    )
+    ptes_charger_ext = n.links[
+        n.links.index.str.contains("urban central water pits charger")
+    ].index
 
     ptes_forward_temperature_boost_ratio_dataaray = xr.open_dataarray(ptes_forward_temperature_boost_ratio_profile_file)
     ptes_direct_utilisation_profiles_dataary = xr.open_dataarray(ptes_direct_utilisation_profiles_file)
@@ -1094,11 +1091,10 @@ def add_forward_temperature_boosting_constraints(
     lhs = None
 
     for tech in ptes_booster_technologies:
-        booster_technologies_links_ext = (
-            n.links[n.links.index.str.contains("urban central") &
-            n.links.index.str.contains(tech)]
-            .query("p_nom_extendable").index
-        )
+        booster_technologies_links_ext = n.links[
+            n.links.index.str.contains("urban central")
+            & n.links.index.str.contains(tech)
+        ].index
         if booster_technologies_links_ext.empty:
             raise ValueError(f"No extendable links found for booster technology '{tech}', check if the component exists")
 
