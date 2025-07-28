@@ -135,6 +135,34 @@ rule add_brownfield:
 ruleorder: add_existing_baseyear > add_brownfield
 
 
+def ptes_operation_profiles(w):
+    """
+    Return a dict of only the PTES profiles that are enabled in config,
+    keyed by the same names you’d have used in `input:`
+    """
+    profiles = {}
+    # storage‑temperature‑boosting enabled?
+    if config_provider(
+        "sector", "district_heating", "ptes", "discharger_temperature_boosting_required"
+    )(w):
+        profiles["ptes_discharger_temperature_boosting_ratio_profiles"] = resources(
+            "ptes_discharger_temperature_boosting_ratio_profiles_base_s_{clusters}_{planning_horizons}.nc"
+        )
+        profiles["cop_profiles"] = resources(
+            "cop_profiles_base_s_{clusters}_{planning_horizons}.nc"
+        )
+
+    # forward‑temperature‑boosting enabled?
+    if config_provider(
+        "sector", "district_heating", "ptes", "charger_temperature_boosting_required"
+    )(w):
+        profiles["ptes_charger_temperature_boosting_ratio_profiles"] = resources(
+            "ptes_charger_temperature_boosting_ratio_profiles_base_s_{clusters}_{planning_horizons}.nc"
+        )
+
+    return profiles
+
+
 rule solve_sector_network_myopic:
     params:
         solving=config_provider("solving"),
@@ -148,46 +176,12 @@ rule solve_sector_network_myopic:
             "fix_foreign_investments"
         )
     input:
+        unpack(ptes_operation_profiles),
         network=resources(
             "networks/base_s_{clusters}_{opts}_{sector_opts}_{planning_horizons}_final.nc"
         ),
         co2_totals_name=resources("co2_totals.csv"),
         energy_totals=resources("energy_totals.csv"),
-        ptes_temperature_boost_ratio_profiles= lambda w: (
-            resources(
-                "ptes_temperature_boost_ratio_profiles_base_s_{clusters}_{planning_horizons}.nc"
-            )
-            if config_provider(
-                "sector","district_heating","ptes","storage_temperature_boosting",
-            )(w)
-            else[]
-        ),
-        cop_profiles= lambda w: (
-            resources("cop_profiles_base_s_{clusters}_{planning_horizons}.nc"
-            )
-            if config_provider(
-                "sector","district_heating","ptes","storage_temperature_boosting",
-            )(w)
-            else[]
-        ),
-        ptes_forward_temperature_boost_ratio_profiles= lambda w: (
-            resources(
-                "ptes_forward_temperature_boost_ratio_profiles_base_s_{clusters}_{planning_horizons}.nc"
-            )
-            if config_provider(
-                "sector","district_heating","ptes","forward_temperature_boosting",
-            )(w)
-            else[]
-        ),
-        ptes_direct_utilisation_profiles= lambda w: (
-            resources(
-                "ptes_direct_utilisation_profiles_s_{clusters}_{planning_horizons}.nc"
-            )
-            if config_provider(
-                "sector","district_heating","ptes","storage_temperature_boosting",
-            )(w)
-            else []
-        ),
     output:
         network=RESULTS
         + "networks/base_s_{clusters}_{opts}_{sector_opts}_{planning_horizons}.nc",

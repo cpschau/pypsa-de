@@ -2942,7 +2942,6 @@ def add_heat(
     direct_heat_source_utilisation_profile_file: str,
     hourly_heat_demand_total_file: str,
     ptes_e_max_pu_file: str,
-    ptes_direct_utilisation_profile_file: str,
     ates_e_nom_max: str,
     ates_capex_as_fraction_of_geothermal_heat_source: float,
     ates_recovery_factor: float,
@@ -2976,8 +2975,6 @@ def add_heat(
         Path to NetCDF file containing direct heat source utilisation profiles
     hourly_heat_demand_total_file : str
         Path to CSV file containing hourly heat demand data
-    ptes_direct_utilisation_profile_file: str
-        Path to CSV file indicating when supplemental heating for thermal energy storage (TES) is needed
     district_heat_share_file : str
         Path to CSV file containing district heating share information
     solar_thermal_total_file : str
@@ -3257,16 +3254,6 @@ def add_heat(
                     ],
                 )
 
-                if options["district_heating"]["ptes"]["storage_temperature_boosting"]:
-                    ptes_direct_utilisation_profile = (
-                        xr.open_dataarray(ptes_direct_utilisation_profile_file)
-                        .sel(name=nodes)
-                        .to_pandas()
-                        .reindex(index=n.snapshots)
-                    )
-                else:
-                    ptes_direct_utilisation_profile = 1
-
                 n.add(
                     "Link",
                     nodes,
@@ -3277,8 +3264,7 @@ def add_heat(
                     efficiency=costs.at[
                         "central water pit discharger",
                         "efficiency",
-                    ]
-                    * ptes_direct_utilisation_profile,
+                    ],
                     p_nom_extendable=True,
                     lifetime=costs.at["central water pit storage", "lifetime"],
                 )
@@ -3500,6 +3486,8 @@ def add_heat(
                     * overdim_factor,
                     overnight_cost=costs.at[costs_name_heat_pump, "investment"]
                     * overdim_factor,
+                    overnight_cost=costs.at[costs_name_heat_pump, "investment"]
+                    * overdim_factor,
                     p_nom_extendable=True,
                     p_max_pu=0,
                     p_min_pu=-1 * cop_heat_pump / cop_heat_pump.clip(lower=0.001),
@@ -3519,8 +3507,8 @@ def add_heat(
                     * overdim_factor,
                     overnight_cost=costs.at[costs_name_heat_pump, "investment"]
                     * overdim_factor,
-                    p_min_pu=-cop_heat_pump / cop_heat_pump.clip(lower=0.001),
                     p_max_pu=0,
+                    p_min_pu=-cop_heat_pump / cop_heat_pump.clip(lower=0.001),
                     p_nom_extendable=True,
                     lifetime=costs.at[costs_name_heat_pump, "lifetime"],
                 )
@@ -6547,7 +6535,6 @@ if __name__ == "__main__":
             direct_heat_source_utilisation_profile_file=snakemake.input.direct_heat_source_utilisation_profiles,
             hourly_heat_demand_total_file=snakemake.input.hourly_heat_demand_total,
             ptes_e_max_pu_file=snakemake.input.ptes_e_max_pu_profiles,
-            ptes_direct_utilisation_profile_file=snakemake.input.ptes_direct_utilisation_profiles,
             ates_e_nom_max=snakemake.input.ates_potentials,
             ates_capex_as_fraction_of_geothermal_heat_source=snakemake.params.sector[
                 "district_heating"

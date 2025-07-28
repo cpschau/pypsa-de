@@ -121,8 +121,8 @@ sector:
       enable: true
       dynamic_capacity: false
       booster_technologies: ["resistive heater", "air heat pump", "ptes"]
-      storage_temperature_boosting: true  # discharge temperature boosting
-      forward_temperature_boosting: true # charging temperature boosting
+      discharger_temperature_boosting_required: true
+      charger_temperature_boosting_required: true
       max_top_temperature: 90
       min_bottom_temperature: 35
     ttes:

@@ -9,20 +9,20 @@ Baseline_noboosting:
   sector:
     district_heating:
       ptes:
-        storage_temperature_boosting: false  # discharge temperature boosting
-        forward_temperature_boosting: false # charging temperature boosting
+        discharger_temperature_boosting_required: false
+        charger_temperature_boosting_required: false
 
 Baseline_notesboosting:
     sector:
       district_heating:
         ptes:
-          storage_temperature_boosting: false  # discharge temperature boosting
+          discharger_temperature_boosting_required: false
 
 Baseline_nogridboosting:
     sector:
       district_heating:
         ptes:
-          forward_temperature_boosting: false # charging temperature boosting
+          charger_temperature_boosting_required: false
 
 NoPTES:
   adjustments:
