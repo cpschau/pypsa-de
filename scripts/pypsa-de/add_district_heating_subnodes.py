@@ -298,6 +298,47 @@ def add_storage_units(n: pypsa.Network, subnode: pd.Series, name: str) -> None:
     n.add("StorageUnit", storage_units.index, **storage_units)
 
 
+def resample_to_snapshots(
+    n: pypsa.Network, series: pd.Series, func: str = "mean"
+) -> pd.Series:
+    """
+    Resample a series to match the network's snapshots.
+
+    Parameters
+    ----------
+    n : pypsa.Network
+        The PyPSA network object containing the snapshots.
+    series : pd.Series
+        The series to be resampled.
+    func : str
+        The mode of resampling, e.g., 'mean', 'sum', etc.
+
+    Returns
+    -------
+    pd.Series
+        The resampled series with the same index as the network's snapshots.
+    """
+    sns = n.snapshots
+    sw = n.snapshot_weightings.generators
+
+    # Append last snapshot of year for bin assignment
+    sns_extended = sns.append(pd.Index([sns[-1] + pd.Timedelta(hours=sw[sns[-1]])]))
+
+    # Create bins: each interval is between snapshot_weightings.index[i] and [i+1]
+    bins = pd.IntervalIndex.from_breaks(sns_extended)
+
+    # Assign each p_max_source timestamp to a bin
+    bin_labels = pd.cut(series.index, bins)
+
+    # Group by bin and apply the specified mode using agg with dictionary
+    binned_values = series.groupby(bin_labels, observed=True).agg(func)
+
+    # Reindex to match the network's snapshots
+    binned_values = binned_values.reindex(sns, fill_value=0)
+
+    return binned_values
+
+
 def add_generators(n: pypsa.Network, subnode: pd.Series, name: str) -> None:
     """
     Add generators for a district heating subnode.
@@ -389,14 +430,15 @@ def add_links(
     # Add heat pumps and direct heat source utilization to subnode
     for heat_source in heat_pump_sources:
         cop_heat_pump = (
-            cop.sel(
-                heat_system="urban central",
-                heat_source=heat_source,
-                name=f"{subnode['cluster']} {subnode['Stadt']}",
-            )
-            .to_pandas()
-            .to_frame(name=f"{name} {heat_source} heat pump")
-            .reindex(index=n.snapshots)
+            resample_to_snapshots(
+                n,
+                cop.sel(
+                    heat_system="urban central",
+                    heat_source=heat_source,
+                    name=f"{subnode['cluster']} {subnode['Stadt']}",
+                ).to_pandas(),
+                "mean",
+            ).to_frame(name=f"{name} {heat_source} heat pump")
             if time_dep_hp_cop
             else n.links.filter(like=heat_source, axis=0).efficiency.mode()
         )
@@ -434,15 +476,14 @@ def add_links(
 
         if heat_source in direct_utilisation_heat_sources:
             # Add direct heat source utilization to subnode
-            efficiency_direct_utilisation = (
+            efficiency_direct_utilisation = resample_to_snapshots(
+                n,
                 direct_heat_source_utilisation_profile.sel(
                     heat_source=heat_source,
                     name=f"{subnode['cluster']} {subnode['Stadt']}",
-                )
-                .to_pandas()
-                .to_frame(name=f"{name} {heat_source} heat direct utilisation")
-                .reindex(index=n.snapshots)
-            )
+                ).to_pandas(),
+                "mean",
+            ).to_frame(name=f"{name} {heat_source} heat direct utilisation")
 
             direct_utilization = (
                 n.links.filter(
@@ -478,9 +519,16 @@ def add_links(
                     f"{subnode['cluster']} {subnode['Stadt']} urban central {heat_source} heat",
                     "p_nom_max",
                 ] = p_max_source.max()
+                p_max_source_resampled = resample_to_snapshots(
+                    n,
+                    p_max_source,
+                )
+
                 n.generators_t.p_max_pu[
                     f"{subnode['cluster']} {subnode['Stadt']} urban central {heat_source} heat"
-                ] = (p_max_source / p_max_source.max())
+                ] = (p_max_source_resampled / p_max_source_resampled.max()).rename(
+                    f"{name} {heat_source} heat"
+                )
             else:
                 n.generators.loc[
                     f"{subnode['cluster']} {subnode['Stadt']} urban central {heat_source} heat",
@@ -667,6 +715,7 @@ if __name__ == "__main__":
 
         snakemake = mock_snakemake(
             "add_district_heating_subnodes",
+            configfiles="config/config.sysgf.yaml",
             simpl="",
             clusters=27,
             opts="",
