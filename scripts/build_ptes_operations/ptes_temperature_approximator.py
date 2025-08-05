@@ -52,7 +52,9 @@ class PtesTemperatureApproximator:
         self.return_temperature = return_temperature
         self.max_ptes_top_temperature = max_ptes_top_temperature
         self.min_ptes_bottom_temperature = min_ptes_bottom_temperature
-        self.charger_temperature_boosting_required = charger_temperature_boosting_required
+        self.charger_temperature_boosting_required = (
+            charger_temperature_boosting_required
+        )
 
     @property
     def top_temperature(self) -> xr.DataArray:
@@ -64,9 +66,9 @@ class PtesTemperatureApproximator:
         xr.DataArray
             The resulting top temperature profile for PTES.
         """
-        return self._get_effective_forward_temperature(
-            self.forward_temperature
-        ).clip(max=self.max_ptes_top_temperature)
+        return self._get_effective_forward_temperature(self.forward_temperature).clip(
+            max=self.max_ptes_top_temperature
+        )
 
     @property
     def bottom_temperature(self) -> xr.DataArray:
@@ -113,13 +115,13 @@ class PtesTemperatureApproximator:
 
         The total heat transfer is partitioned into:
 
-            Q_source = Ṽ·ρ·cₚ·(T_max,store − T_return)
-            Q_boost  = Ṽ·ρ·cₚ·(T_forward − T_max,store)
+            Q_source = Ṽ·ρ·cₚ·(T_top,store − T_bottom,store)
+            Q_boost  = Ṽ·ρ·cₚ·(T_forward − T_top,store)
 
-        Defining α as the ratio of required boost to available store energy:
+        Defining α as the ratio of available store energy to required boost energy:
 
-            α = Q_boost / Q_source
-              = (T_forward − T_max,store) / (T_max,store − T_return)
+            α = Q_source / Q_boost
+              = (T_top,store − T_bottom,store) / (T_forward − T_top,store)
 
         This expression quantifies the share of PTES output that is covered
         by stored energy relative to the additional heating needed to meet
@@ -130,9 +132,10 @@ class PtesTemperatureApproximator:
         xr.DataArray
             The resulting fraction of PTES charge that must be further heated.
         """
-        return ((self.top_temperature - self.return_temperature) / (
-                self.forward_temperature - self.top_temperature
-        )).where(self.forward_temperature > self.top_temperature, 0)
+        return (
+            (self.top_temperature - self.bottom_temperature)
+            / (self.forward_temperature - self.top_temperature)
+        ).where(self.forward_temperature > self.top_temperature, 0)
 
     @property
     def charger_temperature_boosting_ratio(self) -> xr.DataArray:
@@ -146,8 +149,8 @@ class PtesTemperatureApproximator:
         To fill the storage from the return temperature all the way up to its
         maximum top temperature, the total thermal energy required is split into:
 
-            Q_forward   = Ṽ·ρ·cₚ·(T_forward − T_return)
-            Q_boosting  = Ṽ·ρ·cₚ·(T_max_ptes_top − T_forward)
+            Q_forward   = Ṽ·ρ·cₚ·(T_forward − T_bottom,store)
+            Q_boosting  = Ṽ·ρ·cₚ·(T_top,store − T_forward)
 
         - Q_forward is the energy already delivered by charging to the forward setpoint.
         - Q_boosting is the extra boost energy still needed to reach maximum capacity.
@@ -155,8 +158,8 @@ class PtesTemperatureApproximator:
         Defining α as the ratio of delivered energy to remaining boost energy:
 
             α = Q_forward / Q_boosting
-              = (T_forward − T_return) /
-                (T_max_ptes_top − T_forward)
+              = (T_forward − T_bottom,store) /
+                (T_top,store − T_forward)
 
         This ratio quantifies the share of the total charge process that has
         already been completed (via Q_forward) relative to what is still
@@ -170,9 +173,10 @@ class PtesTemperatureApproximator:
         xr.DataArray
             The fraction of the PTES’s available storage capacity already used.
         """
-        return ((self.forward_temperature - self.return_temperature) / (
-            self.max_ptes_top_temperature - self.forward_temperature
-        )).where(self.forward_temperature < self.max_ptes_top_temperature, 0)
+        return (
+            (self.forward_temperature - self.bottom_temperature)
+            / (self.top_temperature - self.forward_temperature)
+        ).where(self.forward_temperature < self.max_ptes_top_temperature, 0)
 
     def _get_effective_forward_temperature(
         self, forward_temperature: xr.DataArray
