@@ -31,6 +31,7 @@ class PtesTemperatureApproximator:
         max_ptes_top_temperature: float,
         min_ptes_bottom_temperature: float,
         charger_temperature_boosting_required: bool,
+        dynamic_capacity: bool = True,
     ):
         """
         Initialize PtesTemperatureApproximator.
@@ -55,6 +56,7 @@ class PtesTemperatureApproximator:
         self.charger_temperature_boosting_required = (
             charger_temperature_boosting_required
         )
+        self.dynamic_capacity = dynamic_capacity
 
     @property
     def top_temperature(self) -> xr.DataArray:
@@ -195,6 +197,6 @@ class PtesTemperatureApproximator:
         xr.DataArray
             Effective forward temperature for PTES.
         """
-        if self.charger_temperature_boosting_required:
+        if self.dynamic_capacity:
             return forward_temperature.clip(min=self.max_ptes_top_temperature)
-        return forward_temperature
+        return self.max_ptes_top_temperature
