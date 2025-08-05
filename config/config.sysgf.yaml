@@ -3,12 +3,12 @@
 # SPDX-License-Identifier: CC0-1.0
 
 run:
-  prefix: 20250725_boosting_fixed
+  prefix: 20250805_higher_ff_temperatures
   name:
-  - Baseline
-  - Baseline_noboosting
-  - Baseline_notesboosting
-  - Baseline_nogridboosting
+  - PTES_bidiboost
+  - PTES_noboost
+  - PTES_chargeboost
+  - PTES_dischargeboost
   - NoPTES
   - LowSupplyTemperature
   - HighSupplyTemperature
@@ -18,18 +18,10 @@ run:
   - NoPTES_HighDH
   - NoPTES_LowSupplyTemperature
   - NoPTES_HighSupplyTemperature
-  - 0.25PTESCAPEX
+  - 0.75PTESCAPEX
   - 0.5PTESCAPEX
   - 1.25PTESCAPEX
   - 1.5PTESCAPEX
-  # - LowPTESCAPEX
-  # - HighPTESCAPEX
-  # - LowStandingLosses
-  # - HighStandingLosses
-  # - LowGroundWaterDepth
-  # - HighGroundWaterDepth
-  # - LowEtPRatio
-  # - HighEtPRatio
   scenarios:
     enable: true
     manual_file: config/scenarios.sysgf.yaml
@@ -97,7 +89,7 @@ sector:
       max_forward_temperature_baseyear:
         FR: 110
         DK: 75
-        DE: 109
+        DE: 124
         CZ: 130
         FI: 115
         PL: 130

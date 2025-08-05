@@ -3,22 +3,22 @@
 #
 # SPDX-License-Identifier: MIT
 
-Baseline:
+PTES_bidiboost:
 
-Baseline_noboosting:
+PTES_noboost:
   sector:
     district_heating:
       ptes:
         discharger_temperature_boosting_required: false
         charger_temperature_boosting_required: false
 
-Baseline_notesboosting:
+PTES_chargeboost:
     sector:
       district_heating:
         ptes:
           discharger_temperature_boosting_required: false
 
-Baseline_nogridboosting:
+PTES_dischargeboost:
     sector:
       district_heating:
         ptes:
@@ -128,18 +128,18 @@ NoPTES_HighSupplyTemperature:
 
 0.75PTESCAPEX:
   fix_foreign_investments:
-    reference_scenario: Baseline
+    reference_scenario: PTES_bidiboost
   adjustments:
     electricity: false
     sector:
       factor:
         Store:
           urban central water pits:
-            capital_cost: 0.25
+            capital_cost: 0.75
 
 0.5PTESCAPEX:
   fix_foreign_investments:
-    reference_scenario: Baseline
+    reference_scenario: PTES_bidiboost
   adjustments:
     electricity: false
     sector:
@@ -150,7 +150,7 @@ NoPTES_HighSupplyTemperature:
 
 1.25PTESCAPEX:
   fix_foreign_investments:
-    reference_scenario: Baseline
+    reference_scenario: PTES_bidiboost
   adjustments:
     electricity: false
     sector:
@@ -161,7 +161,7 @@ NoPTES_HighSupplyTemperature:
 
 1.5PTESCAPEX:
   fix_foreign_investments:
-    reference_scenario: Baseline
+    reference_scenario: PTES_bidiboost
   adjustments:
     electricity: false
     sector:
