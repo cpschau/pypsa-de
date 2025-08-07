@@ -199,4 +199,6 @@ class PtesTemperatureApproximator:
         """
         if self.dynamic_capacity:
             return forward_temperature.clip(min=self.max_ptes_top_temperature)
-        return self.max_ptes_top_temperature
+        return forward_temperature.clip(
+            min=self.max_ptes_top_temperature, max=self.max_ptes_top_temperature
+        )
