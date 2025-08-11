@@ -24,7 +24,10 @@ import pandas as pd
 import pypsa
 import seaborn as sns
 import yaml
+import sys
+import os
 
+sys.path.append(os.path.join(os.getcwd(), "code", "pypsa-de"))
 from scripts._helpers import configure_logging, mock_snakemake
 
 logger = logging.getLogger(__name__)
@@ -679,6 +682,7 @@ def process_seasonal_data(eb_data, start_date, end_date):
 
 def plot_heat_balance(ax, data, prices, title, start_date, end_date, colors, ylim=None):
     """Plot heat balance for a specific time period."""
+
     data = data[data.abs().sum().sort_values(ascending=False).index]
 
     # Sort columns by variance
@@ -716,7 +720,7 @@ def plot_heat_balance(ax, data, prices, title, start_date, end_date, colors, yli
             zorder=10,
         )
 
-    if "Baseline" in title:
+    if "chargeboost" in title or "bidiboost" in title:
         ax2.set_ylabel("Electricity price\n[€/MWh]", fontsize=12)
     ax2.patch.set_visible(False)  # Make background transparent
 
@@ -746,19 +750,19 @@ def plot_heat_balance(ax, data, prices, title, start_date, end_date, colors, yli
     if ax.get_legend() is not None:
         ax.get_legend().remove()
 
-    ax2.set_ylim(0, 280)
+    ax2.set_ylim(0, 1600)
 
     # If PTES in title set ax2 yticklabels to ""
-    if "PTES" in title:
+    if "NoPTES" in title or "noboost" in title:
         ax2.set_yticklabels([])
-    if "Baseline" in title:
+    if "chargeboost" in title or "bidiboost" in title:
         ax.set_yticklabels([])
 
-    if "No PTES" in title:
+    if "NoPTES" in title or "noboost" in title:
         if "Summer" in title:
-            ax.set_ylabel("Summer week:\nGeneration/Load\n[GW]", fontsize=12)
+            ax.set_ylabel("Summer month:\nGeneration/Load\n[GW]", fontsize=12)
         else:
-            ax.set_ylabel("Winter week:\nGeneration/Load\n[GW]", fontsize=12)
+            ax.set_ylabel("Winter month:\nGeneration/Load\n[GW]", fontsize=12)
 
     if "Winter" in title:
         title = ""
@@ -792,11 +796,11 @@ def plot_seasonal_heat_balance(
         # Define seasonal dates
         summer_start, summer_end = (
             f"{network_A.snapshots.year[0]}-07-01",
-            f"{network_A.snapshots.year[0]}-07-07",
+            f"{network_A.snapshots.year[0]}-08-31",
         )
         winter_start, winter_end = (
-            f"{network_A.snapshots.year[0]}-01-07",
-            f"{network_A.snapshots.year[0]}-01-13",
+            f"{network_A.snapshots.year[0]}-01-01",
+            f"{network_A.snapshots.year[0]}-02-28",
         )
 
         # Process data for each season and scenario
@@ -844,7 +848,7 @@ def plot_seasonal_heat_balance(
             axes[0, 1],
             summer_data_baseline,
             summer_prices_baseline,
-            f"{scenario_B} - Summer Week",
+            f"{scenario_B} - Summer Month",
             summer_start,
             summer_end,
             colors,
@@ -854,7 +858,7 @@ def plot_seasonal_heat_balance(
             axes[1, 1],
             winter_data_baseline,
             winter_prices_baseline,
-            f"{scenario_B} - Winter Week",
+            f"{scenario_B} - Winter Month",
             winter_start,
             winter_end,
             colors,
@@ -1760,7 +1764,7 @@ def plot_summary_metrics(summary_df, output_path):
     )
 
     # Plot the data
-    fig, axes = plt.subplots(4, 3, figsize=(10, 10))
+    fig, axes = plt.subplots(4, 3, figsize=(10, 15))
     axes = axes.flatten()
 
     for i, metric in enumerate(key_metrics):
@@ -1867,7 +1871,7 @@ def get_ptes_pot_to_demand_ratio(n, system):
     return ptes_pot / dh_demand
 
 
-def plot_energy_balance_comparison(network1, network2, title, output_path, colors):
+def plot_energy_balance_comparison(network1, network2, scenarios, output_path, colors):
     """
     Plot comparison of energy balance for district heating between two networks.
 
@@ -1883,6 +1887,7 @@ def plot_energy_balance_comparison(network1, network2, title, output_path, color
         Path to save the output figure
     """
     plt.rcParams.update({"font.size": 10})
+    title = f"Energy Balance Comparison: {scenarios[0]} vs {scenarios[1]}"
 
     def prepare_energy_balance_data(network):
         eb_uch = (
@@ -1962,6 +1967,8 @@ def plot_energy_balance_comparison(network1, network2, title, output_path, color
         "urban central heat vent",
         "urban central geothermal heat pump",
         "urban central geothermal heat direct utilisation",
+        "urban central river_water heat pump",
+        "urban central sea_water heat pump",
         "urban central air heat pump",
         "urban central resistive heater",
         "H2 Electrolysis",
@@ -1979,6 +1986,8 @@ def plot_energy_balance_comparison(network1, network2, title, output_path, color
 
     # Filter to only include columns that exist in the data
     col_order = [c for c in col_order if c in to_plot_rel1.columns]
+    # concat col_order with elements from to_plot_rel1 that are not in col_order
+    col_order += [c for c in to_plot_rel1.columns if c not in col_order]
     to_plot_rel1 = to_plot_rel1[col_order]  # Align columns
 
     to_plot_rel1.plot.bar(
@@ -1988,8 +1997,7 @@ def plot_energy_balance_comparison(network1, network2, title, output_path, color
         legend=False,
         width=0.8,
     )
-    ax1.set_title("No PTES")
-    ax1.set_ylim(-200, 200)
+    ax1.set_title(scenarios[0])
     ax1.set_ylabel(
         "Share of district heating\nconsumption and supply\n[%]", fontsize=10
     )
@@ -2017,6 +2025,8 @@ def plot_energy_balance_comparison(network1, network2, title, output_path, color
         "urban central heat vent",
         "urban central geothermal heat pump",
         "urban central geothermal heat direct utilisation",
+        "urban central river_water heat pump",
+        "urban central sea_water heat pump",
         "urban central air heat pump",
         "urban central resistive heater",
         "H2 Electrolysis",
@@ -2036,6 +2046,9 @@ def plot_energy_balance_comparison(network1, network2, title, output_path, color
 
     # Filter to only include columns that exist in the data
     col_order = [c for c in col_order if c in to_plot_rel2.columns]
+    # concat col_order with elements from to_plot_rel2 that are not in col_order
+    col_order += [c for c in to_plot_rel2.columns if c not in col_order]
+    # Ensure the order of columns matches the first plot
     to_plot_rel2 = to_plot_rel2[col_order]  # Align columns
 
     to_plot_rel2.plot.bar(
@@ -2045,7 +2058,7 @@ def plot_energy_balance_comparison(network1, network2, title, output_path, color
         legend=False,
         width=0.8,
     )
-    ax2.set_title("Baseline")
+    ax2.set_title(scenarios[1])
     ax2.set_ylabel(
         "Share of district heating\nconsumption and supply\n[%]", fontsize=10
     )
@@ -2150,10 +2163,1004 @@ def plot_energy_balance_comparison(network1, network2, title, output_path, color
 
     # Adjust layout and save the plot
     plt.tight_layout()
-    plt.savefig(output_path, bbox_inches="tight")
+    fig.savefig(output_path, bbox_inches="tight")
 
     logger.info(f"Energy balance comparison saved to {output_path}")
     return fig, axes
+
+
+def plot_ptes_price_impact_scatter(
+    networks, scenario_tuples, output_path, figsize=(7, 5)
+):
+    """
+    Plot scatter plots showing the relationship between PTES expansion ratio
+    and district heating price decrease for multiple scenario comparisons.
+
+    Parameters:
+    -----------
+    networks : dict
+        Dictionary mapping scenario names to networks by year
+    scenario_tuples : list of tuples
+        List of (reference_scenario, comparison_scenario) tuples
+        where reference_scenario is without PTES and comparison_scenario is with PTES
+    output_path : str
+        Path to save the output figure
+    figsize : tuple, optional
+        Figure size (width, height)
+    """
+
+    def get_ptes_expansion_ratio_and_price_decrease(
+        networks, ref_scenario, comp_scenario
+    ):
+        """Calculate PTES expansion ratio and price decrease for each district heating system."""
+
+        # Check if required scenarios exist
+        if ref_scenario not in networks or comp_scenario not in networks:
+            logger.warning(
+                f"Required scenarios '{ref_scenario}' and '{comp_scenario}' not found in networks"
+            )
+            return pd.DataFrame()
+
+        # Get the year (assuming 2045 or the first available year)
+        year = list(networks[ref_scenario].keys())[0]
+
+        if year not in networks[ref_scenario] or year not in networks[comp_scenario]:
+            logger.warning(f"Year {year} not found in both scenarios")
+            return pd.DataFrame()
+
+        # Get district heating prices for both scenarios
+        no_ptes_prices = calc_dh_price_range_subnodes(networks[ref_scenario][year])
+        baseline_prices = calc_dh_price_range_subnodes(networks[comp_scenario][year])
+
+        # Calculate price decrease
+        price_decrease = no_ptes_prices - baseline_prices
+
+        # Get only systems present in both scenarios
+        common_systems = price_decrease.index
+
+        # Get PTES expansion (e_nom_opt) for each system
+        ptes_expansion = pd.Series(index=common_systems, dtype=float)
+
+        # Get total district heating demand for each system
+        dh_demand = pd.Series(index=common_systems, dtype=float)
+
+        # Calculate PTES expansion for each system
+        for system in common_systems:
+            # Get PTES storage in the system
+            ptes_stores = networks[comp_scenario][year].stores.filter(
+                regex=rf"{system}.*water pits", axis=0
+            )
+
+            # Sum the optimal energy capacity (e_nom_opt)
+            if not ptes_stores.empty:
+                ptes_expansion[system] = ptes_stores.e_nom_opt.sum()
+            else:
+                ptes_expansion[system] = 0
+
+            # Calculate total district heating demand
+            dh_demand[system] = (
+                networks[comp_scenario][year]
+                .loads_t.p.filter(
+                    regex=rf"{system} (urban central|low-temperature) heat"
+                )
+                .sum(1)
+                .mul(networks[comp_scenario][year].snapshot_weightings.generators)
+                .sum()
+            )
+
+        # Calculate ratio of PTES expansion to district heating demand
+        ptes_ratio = ptes_expansion / dh_demand
+
+        # Create a DataFrame with both metrics
+        result = pd.DataFrame(
+            {
+                "price_decrease": price_decrease,
+                "ptes_ratio": ptes_ratio,
+                "dh_demand": dh_demand,
+                "ptes_expansion": ptes_expansion,
+            }
+        )
+
+        # Drop any rows with NaN values
+        result.dropna(inplace=True)
+
+        return result
+
+    # Filter scenario tuples to only include those with available data
+    available_tuples = []
+    for ref_scenario, comp_scenario in scenario_tuples:
+        if ref_scenario in networks and comp_scenario in networks:
+            available_tuples.append((ref_scenario, comp_scenario))
+
+    if not available_tuples:
+        logger.warning(
+            "No valid scenario tuples found for PTES price impact scatter plots"
+        )
+        return None, None
+
+    # Create subplots for each scenario comparison
+    n_comparisons = len(available_tuples)
+    fig, axs = plt.subplots(
+        1, n_comparisons, figsize=(figsize[0] * n_comparisons, figsize[1])
+    )
+
+    # If only one comparison, convert axs to a list for consistent indexing
+    if n_comparisons == 1:
+        axs = [axs]
+
+    # Process each scenario pair
+    for i, (ref_scenario, comp_scenario) in enumerate(available_tuples):
+        ax = axs[i]
+
+        # Get data for the plot
+        systems_data = get_ptes_expansion_ratio_and_price_decrease(
+            networks, ref_scenario, comp_scenario
+        )
+
+        if systems_data.empty:
+            logger.warning(
+                f"No data available for PTES price impact scatter plot: {ref_scenario} vs {comp_scenario}"
+            )
+            ax.set_visible(False)
+            continue
+
+        # Size points by district heating demand (normalized for better visibility)
+        sizes = systems_data.dh_demand / systems_data.dh_demand.max() * 200
+
+        # Create scatter plot with sized points
+        sc = ax.scatter(
+            systems_data.ptes_ratio,
+            systems_data.price_decrease,
+            s=sizes,
+            alpha=0.6,
+            c="blue",
+            edgecolor="black",
+        )
+
+        # Add trendline
+        if len(systems_data) > 1:  # Need at least 2 points for trendline
+            z = np.polyfit(systems_data.ptes_ratio, systems_data.price_decrease, 1)
+            p = np.poly1d(z)
+            x_trend = np.linspace(
+                systems_data.ptes_ratio.min(), systems_data.ptes_ratio.max(), 100
+            )
+            ax.plot(x_trend, p(x_trend), "r--", alpha=0.8)
+
+        # Annotate systems (simplified for multiple plots)
+        try:
+            from adjustText import adjust_text
+
+            texts = []
+            # Annotate only top 10 systems by demand to avoid overcrowding
+            to_annotate = (
+                systems_data.sort_values(by="dh_demand", ascending=False).head(10).index
+            )
+
+            for system, row in systems_data.loc[to_annotate].iterrows():
+                # Extract just the city name without DE prefix for cleaner labels
+                label = system.split(" ")[-1] if " " in system else system
+                texts.append(
+                    ax.text(row.ptes_ratio, row.price_decrease, label, fontsize=8)
+                )
+
+            # Adjust text positions to avoid overlapping
+            adjust_text(
+                texts, arrowprops=dict(arrowstyle="->", color="gray", alpha=0.5)
+            )
+
+        except ImportError:
+            # Fallback if adjustText is not available
+            for system, row in systems_data.head(
+                5
+            ).iterrows():  # Limit to avoid overcrowding
+                # Extract just the city name without DE prefix for cleaner labels
+                label = system.split(" ")[-1] if " " in system else system
+                ax.annotate(
+                    label,
+                    xy=(row.ptes_ratio, row.price_decrease),
+                    xytext=(5, 5),
+                    textcoords="offset points",
+                    fontsize=8,
+                    bbox=dict(
+                        boxstyle="round,pad=0.2", fc="white", ec="gray", alpha=0.7
+                    ),
+                )
+
+        # Add legend for point sizes (only on the first subplot)
+        if i == 0:
+            kw = dict(
+                prop="sizes",
+                num=3,
+                fmt="{x:.1f} TWh/a",
+                func=lambda s: s / 200 * systems_data.dh_demand.max() / 1e6,
+            )
+            legend1 = ax.legend(
+                *sc.legend_elements(**kw),
+                title="District Heating Demand",
+                loc="upper left",
+            )
+            ax.add_artist(legend1)
+
+        # Labels and title
+        if i == 0:
+            ax.set_ylabel("District Heating Cost\nSavings (€/MWh)", fontsize=12)
+        ax.set_xlabel("PTES Capacity to\nDistrict Heating Demand Ratio", fontsize=12)
+
+        # Use the comparison scenario name as title (the one with PTES)
+        ax.set_title(f"{comp_scenario}", fontsize=14)
+
+        # Grid
+        ax.grid(True, linestyle="--", alpha=0.7)
+
+    # Add overall title
+    fig.suptitle(
+        "Impact of PTES Investments on District Heating Prices", fontsize=16, y=1.02
+    )
+
+    # Adjust layout
+    plt.tight_layout()
+
+    # Save figure
+    output_file = os.path.join(output_path, "ptes_price_decrease_impact_scatter.pdf")
+    fig.savefig(output_file, dpi=300, bbox_inches="tight")
+
+    logger.info(f"PTES price impact scatter plots saved to {output_file}")
+
+    return fig, axs
+
+
+def plot_ptes_socs(
+    networks, output_path="outputs/ptes_soc_ranges.png", figsize=(10, 6)
+):
+    """
+    Plot the state of charge (SoC) ranges for PTES across different scenarios.
+    """
+    import matplotlib.pyplot as plt
+
+    plt.figure(figsize=figsize)
+
+    for scenario, networks_scenario in networks.items():
+        for year, networks_year in networks_scenario.items():
+            soc = networks_year.stores_t.e.filter(regex="DE.*water pits").sum(1)
+            if soc is not None:
+                plt.plot(soc.index, soc, alpha=0.5, label=scenario)
+
+    plt.title("PTES State of Charge Ranges")
+    plt.xlabel("Time")
+    plt.ylabel("State of Charge")
+    plt.grid()
+    plt.savefig(output_path)
+    plt.close()
+
+
+def plot_ptes_price_impact_scatter(
+    networks, scenario_tuples, output_path, figsize=(7, 5)
+):
+    """
+    Plot scatter plots showing the relationship between PTES expansion ratio
+    and district heating price decrease for multiple scenario comparisons.
+    Creates separate plots for each scenario comparison with unified y-axis limits.
+
+    Parameters:
+    -----------
+    networks : dict
+        Dictionary mapping scenario names to networks by year
+    scenario_tuples : list of tuples
+        List of (reference_scenario, comparison_scenario) tuples
+        where reference_scenario is without PTES and comparison_scenario is with PTES
+    output_path : str
+        Path to save the output figures
+    figsize : tuple, optional
+        Figure size (width, height)
+    """
+
+    def get_ptes_expansion_ratio_and_price_decrease(
+        networks, ref_scenario, comp_scenario
+    ):
+        """Calculate PTES expansion ratio and price decrease for each district heating system."""
+
+        # Check if required scenarios exist
+        if ref_scenario not in networks or comp_scenario not in networks:
+            logger.warning(
+                f"Required scenarios '{ref_scenario}' and '{comp_scenario}' not found in networks"
+            )
+            return pd.DataFrame()
+
+        # Get the year (assuming 2045 or the first available year)
+        year = list(networks[ref_scenario].keys())[0]
+
+        if year not in networks[ref_scenario] or year not in networks[comp_scenario]:
+            logger.warning(f"Year {year} not found in both scenarios")
+            return pd.DataFrame()
+
+        # Get district heating prices for both scenarios
+        no_ptes_prices = calc_dh_price_range_subnodes(networks[ref_scenario][year])
+        baseline_prices = calc_dh_price_range_subnodes(networks[comp_scenario][year])
+
+        # Calculate price decrease
+        price_decrease = no_ptes_prices - baseline_prices
+
+        # Get only systems present in both scenarios
+        common_systems = price_decrease.index
+
+        # Get PTES expansion (e_nom_opt) for each system
+        ptes_expansion = pd.Series(index=common_systems, dtype=float)
+
+        # Get total district heating demand for each system
+        dh_demand = pd.Series(index=common_systems, dtype=float)
+
+        # Calculate PTES expansion for each system
+        for system in common_systems:
+            # Get PTES storage in the system
+            ptes_stores = networks[comp_scenario][year].stores.filter(
+                regex=rf"{system}.*water pits", axis=0
+            )
+
+            # Sum the optimal energy capacity (e_nom_opt)
+            if not ptes_stores.empty:
+                ptes_expansion[system] = ptes_stores.e_nom_opt.sum()
+            else:
+                ptes_expansion[system] = 0
+
+            # Calculate total district heating demand
+            dh_demand[system] = (
+                networks[comp_scenario][year]
+                .loads_t.p.filter(
+                    regex=rf"{system} (urban central|low-temperature) heat"
+                )
+                .sum(1)
+                .mul(networks[comp_scenario][year].snapshot_weightings.generators)
+                .sum()
+            )
+
+        # Calculate ratio of PTES expansion to district heating demand
+        ptes_ratio = ptes_expansion / dh_demand
+
+        # Create a DataFrame with both metrics
+        result = pd.DataFrame(
+            {
+                "price_decrease": price_decrease,
+                "ptes_ratio": ptes_ratio,
+                "dh_demand": dh_demand,
+                "ptes_expansion": ptes_expansion,
+            }
+        )
+
+        # Drop any rows with NaN values
+        result.dropna(inplace=True)
+
+        return result
+
+    # Filter scenario tuples to only include those with available data
+    available_tuples = []
+    for ref_scenario, comp_scenario in scenario_tuples:
+        if ref_scenario in networks and comp_scenario in networks:
+            available_tuples.append((ref_scenario, comp_scenario))
+
+    if not available_tuples:
+        logger.warning(
+            "No valid scenario tuples found for PTES price impact scatter plots"
+        )
+        return None
+
+    # First pass: collect all data to determine unified axis limits
+    all_data = []
+    for ref_scenario, comp_scenario in available_tuples:
+        systems_data = get_ptes_expansion_ratio_and_price_decrease(
+            networks, ref_scenario, comp_scenario
+        )
+        if not systems_data.empty:
+            all_data.append(systems_data)
+
+    if not all_data:
+        logger.warning("No valid data found for any scenario tuples")
+        return None
+
+    # Combine all data to determine unified limits
+    combined_data = pd.concat(all_data, ignore_index=True)
+
+    # Calculate unified axis limits with some padding
+    y_min = combined_data["price_decrease"].min()
+    y_max = combined_data["price_decrease"].max()
+    y_padding = (y_max - y_min) * 0.1  # 10% padding
+    unified_ylim = (y_min - y_padding, y_max + y_padding)
+
+    # x_min = combined_data['ptes_ratio'].min()
+    # x_max = combined_data['ptes_ratio'].max()
+    # x_padding = (x_max - x_min) * 0.1  # 10% padding
+    # unified_xlim = (max(0, x_min - x_padding), x_max + x_padding)  # Ensure x_min >= 0
+
+    logger.info(f"Unified y-axis limits: {unified_ylim}")
+    # print(f"Unified x-axis limits: {unified_xlim}")
+
+    # Create separate plots for each scenario comparison
+    figures = []
+
+    for ref_scenario, comp_scenario in available_tuples:
+        logger.info(
+            f"Creating PTES price impact scatter plot for: {ref_scenario} vs {comp_scenario}"
+        )
+
+        # Create individual figure for this comparison
+        fig, ax = plt.subplots(1, 1, figsize=figsize)
+
+        # Get data for the plot
+        systems_data = get_ptes_expansion_ratio_and_price_decrease(
+            networks, ref_scenario, comp_scenario
+        )
+
+        if systems_data.empty:
+            logger.warning(
+                f"No data available for PTES price impact scatter plot: {ref_scenario} vs {comp_scenario}"
+            )
+            plt.close(fig)
+            continue
+
+        # Size points by district heating demand (normalized for better visibility)
+        sizes = systems_data.dh_demand / systems_data.dh_demand.max() * 200
+
+        # Create scatter plot with sized points
+        sc = ax.scatter(
+            systems_data.ptes_ratio,
+            systems_data.price_decrease,
+            s=sizes,
+            alpha=0.6,
+            c="blue",
+            edgecolor="black",
+        )
+
+        # Add trendline
+        if len(systems_data) > 1:  # Need at least 2 points for trendline
+            z = np.polyfit(systems_data.ptes_ratio, systems_data.price_decrease, 1)
+            p = np.poly1d(z)
+            x_trend = np.linspace(
+                systems_data.ptes_ratio.min(), systems_data.ptes_ratio.max(), 100
+            )
+            ax.plot(x_trend, p(x_trend), "r--", alpha=0.8)
+
+        # Annotate systems
+        try:
+            from adjustText import adjust_text
+
+            texts = []
+            # Annotate top systems by demand for better readability
+            to_annotate = (
+                systems_data.sort_values(by="dh_demand", ascending=False).head(15).index
+            )
+
+            for system, row in systems_data.loc[to_annotate].iterrows():
+                # Extract just the city name without DE prefix for cleaner labels
+                label = system.split(" ")[-1] if " " in system else system
+                texts.append(
+                    ax.text(row.ptes_ratio, row.price_decrease, label, fontsize=10)
+                )
+
+            # Adjust text positions to avoid overlapping
+            adjust_text(
+                texts, arrowprops=dict(arrowstyle="->", color="gray", alpha=0.5)
+            )
+
+        except ImportError:
+            # Fallback if adjustText is not available
+            for system, row in systems_data.head(10).iterrows():
+                # Extract just the city name without DE prefix for cleaner labels
+                label = system.split(" ")[-1] if " " in system else system
+                ax.annotate(
+                    label,
+                    xy=(row.ptes_ratio, row.price_decrease),
+                    xytext=(5, 5),
+                    textcoords="offset points",
+                    fontsize=10,
+                    bbox=dict(
+                        boxstyle="round,pad=0.2", fc="white", ec="gray", alpha=0.7
+                    ),
+                )
+
+        # Add legend for point sizes
+        kw = dict(
+            prop="sizes",
+            num=3,
+            fmt="{x:.1f} TWh/a",
+            func=lambda s: s / 200 * systems_data.dh_demand.max() / 1e6,
+        )
+        legend1 = ax.legend(
+            *sc.legend_elements(**kw), title="District Heating Demand", loc="upper left"
+        )
+        ax.add_artist(legend1)
+
+        # Labels and title
+        ax.set_ylabel("District Heating Cost\nSavings (€/MWh)", fontsize=12)
+        ax.set_xlabel("PTES Capacity to\nDistrict Heating Demand Ratio", fontsize=12)
+
+        # Use the comparison scenario name as title (the one with PTES)
+        ax.set_title(
+            f"Impact of PTES Investments on District Heating Prices\n{comp_scenario}",
+            fontsize=14,
+        )
+
+        # Set unified axis limits
+        # ax.set_ylim(unified_ylim)
+        # ax.set_xlim(unified_xlim)
+
+        # Grid
+        ax.grid(True, linestyle="--", alpha=0.7)
+
+        # Adjust layout
+        plt.tight_layout()
+
+        # Save individual figure
+        output_file = os.path.join(
+            output_path, f"ptes_price_impact_scatter_{comp_scenario}.pdf"
+        )
+        fig.savefig(output_file, dpi=300, bbox_inches="tight")
+
+        logger.info(f"PTES price impact scatter plot saved: {output_file}")
+
+        figures.append(fig)
+
+    return figures
+
+
+def plot_ptes_savings_comparison(
+    scenario_tuples, costs_agg, colors, year, output_path, figsize=(8, 4)
+):
+    """
+    Plot cost savings comparison between scenarios with and without PTES.
+
+    Parameters:
+    -----------
+    scenario_tuples : list of tuples
+        List of (reference_scenario, comparison_scenario) tuples
+        where reference_scenario is without PTES and comparison_scenario is with PTES
+    costs_agg : DataFrame
+        Cost aggregation dataframe with technology breakdown
+    colors : dict
+        Dictionary of colors for each technology
+    year : int
+        Year to plot
+    output_path : str
+        Path to save the output figure
+    figsize : tuple, optional
+        Figure size (width, height)
+    """
+    logger.info(f"Generating PTES savings comparison for year {year}")
+
+    # Filter the costs data for the specified year
+    costs_year = costs_agg.xs(year, level="year")
+
+    # Create figure with one subplot for each scenario pair
+    n_comparisons = len(scenario_tuples)
+    fig, axs = plt.subplots(1, n_comparisons, figsize=figsize, sharey=True)
+
+    # If only one comparison, convert axs to a list for consistent indexing
+    if n_comparisons == 1:
+        axs = [axs]
+
+    # Keep track of all displayed technologies across all comparisons for the legend
+    all_displayed_techs = set()
+
+    # Process each scenario pair
+    for i, (ref_scenario, comp_scenario) in enumerate(scenario_tuples):
+        ax = axs[i]
+
+        # Check if both scenarios exist in the data
+        if (
+            ref_scenario not in costs_year.index
+            or comp_scenario not in costs_year.index
+        ):
+            logger.warning(
+                f"Scenarios {ref_scenario} or {comp_scenario} not found in data for year {year}"
+            )
+            # Clear the unused axis
+            ax.set_visible(False)
+            continue
+
+        logger.info(f"  Processing comparison: {ref_scenario} vs {comp_scenario}")
+
+        # Calculate cost differences: comp_scenario - ref_scenario
+        # Positive values mean cost increases in the comparison scenario with PTES
+        df_diff = costs_year.loc[comp_scenario].sub(costs_year.loc[ref_scenario])
+
+        # Filter out technologies with zero contribution
+        df_diff = df_diff[df_diff != 0]
+
+        # Group small contributors into "other technologies"
+        small_indices = df_diff.index[df_diff.abs() < 0.01 * df_diff.abs().sum()]
+        if len(small_indices) > 0:
+            df_diff["other technologies"] = df_diff[small_indices].sum()
+            df_diff = df_diff.drop(small_indices)
+
+        # Sort by magnitude (absolute value), but keep "neighbour countries" at the end
+        if "neighbour countries" in df_diff.index:
+            neighbour_value = df_diff["neighbour countries"]
+            df_diff = df_diff.drop("neighbour countries")
+
+            # Sort by absolute value
+            df_diff = df_diff.reindex(df_diff.abs().sort_values(ascending=False).index)
+
+            # Add neighbour countries back at the end
+            df_diff["neighbour countries"] = neighbour_value
+        else:
+            # Sort by absolute value
+            df_diff = df_diff.reindex(df_diff.abs().sort_values(ascending=False).index)
+
+        # Convert to billion EUR
+        df_diff_bn = df_diff.div(1e9)
+
+        # Add the displayed technologies from this comparison to our set
+        all_displayed_techs.update(df_diff_bn.index)
+
+        # Plot stacked bar
+        df_diff_bn.to_frame().T.plot.bar(
+            stacked=True,
+            ax=ax,
+            color=df_diff_bn.index.map(colors).fillna("black"),
+            legend=False,
+            width=0.8,
+        )
+
+        # Add horizontal line at 0
+        ax.axhline(y=0, color="black", linestyle="-", linewidth=0.5, zorder=1)
+
+        # Add markers for total system cost savings and German system cost savings
+        total_savings = df_diff_bn.sum()
+        germany_savings = df_diff_bn.drop("neighbour countries", errors="ignore").sum()
+
+        # Add total system savings marker
+        ax.hlines(
+            y=total_savings,
+            xmin=-0.42,
+            xmax=0.42,
+            color="black",
+            linewidth=3,
+            zorder=10,
+            path_effects=[patheffects.withStroke(linewidth=3)],
+            label="Total system savings",
+        )
+
+        # Add German system savings marker (if different)
+        if "neighbour countries" in df_diff_bn:
+            ax.hlines(
+                y=germany_savings,
+                xmin=-0.42,
+                xmax=0.42,
+                color="black",
+                linewidth=1.5,
+                linestyle="--",
+                zorder=10,
+                path_effects=[patheffects.withStroke(linewidth=3)],
+                label="German system savings",
+            )
+
+        # Compute y-axis limits
+        y_lims = ax.get_ylim()
+        padding = 0.05 * (y_lims[1] - y_lims[0])
+
+        y_top = y_lims[1] - padding  # always near the top of plot
+        y_bottom = y_lims[0] + padding  # always near the bottom of plot
+
+        # Calculate percentage against reference total
+        ref_total = costs_year.loc[ref_scenario].sum() / 1e9
+        pct_change_total = (total_savings / ref_total) * 100
+
+        # Add annotation for total system savings
+        sign_total = "+" if total_savings > 0 else ""
+        # ax.annotate(
+        #     f"Total:\n{sign_total}{total_savings:.1f} bn€\n({sign_total}{pct_change_total:.1f}%)",
+        #     xy=(0, total_savings),
+        #     xytext=(0, 1.3),
+        #     textcoords="data",
+        #     ha="center",
+        #     va="top",
+        #     fontweight="bold",
+        #     path_effects=[patheffects.withStroke(linewidth=3, foreground="white")],
+        #     bbox=dict(boxstyle="round,pad=0", edgecolor="none", facecolor="white", alpha=0),
+        #     fontsize=9
+        # )
+
+        # Add annotation for German system savings (if different)
+        if "neighbour countries" in df_diff_bn:
+            ref_germany_total = (
+                costs_year.loc[ref_scenario].drop("neighbour countries").sum() / 1e9
+            )
+            pct_change_germany = (germany_savings / ref_germany_total) * 100
+
+            sign_germany = "+" if germany_savings > 0 else ""
+            # ax.annotate(
+            #     f"Germany:\n{sign_germany}{germany_savings:.1f} bn€\n({sign_germany}{pct_change_germany:.1f}%)",
+            #     xy=(0, germany_savings),
+            #     xytext=(0, -1.7),
+            #     textcoords="data",
+            #     ha="center",
+            #     va="bottom",
+            #     fontweight="bold",
+            #     path_effects=[patheffects.withStroke(linewidth=3, foreground="white")],
+            #     bbox=dict(boxstyle="round,pad=0", edgecolor="none", facecolor="white", alpha=0),
+            #     fontsize=9
+            # )
+
+        # Set the comparison scenario name as x-tick label instead of title
+        ax.set_xticks([0])
+        ax.set_xticklabels([comp_scenario], fontsize=16)
+        ax.tick_params(axis="x", which="both", bottom=True, labelbottom=True)
+
+        # Remove the title setting since we're using x-tick labels instead
+        # title = comp_scenario
+
+        # Set axis labels and title with larger font sizes
+        # ax.set_title(title, fontsize=18)
+        if i == 0:
+            ax.set_ylabel("Cost Difference [bn€]", fontsize=16)
+
+        # Increase tick label sizes
+        ax.tick_params(axis="y", labelsize=14)
+
+    # Add legend for the markers - position more centered
+    from matplotlib.lines import Line2D
+
+    line_handles = [
+        Line2D([0], [0], color="black", linewidth=3),
+        Line2D([0], [0], color="black", linewidth=3, linestyle="--"),
+    ]
+    line_labels = ["Total system", "German system"]
+
+    fig.legend(
+        line_handles,
+        line_labels,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 1.1),  # More centered position
+        frameon=True,
+        title="Net difference in",
+        fontsize=14,
+        ncol=2,  # Horizontal layout
+    )
+
+    # Create a separate legend for technologies - ONLY for actually displayed technologies
+    # Sort displayed technologies by their total importance across all comparisons
+    tech_importance = {}
+    for tech in all_displayed_techs:
+        importance = 0
+        for ref_scenario, comp_scenario in scenario_tuples:
+            if ref_scenario in costs_year.index and comp_scenario in costs_year.index:
+                diff = costs_year.loc[comp_scenario].sub(costs_year.loc[ref_scenario])
+                if tech in diff:
+                    importance += abs(diff[tech])
+        tech_importance[tech] = importance
+
+    sorted_displayed_techs = sorted(
+        all_displayed_techs, key=lambda x: tech_importance.get(x, 0), reverse=True
+    )
+
+    # Create legend handles and labels for displayed technologies only
+    tech_handles = []
+    tech_labels = []
+    for tech in sorted_displayed_techs:
+        # Get color, using black as fallback for missing or empty colors
+        tech_color = colors.get(tech, "black")
+        if not tech_color or tech_color == "":  # Handle empty strings
+            tech_color = "black"
+
+        tech_handles.append(plt.Rectangle((0, 0), 1, 1, color=tech_color))
+        tech_labels.append(tech)
+
+    # Add legend for technologies on the right side
+    fig.legend(
+        tech_handles,
+        tech_labels,
+        title="Technology",
+        bbox_to_anchor=(0.9, 0.5),
+        loc="center left",
+        ncol=1,
+        frameon=True,
+        fontsize=12,
+    )
+
+    # Remove the overall title to avoid overlap
+    # fig.suptitle(f"Cost Impact of PTES Across Different Scenarios - {year}", fontsize=20, y=0.98)
+
+    # Adjust layout with more space for right legend
+    plt.tight_layout()
+    plt.subplots_adjust(top=0.85, right=0.75)  # Reduced top margin since no suptitle
+
+    # Save figure
+    output_file = os.path.join(output_path, f"ptes_savings_comparison_{year}.pdf")
+    fig.savefig(output_file, bbox_inches="tight", pad_inches=0.3)
+
+    logger.info(f"PTES savings comparison plot saved to {output_file}")
+
+    return fig, axs
+
+
+def plot_system_costs(costs_agg, scenarios, year, output_path, colors):
+    """Plot system costs for different scenarios for the passed year as stacked bar plot.
+    One bar per scenario, with different colors for each technology.
+    There should be one row for the total system costs and one row for the German system costs,
+    meaning without the column 'neighbour countries'.
+    """
+    costs_agg_year = costs_agg.xs(year, level="year")
+
+    # Filter to only include scenarios that exist in the data
+    available_scenarios = [s for s in scenarios if s in costs_agg_year.index]
+
+    if not available_scenarios:
+        logger.warning(f"No data found for any scenarios in year {year}")
+        return
+
+    # Create DataFrame with scenarios as rows and technologies as columns
+    plot_data = costs_agg_year.loc[available_scenarios].copy()
+
+    # Group small technologies into "other technologies"
+    other_indices = plot_data.loc[
+        :, (plot_data.max() < 0.001 * plot_data.sum(1).max())
+    ].columns
+    plot_data["other technologies"] = plot_data[other_indices].sum(1)
+    plot_data.drop(other_indices, axis=1, inplace=True)
+
+    # Sort technologies by their total contribution across all scenarios (descending order)
+    # This puts larger contributions at the bottom of the stack
+    tech_totals = plot_data.sum(axis=0).sort_values(ascending=False)
+    scenario_order = plot_data.sum(axis=1).sort_values(ascending=False).index
+    plot_data = plot_data.loc[scenario_order, tech_totals.index]
+
+    # Create figure with 2 subplots (total system costs and German system costs)
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(6, 5), sharex=True)
+
+    # Plot 1: Total system costs - simplified to Germany vs neighbour countries
+    plot_data_total = plot_data.div(1e9)  # Convert to billion EUR
+
+    # Create simplified data for total costs plot: aggregate all non-neighbour countries as "Germany"
+    plot_data_simplified = pd.DataFrame(index=plot_data_total.index)
+    if "neighbour countries" in plot_data_total.columns:
+        plot_data_simplified["Germany"] = plot_data_total.drop(
+            "neighbour countries", axis=1
+        ).sum(axis=1)
+        plot_data_simplified["neighbour countries"] = plot_data_total[
+            "neighbour countries"
+        ]
+    else:
+        plot_data_simplified["Germany"] = plot_data_total.sum(axis=1)
+
+    # Define colors for simplified plot
+    simplified_colors = {"Germany": "#1f77b4", "neighbour countries": "#D3D3D3"}
+
+    plot_data_simplified.plot.bar(
+        stacked=True,
+        ax=ax1,
+        color=plot_data_simplified.columns.map(simplified_colors).fillna("#1f77b4"),
+        width=0.8,
+        legend=False,  # Disable individual legend
+    )
+    ax1.set_title(f"Total System Costs in {year}")
+    ax1.set_ylabel("Billion EUR per year")
+    ax1.set_xlabel("")
+
+    # Plot 2: German system costs (excluding neighbour countries) with full technological detail
+    plot_data_de = plot_data.drop("neighbour countries", axis=1, errors="ignore").div(
+        1e9
+    )
+    # Sort the German data with the same order as total data (excluding neighbour countries if not present)
+    if "neighbour countries" in tech_totals.index:
+        de_order = [
+            col
+            for col in tech_totals.index
+            if col != "neighbour countries" and col in plot_data_de.columns
+        ]
+    else:
+        de_order = [col for col in tech_totals.index if col in plot_data_de.columns]
+    plot_data_de = plot_data_de[de_order]
+
+    plot_data_de.plot.bar(
+        stacked=True,
+        ax=ax2,
+        color=plot_data_de.columns.map(colors).fillna("black"),
+        width=0.8,
+        legend=False,  # Disable individual legend
+    )
+    ax2.set_title(f"German System Costs in {year}")
+    ax2.set_ylabel("Billion EUR per year")
+    ax2.set_xlabel("Scenario")
+
+    # Add value labels on top of each bar for both plots
+    for ax, data in zip([ax1, ax2], [plot_data_simplified, plot_data_de]):
+        for i, scenario in enumerate(data.index):
+            total = data.loc[scenario].sum()
+            ax.text(
+                i,
+                total + total * 0.01,
+                f"{total:.1f}",
+                ha="center",
+                va="bottom",
+                fontweight="bold",
+            )
+
+        # Set y-axis limit to accommodate annotations
+        max_value = data.sum(axis=1).max()
+        ax.set_ylim(0, max_value * 1.2)  # Add 20% padding above the highest bar
+
+    # Add individual value annotations for Germany and neighbour countries on first plot
+    for i, scenario in enumerate(plot_data_simplified.index):
+        germany_value = plot_data_simplified.loc[scenario, "Germany"]
+
+        # Annotate Germany value (at the center of the Germany bar)
+        ax1.text(
+            i,
+            germany_value / 2,
+            f"{germany_value:.1f}",
+            ha="center",
+            va="center",
+            fontweight="bold",
+            color="white",
+            fontsize=10,
+        )
+
+        # Annotate neighbour countries value if it exists
+        if "neighbour countries" in plot_data_simplified.columns:
+            neighbour_value = plot_data_simplified.loc[scenario, "neighbour countries"]
+            if neighbour_value > 0:  # Only annotate if there's a value
+                # Position at center of neighbour countries bar
+                ax1.text(
+                    i,
+                    germany_value + neighbour_value / 2,
+                    f"{neighbour_value:.1f}",
+                    ha="center",
+                    va="center",
+                    fontweight="bold",
+                    color="black",
+                    fontsize=10,
+                )
+
+    # Create legend for regional breakdown (above the plots)
+    simplified_handles = []
+    simplified_labels = []
+    for region in plot_data_simplified.columns:
+        simplified_handles.append(
+            plt.Rectangle((0, 0), 1, 1, color=simplified_colors[region])
+        )
+        simplified_labels.append(region)
+
+    # Add legend for regional breakdown above the plots
+    fig.legend(
+        simplified_handles,
+        simplified_labels,
+        title="Region",
+        bbox_to_anchor=(1.1, 1.1),
+        loc="upper center",
+        ncol=len(simplified_labels),
+        frameon=True,
+    )
+
+    # Create legend for the detailed German costs (below the plots)
+    all_technologies = list(plot_data_de.columns)
+
+    # Create legend handles and labels for detailed technologies
+    legend_handles = []
+    legend_labels = []
+    for tech in all_technologies:
+        if tech in colors:
+            legend_handles.append(plt.Rectangle((0, 0), 1, 1, color=colors[tech]))
+            legend_labels.append(tech)
+
+    # Add unified legend for technologies to the right side of the plots
+    fig.legend(
+        legend_handles,
+        legend_labels,
+        title="Technology",
+        bbox_to_anchor=(1.05, 0.5),
+        loc="center left",
+        ncol=2,
+        frameon=True,
+        # alpha=1
+    )
+
+    # Adjust layout to accommodate legends
+    plt.subplots_adjust(top=0.85, bottom=0.25)
+    plt.savefig(
+        os.path.join(output_path, f"system_costs_comparison_{year}.pdf"),
+        bbox_inches="tight",
+    )
+
+    logger.info(f"System costs comparison plot saved for year {year}")
+    return fig, (ax1, ax2)
 
 
 def main(snakemake):
@@ -2194,6 +3201,15 @@ def main(snakemake):
 
     # Generate plots
 
+    # 1. Plot total system costs
+    plot_system_costs(
+        costs_agg,
+        scenarios,
+        2045,
+        output_path,
+        colors,
+    )
+
     # 1. Plot price duration curves with new implementation
     plot_price_duration_curves(networks, output_path)
 
@@ -2203,7 +3219,32 @@ def main(snakemake):
     # 3. Plot summary metrics
     plot_summary_metrics(summary_df, output_path)
 
-    # 4. Plot dual comparison if configured
+    # 4. Plot PTES SOCs ranges for networks
+    plot_ptes_socs(networks, output_path + "/soc_comparison.png")
+
+    # Plot PTES savings comparison
+    # Define scenario tuples for PTES comparison
+    scenario_tuples = snakemake.params.plotting["scenario_tuples"]
+
+    # Ensure all required scenarios are available in the data
+    available_tuples = []
+    for ref, comp in scenario_tuples:
+        if ref in costs_agg.index.get_level_values(
+            0
+        ) and comp in costs_agg.index.get_level_values(0):
+            available_tuples.append((ref, comp))
+
+    if available_tuples:
+        plot_ptes_price_impact_scatter(networks, available_tuples, output_path)
+
+    # 6. Plot PTES savings comparison
+    if available_tuples:
+        for year in planning_horizons:
+            plot_ptes_savings_comparison(
+                available_tuples, costs_agg, colors, year, output_path, figsize=(8, 8)
+            )
+
+    # 5. Plot dual comparison if configured
     if (
         "dual_comparison" in snakemake.params.plotting
         and snakemake.params.plotting["dual_comparison"]["enable"]
@@ -2261,7 +3302,9 @@ if __name__ == "__main__":
     if "snakemake" not in globals():
         from scripts._helpers import mock_snakemake
 
+        os.chdir(os.path.join(os.path.dirname(__file__), "..", ".."))
         snakemake = mock_snakemake(
             "plot_sysgf_summary",
+            configfiles=["config/config.sysgf.yaml", "config/scenarios.sysgf.yaml"],
         )
     main(snakemake)
