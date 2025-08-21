@@ -260,6 +260,17 @@ if __name__ == "__main__":
         )
     )
 
+    if snakemake.params.ptes["clip_forward_temperature"] == True:
+        if (
+            snakemake.params.ptes["max_top_temperature"]
+            > min_forward_temperature_central_heating_by_node_and_time.min()
+        ):
+            min_forward_temperature_central_heating_by_node_and_time = (
+                min_forward_temperature_central_heating_by_node_and_time.clip(
+                    lower=snakemake.params.ptes["max_top_temperature"]
+                )
+            )
+
     central_heating_temperature_approximator = CentralHeatingTemperatureApproximator(
         ambient_temperature=xr.open_dataarray(snakemake.input.temp_air_total),
         max_forward_temperature=max_forward_temperature_central_heating_by_node_and_time,
