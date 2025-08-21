@@ -1077,38 +1077,18 @@ def add_discharger_temperature_boosting_constraints(
         ]
         booster_node_to_link = dict(zip(booster_nodes, booster_technologies_links))
 
-        if tech in tes_systems:
-            cop_heat_pump = (
-                cop.sel(
-                    heat_system="urban central",
-                    heat_source=tech,
-                )
-                .to_pandas()
-                .loc[n.snapshots, booster_nodes]
-                .dropna(axis=1, how="all")
-                .rename(columns=booster_node_to_link)
-                .reindex(columns=booster_technologies_links)
-            )
-
-            alpha = (cop_heat_pump - 1).clip(lower=0)
-            expr = -(p.loc[:, booster_technologies_links] * alpha)
-            n.model.add_constraints(
-                expr <= rhs, name=f"{tech}_thermal_output_constraint"
-            )
-
-        else:
-            ptes_discharger_temperature_boosting_ratio = (
-                ptes_discharger_temperature_boosting_ratio_dataarray.to_pandas()
-                .loc[n.snapshots, booster_nodes]
-                .dropna(axis=1, how="all")
-                .rename(columns=booster_node_to_link)
-                .reindex(columns=booster_technologies_links)
-            )
-            # per‑tech expression
-            expr = -(
-                p.loc[:, booster_technologies_links]
-                * ptes_discharger_temperature_boosting_ratio
-            )
+        ptes_discharger_temperature_boosting_ratio = (
+            ptes_discharger_temperature_boosting_ratio_dataarray.to_pandas()
+            .loc[n.snapshots, booster_nodes]
+            .dropna(axis=1, how="all")
+            .rename(columns=booster_node_to_link)
+            .reindex(columns=booster_technologies_links)
+        )
+        # per‑tech expression
+        expr = -(
+            p.loc[:, booster_technologies_links]
+            * ptes_discharger_temperature_boosting_ratio
+        )
 
         # accumulate
         lhs = expr if lhs is None else lhs + expr
