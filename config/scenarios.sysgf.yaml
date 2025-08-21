@@ -3,28 +3,7 @@
 #
 # SPDX-License-Identifier: MIT
 
-PTES_bidiboost:
-
-PTES_noboost:
-  sector:
-    district_heating:
-      ptes:
-        discharger_temperature_boosting_required: false
-        charger_temperature_boosting_required: false
-
-PTES_chargeboost:
-    sector:
-      district_heating:
-        ptes:
-          discharger_temperature_boosting_required: false
-
-PTES_dischargeboost:
-    sector:
-      district_heating:
-        ptes:
-          charger_temperature_boosting_required: false
-
-NoPTES:
+NoPTES_LowSupplyTemperature:
   adjustments:
     electricity: false
     sector:
@@ -33,102 +12,60 @@ NoPTES:
           urban central water pits:
             e_nom_max: 0
 
-LowDH:
-  fix_foreign_investments:
-    reference_scenario: NoPTES_LowDH
+LowSupplyTemperature_hpboost:
+
+LowSupplyTemperature_rhboost:
   sector:
     district_heating:
-      potential:
-        DE: 0.2
+      ptes:
+        boosting_technologies: ["resistive heater"]
 
-HighDH:
-  fix_foreign_investments:
-    reference_scenario: NoPTES_HighDH
-  sector:
-    district_heating:
-      potential:
-        DE: 0.8
-
-LowSupplyTemperature:
+LowSupplyTemperature_noboost:
   fix_foreign_investments:
     reference_scenario: NoPTES_LowSupplyTemperature
   sector:
     district_heating:
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.015
+      ptes:
+        discharger_temperature_boosting_required: false
 
-HighSupplyTemperature:
+# Same for HighSupplyTemperature scenarios
+NoPTES_HighSupplyTemperature:
+  sector:
+    district_heating:
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.0
+  adjustments:
+    electricity: false
+    sector:
+      absolute:
+        Store:
+          urban central water pits:
+            e_nom_max: 0
+
+HighSupplyTemperature_hpboost:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_HighSupplyTemperature
+
+HighSupplyTemperature_rhboost:
   fix_foreign_investments:
     reference_scenario: NoPTES_HighSupplyTemperature
   sector:
     district_heating:
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.0
+      ptes:
+        boosting_technologies: ["resistive heater"]
 
-NoPTES_LowDH:
+HighSupplyTemperature_noboost:
   fix_foreign_investments:
-    enable: false
+    reference_scenario: NoPTES_HighSupplyTemperature
   sector:
     district_heating:
-      potential:
-        DE: 0.2
-  adjustments:
-    electricity: false
-    sector:
-      absolute:
-        Store:
-          urban central water pits:
-            e_nom_max: 0
-
-NoPTES_HighDH:
-  fix_foreign_investments:
-    enable: false
-  sector:
-    district_heating:
-      potential:
-        DE: 0.8
-  adjustments:
-    electricity: false
-    sector:
-      absolute:
-        Store:
-          urban central water pits:
-            e_nom_max: 0
-
-NoPTES_LowSupplyTemperature:
-  fix_foreign_investments:
-    enable: false
-  sector:
-    district_heating:
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.015
-  adjustments:
-    electricity: false
-    sector:
-      absolute:
-        Store:
-          urban central water pits:
-            e_nom_max: 0
-
-NoPTES_HighSupplyTemperature:
-  fix_foreign_investments:
-    enable: false
-  sector:
-    district_heating:
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.0
-  adjustments:
-    electricity: false
-    sector:
-      absolute:
-        Store:
-          urban central water pits:
-            e_nom_max: 0
+      ptes:
+        discharger_temperature_boosting_required: false
 
 
 0.75PTESCAPEX:
   fix_foreign_investments:
-    reference_scenario: PTES_bidiboost
+    reference_scenario: NoPTES_LowSupplyTemperature
   adjustments:
     electricity: false
     sector:
@@ -139,7 +76,7 @@ NoPTES_HighSupplyTemperature:
 
 0.5PTESCAPEX:
   fix_foreign_investments:
-    reference_scenario: PTES_bidiboost
+    reference_scenario: NoPTES_LowSupplyTemperature
   adjustments:
     electricity: false
     sector:
@@ -148,9 +85,31 @@ NoPTES_HighSupplyTemperature:
           urban central water pits:
             capital_cost: 0.5
 
+0.25PTESCAPEX:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_LowSupplyTemperature
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 0.25
+
+0PTESCAPEX:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_LowSupplyTemperature
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 0
+
 1.25PTESCAPEX:
   fix_foreign_investments:
-    reference_scenario: PTES_bidiboost
+    reference_scenario: NoPTES_LowSupplyTemperature
   adjustments:
     electricity: false
     sector:
@@ -161,7 +120,7 @@ NoPTES_HighSupplyTemperature:
 
 1.5PTESCAPEX:
   fix_foreign_investments:
-    reference_scenario: PTES_bidiboost
+    reference_scenario: NoPTES_LowSupplyTemperature
   adjustments:
     electricity: false
     sector:
@@ -170,96 +129,20 @@ NoPTES_HighSupplyTemperature:
           urban central water pits:
             capital_cost: 1.5
 
-PTES_DE_leq_0TWh:
-  solving:
-    constraints:
-      limits_capacity_max:
-        Store:
-          urban central water pits:
-            DE:
-              2020: 0        
-              2025: 0        
-              2030: 0
-              2035: 0        
-              2040: 0        
-              2045: 0        
-
-PTES_DE_leq_10TWh:
-  solving:
-    constraints:
-      limits_capacity_max:
-        Store:
-          urban central water pits:
-            DE:
-              2020: 10000        
-              2025: 10000        
-              2030: 10000        
-              2035: 10000        
-              2040: 10000        
-              2045: 10000        
-
-PTES_DE_leq_3TWh:
-  solving:
-    constraints:
-      limits_capacity_max:
-        Store:
-          urban central water pits:
-            DE:
-              2020: 3000        
-              2025: 3000        
-              2030: 3000        
-              2035: 3000        
-              2040: 3000        
-              2045: 3000        
-
-PTES_DE_leq_1TWh:
-  solving:
-    constraints:
-      limits_capacity_max:
-        Store:
-          urban central water pits:
-            DE:
-              2020: 1000        
-              2025: 1000        
-              2030: 1000        
-              2035: 1000        
-              2040: 1000        
-              2045: 1000        
-              
-
-            
-TES_DE_leq_0TWh:
-  solving:
-    constraints:
-      limits_capacity_max:
-        Store:
-          urban central water pits:
-            DE:
-              2020: 0        
-              2025: 0        
-              2030: 0        
-              2035: 0        
-              2040: 0        
-              2045: 0
-          urban central water tanks:
-            DE:
-              2020: 0        
-              2025: 0        
-              2030: 0        
-              2035: 0        
-              2040: 0        
-              2045: 0
-
-LowPTESCAPEX:
+1.75PTESCAPEX:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_LowSupplyTemperature
   adjustments:
     electricity: false
     sector:
       factor:
         Store:
           urban central water pits:
-            capital_cost: 0.5
+            capital_cost: 1.75
 
-HighPTESCAPEX:
+2PTESCAPEX:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_LowSupplyTemperature
   adjustments:
     electricity: false
     sector:
@@ -267,53 +150,3 @@ HighPTESCAPEX:
         Store:
           urban central water pits:
             capital_cost: 2
-
-LowStandingLosses:
-  adjustments:
-    electricity: false
-    sector:
-      absolute:
-        Store:
-          urban central water pits:
-            standing_loss: 0
-
-HighStandingLosses:
-  adjustments:
-    electricity: false
-    sector:
-      absolute:
-        Store:
-          urban central water pits:
-            standing_loss: 0.0012121
-
-LowGroundWaterDepth:
-  sector:
-    district_heating:
-      subnodes:
-        limit_ptes_potential:
-          max_groundwater_depth: -25
-
-HighGroundWaterDepth:
-  sector:
-    district_heating:
-      subnodes:
-        limit_ptes_potential:
-          max_groundwater_depth: 0
-
-LowEtPRatio:
-  adjustments:
-    electricity: false
-    sector:
-      factor:
-        Link:
-          urban central water pits charger:
-            energy to power ratio: 0.5
-
-HighEtPRatio:
-  adjustments:
-    electricity: false
-    sector:
-      factor:
-        Link:
-          urban central water pits charger:
-            energy to power ratio: 2

@@ -3,25 +3,24 @@
 # SPDX-License-Identifier: CC0-1.0
 
 run:
-  prefix: 20250805_higher_ff_temperatures
+  prefix: 20250821_new_boost
   name:
-  - PTES_bidiboost
-  - PTES_noboost
-  - PTES_chargeboost
-  - PTES_dischargeboost
-  - NoPTES
-  - LowSupplyTemperature
-  - HighSupplyTemperature
-  - LowDH
-  - HighDH
-  - NoPTES_LowDH
-  - NoPTES_HighDH
+  - LowSupplyTemperature_rhboost
+  - LowSupplyTemperature_hpboost
+  - LowSupplyTemperature_noboost
   - NoPTES_LowSupplyTemperature
+  - HighSupplyTemperature_rhboost
+  - HighSupplyTemperature_hpboost
+  - HighSupplyTemperature_noboost
   - NoPTES_HighSupplyTemperature
   - 0.75PTESCAPEX
   - 0.5PTESCAPEX
+  - 0.25PTESCAPEX
+  - 0PTESCAPEX
   - 1.25PTESCAPEX
   - 1.5PTESCAPEX
+  - 1.75PTESCAPEX
+  - 2PTESCAPEX
   scenarios:
     enable: true
     manual_file: config/scenarios.sysgf.yaml
@@ -57,14 +56,14 @@ scenario:
 
 fix_foreign_investments:
   enable: true
-  reference_scenario: NoPTES
+  reference_scenario: NoPTES_LowSupplyTemperature
   nom_min: true
-  nom_max: true
-  slack: 1.e-5
+  nom_max: false
+  slack: 1.e-4
 
 clustering:
   temporal:
-    resolution_sector: 9H
+    resolution_sector: 3H
 
 adjustments:
   electricity: false
@@ -106,17 +105,33 @@ sector:
     subnodes:
       enable: true
       nlargest: 40
+      census_areas:
+        enable: true
+        min_district_heating_share: 0.01
+        processing:
+          min_area: [10000, 100000, 0, 1000000]
+          buffer_factor: [0.01, 0.05, 0.05, 0]
+          buffer_absolute: 5
+      limit_ptes_potential:
+        enable: true
+        limit_mother_nodes: true
+        excluder_resolution: 10
+        osm_landcover_codes: [21, 23, 32, 33]
+        max_groundwater_depth: -10
+        min_area: 25000
+        default_capacity: 4500
     limited_heat_sources:
       geothermal:
         ignore_missing_regions: true
     ptes:
       enable: true
       dynamic_capacity: false
-      booster_technologies: ["resistive heater", "air heat pump", "ptes"]
+      booster_technologies: ["ptes"]
       discharger_temperature_boosting_required: true
-      charger_temperature_boosting_required: true
+      charger_temperature_boosting_required: false
       max_top_temperature: 90
       min_bottom_temperature: 35
+      clip_forward_temperature: true
     ttes:
       enable: true
     ates:
@@ -125,7 +140,7 @@ sector:
     tes_tau:
       decentral: 3
       central: 180
-    dh_area_buffer: 1000
+    dh_area_buffer: 0
   heat_pump_sources:
     urban central:
     - air
@@ -169,30 +184,37 @@ solving:
 plotting:
   dual_comparison:
     enable: true
-    scenario_A: Baseline
-    scenario_B: Baseline_control
+    scenario_A: NoPTES
+    scenario_B: LowSupplyTemperature_hpboost
   sensitivities:
     enable: false
-    reference: Baseline
+    reference: LowSupplyTemperature_hpboost
     runs: [
-      PTESCAPEX,
-      StandingLosses,
-      GroundWaterDepth,
-      EtPRatio
+      0PTESCAPEX, 0.25PTESCAPEX, 0.5PTESCAPEX, 0.75PTESCAPEX, 1.25PTESCAPEX, 1.5PTESCAPEX, 1.75PTESCAPEX, 2PTESCAPEX
     ]
+  scenario_tuples:
+    - ["NoPTES", "LowSupplyTemperature_hpboost"]
+    - ["NoPTES", "LowSupplyTemperature_rhboost"]
+    - ["NoPTES", "LowSupplyTemperature_noboost"]
+    - ["LowSupplyTemperature_rhboost", "LowSupplyTemperature_hpboost"]
+    - ["NoPTES", "HighSupplyTemperature_hpboost"]
+    - ["NoPTES", "HighSupplyTemperature_rhboost"]
+    - ["NoPTES", "HighSupplyTemperature_noboost"]
+    - ["HighSupplyTemperature_rhboost", "HighSupplyTemperature_hpboost"]
+
   save_png: true
   save_pdf: true
   override_tech_colors:
-    urban central water tanks charger: "cornflowerblue"
-    urban central water tanks discharger: "cornflowerblue"
-    urban central water tanks: "cornflowerblue"
-    urban central water pits charger: "blue"
-    urban central water pits discharger: "blue"
-    urban central water pits: "blue"
-    urban central water tanks load: "cornflowerblue"
-    urban central water tanks generation: "cornflowerblue"
-    urban central water pits load: "blue"
-    urban central water pits generation: "blue"
+    urban central water tanks charger: "#4a5cffc1"
+    urban central water tanks discharger: "#4a5cffc1"
+    urban central water tanks: "#4a5cffc1"
+    urban central water pits charger: "#000F92C1"
+    urban central water pits discharger: "#000F92C1"
+    urban central water pits: "#000F92C1"
+    urban central water tanks load: "#4a5cffc1"
+    urban central water tanks generation: "#4a5cffc1"
+    urban central water pits load: "#000F92C1"
+    urban central water pits generation: "#000F92C1"
     urban central solid biomass CHP: "forestgreen"
     urban central solid biomass CHP CC: "palegreen"
     urban central lignite CHP: "grey"
@@ -202,19 +224,24 @@ plotting:
     urban central geothermal heat direct utilisation: "olive"
     urban central geothermal heat pump: "khaki"
     urban central heat vent: "red"
-    urban central resistive heater: "mediumaquamarine"
-    urban central air heat pump: "gold"
-    low-temperature heat for industry: "darkgrey"
+    urban central resistive heater: "#28DBA6"
+    urban central air heat pump: "#00FF0D"
+    urban central river_water heat pump: "#FF9A03"
+    urban central sea_water heat pump: "#E27C00"
+    low-temperature heat for industry: "#929292"
     waste CHP: "plum"
     Fischer-Tropsch: "slateblue"
     urban central water tanks losses: "mediumspringgreen"
     urban central water pits losses: "mediumseagreen"
     other technologies: "dimgrey"
-    neighbour countries: "#D3D3D3"
+    neighbour countries: "#D0C7FF"
     CHP: "brown"
-    PV: "yellow"
+    PV: "#FFC13C"
     wind power: "skyblue"
     H2 OCGT: "#8A2BE2"
     decentral heat pump: "#556B2F"
-    power grid: "navy"
+    power grid: "#0026ffff"
+    decentral biomass boiler: "#007910"
+    urban central heat: "#CCCCCC"
+    biomass to liquid CC: "#B0FF90"
 

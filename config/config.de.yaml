@@ -304,6 +304,7 @@ sector:
         processing:
           min_area: [10000, 100000, 0, 1000000]
           buffer_factor: [0.01, 0.05, 0.05, 0]
+          buffer_absolute: 5
       limit_ptes_potential:
         enable: true
         limit_mother_nodes: true
