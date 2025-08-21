@@ -514,8 +514,12 @@ def add_ptes_limit(
     # Calculate PTES potential according to storage configuration
     eligible_areas["area_m2"] = eligible_areas.area
     eligible_areas["nstorages_pot"] = eligible_areas.area_m2 / min_area
+
+    # scale effective potential capacity by achievable delta T in relation to DEA assumption of 55 K
+    correction_factor = (max_top_temperature - min_bottom_temperature) / 55
+
     eligible_areas["storage_pot_mwh"] = (
-        eligible_areas["nstorages_pot"] * default_capacity
+        eligible_areas["nstorages_pot"] * default_capacity * correction_factor
     )
 
     subnodes.set_index("Stadt", inplace=True)
@@ -844,6 +848,8 @@ if __name__ == "__main__":
             snakemake.params.district_heating["subnodes"]["limit_ptes_potential"][
                 "excluder_resolution"
             ],
+            snakemake.params.district_heating["ptes"]["max_top_temperature"],
+            snakemake.params.district_heating["ptes"]["min_bottom_temperature"],
         )
 
     subnodes.to_file(snakemake.output.district_heating_subnodes, driver="GeoJSON")

@@ -234,28 +234,26 @@ def add_stores(
         .set_index("Store")
     )
 
-    # Restrict PTES capacity in subnodes
-    stores.loc[stores.carrier.str.contains("pits$").index, "e_nom_max"] = subnode[
-        "ptes_pot_mwh"
-    ]
+    if limit_ptes_potential_subnodes:
+        # Restrict PTES capacity in subnodes
+        stores.loc[stores.carrier.str.contains("pits$").index, "e_nom_max"] = subnode[
+            "ptes_pot_mwh"
+        ]
 
-    if dynamic_ptes_capacity:
-        e_max_pu_static = stores.e_max_pu
-        e_max_pu = (
-            n.stores_t.e_max_pu[f"{subnode['cluster']} urban central water pits"]
-            .rename(f"{name} water pits")
-            .to_frame()
-            .reindex(columns=stores.index)
-            .fillna(e_max_pu_static)
-        )
-        n.add(
-            "Store",
-            stores.index,
-            e_max_pu=e_max_pu,
-            **stores.drop("e_max_pu", axis=1),
-        )
-    else:
-        n.add("Store", stores.index, **stores)
+    e_max_pu_static = stores.e_max_pu
+    e_max_pu = (
+        n.stores_t.e_max_pu[f"{subnode['cluster']} urban central water pits"]
+        .rename(f"{name} water pits")
+        .to_frame()
+        .reindex(columns=stores.index)
+        .fillna(e_max_pu_static)
+    )
+    n.add(
+        "Store",
+        stores.index,
+        e_max_pu=e_max_pu,
+        **stores.drop("e_max_pu", axis=1),
+    )
 
     # Limit storage potential in mother nodes
     if limit_ptes_potential_mother_nodes:

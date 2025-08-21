@@ -31,6 +31,7 @@ class PtesTemperatureApproximator:
         max_ptes_top_temperature: float,
         min_ptes_bottom_temperature: float,
         charger_temperature_boosting_required: bool,
+        booster_technologies: list = [],
         dynamic_capacity: bool = True,
     ):
         """
@@ -56,6 +57,7 @@ class PtesTemperatureApproximator:
         self.charger_temperature_boosting_required = (
             charger_temperature_boosting_required
         )
+        self.booster_technologies = booster_technologies
         self.dynamic_capacity = dynamic_capacity
 
     @property
@@ -82,7 +84,10 @@ class PtesTemperatureApproximator:
         xr.DataArray
             The resulting bottom temperature profile for PTES.
         """
-        return self.min_ptes_bottom_temperature
+        if "ptes" in self.booster_technologies:
+            return self.min_ptes_bottom_temperature
+        else:
+            return self.return_temperature.clip(min=self.min_ptes_bottom_temperature)
 
     @property
     def e_max_pu(self) -> xr.DataArray:
@@ -96,9 +101,9 @@ class PtesTemperatureApproximator:
             Normalized delta T values between 0 and 1, representing the
             available storage capacity as a percentage of maximum capacity.
         """
-        delta_t = self.top_temperature - self.return_temperature
+        delta_t = self.top_temperature - self.bottom_temperature
         normalized_delta_t = delta_t / (
-            self.max_ptes_top_temperature - self.bottom_temperature
+            self.max_ptes_top_temperature - self.min_ptes_bottom_temperature
         )
         return normalized_delta_t.clip(min=0)  # Ensure non-negative values
 

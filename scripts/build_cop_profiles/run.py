@@ -54,6 +54,7 @@ def get_cop(
     heat_system_type: str,
     heat_source: str,
     source_inlet_temperature_celsius: xr.DataArray,
+    source_outlet_temperature_celsius: xr.DataArray = None,
     sink_outlet_temperature_celsius: xr.DataArray = None,
     sink_inlet_temperature_celsius: xr.DataArray = None,
 ) -> xr.DataArray:
@@ -79,8 +80,7 @@ def get_cop(
             sink_outlet_temperature_celsius=sink_outlet_temperature_celsius,
             sink_inlet_temperature_celsius=sink_inlet_temperature_celsius,
             source_inlet_temperature_celsius=source_inlet_temperature_celsius,
-            source_outlet_temperature_celsius=source_inlet_temperature_celsius
-            - snakemake.params.heat_source_cooling_central_heating,
+            source_outlet_temperature_celsius=source_outlet_temperature_celsius,
             refrigerant=snakemake.params.heat_pump_cop_approximation_central_heating[
                 "refrigerant"
             ],
@@ -136,26 +136,46 @@ if __name__ == "__main__":
                 ]
                 is not False
             ):
-                source_inlet_temperature_celsius = (
-                    snakemake.params.limited_heat_sources[heat_source][
-                        "constant_temperature_celsius"
-                    ]
-                )
+                source_temperature_celsius = snakemake.params.limited_heat_sources[
+                    heat_source
+                ]["constant_temperature_celsius"]
             else:
                 if f"temp_{heat_source}" not in snakemake.input.keys():
                     raise ValueError(
                         f"Missing input temperature for heat source {heat_source}."
                     )
-                source_inlet_temperature_celsius = xr.open_dataarray(
+                source_temperature_celsius = xr.open_dataarray(
                     snakemake.input[f"temp_{heat_source}"]
                 )
+
+            if heat_source == "ptes":
+                if "ptes" in snakemake.params.ptes["booster_technologies"]:
+                    source_outlet_temperature_celsius = xr.full_like(
+                        source_temperature_celsius,
+                        snakemake.params.ptes["min_bottom_temperature"],
+                    )
+                else:
+                    source_outlet_temperature_celsius = (
+                        central_heating_return_temperature
+                    )
+                # Switch sink and source inlet temperature
+                sink_inlet_temperature = source_temperature_celsius
+                source_inlet_temperature_celsius = central_heating_return_temperature
+            else:
+                source_outlet_temperature_celsius = (
+                    source_temperature_celsius
+                    - snakemake.params.heat_source_cooling_central_heating
+                )
+                sink_inlet_temperature_celsius = central_heating_return_temperature
+                source_inlet_temperature_celsius = source_temperature_celsius
 
             cop_da = get_cop(
                 heat_system_type=heat_system_type,
                 heat_source=heat_source,
                 source_inlet_temperature_celsius=source_inlet_temperature_celsius,
+                source_outlet_temperature_celsius=source_outlet_temperature_celsius,
+                sink_inlet_temperature_celsius=sink_inlet_temperature_celsius,
                 sink_outlet_temperature_celsius=central_heating_forward_temperature,
-                sink_inlet_temperature_celsius=central_heating_return_temperature,
             )
             cop_this_system_type.append(cop_da)
         cop_all_system_types.append(

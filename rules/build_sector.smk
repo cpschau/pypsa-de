@@ -563,6 +563,7 @@ rule build_cop_profiles:
         limited_heat_sources=config_provider(
             "sector", "district_heating", "limited_heat_sources"
         ),
+        ptes=config_provider("sector", "district_heating", "ptes"),
         snapshots=config_provider("snapshots"),
     input:
         unpack(input_heat_source_temperature),
@@ -614,6 +615,7 @@ rule build_ptes_operations:
             "ptes",
             "charger_temperature_boosting_required",
         ),
+        booster_technologies=config_provider("sector", "district_heating", "ptes", "booster_technologies"),
         dynamic_capacity=config_provider(
             "sector",
             "district_heating",
