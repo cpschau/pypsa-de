@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import rasterio
 import shapely
+from shapely.ops import unary_union, polygonize
 import xarray as xr
 from atlite.gis import ExclusionContainer, shape_availability
 from dask.diagnostics import ProgressBar
@@ -381,6 +382,15 @@ def refine_dh_areas_from_census_data(
         processing_config["buffer_factor"],
     )
 
+    # Census geometries must be bound by LAU region
+    census_indexed = census.set_index("Stadt")
+    subnodes_indexed = subnodes.set_index("Stadt")
+    common_cities = census_indexed.index.intersection(subnodes_indexed.index)
+    census.loc[census["Stadt"].isin(common_cities), "geometry"] = (
+        census_indexed.loc[common_cities]
+        .geometry.intersection(subnodes_indexed.loc[common_cities].geometry)
+        .values
+    )
     return census
 
 
@@ -546,11 +556,9 @@ def extend_regions_onshore(
     """
 
     # Extend regions_onshore to include the cities' lau regions
-    subnodes = (
-        subnodes_all.sort_values(by="Wärmeeinspeisung in GWh/a", ascending=False)
-        .head(head)[["name", "cluster", "lau_shape"]]
-        .rename(columns={"lau_shape": "geometry"})
-    )
+    subnodes = subnodes_all.sort_values(
+        by="Wärmeeinspeisung in GWh/a", ascending=False
+    ).head(head)[["name", "cluster", "geometry"]]
     # Create GeoDataFrame with lau_shape as geometry and EPSG:4326 CRS
     subnodes = gpd.GeoDataFrame(subnodes, geometry="geometry", crs="EPSG:3035")
     subnodes = subnodes.to_crs("EPSG:4326")
@@ -589,6 +597,94 @@ def extend_regions_onshore(
     }
 
 
+def buffer_subnodes(
+    subnodes: gpd.GeoDataFrame,
+    city_col: str = "Stadt",
+    weight_col: str = "Wärmeeinspeisung in GWh/a",
+    buffer_dist: float | None = None,
+    min_area: float = 0.0,  # filter tiny slivers if needed
+):
+    if subnodes.crs is None:
+        raise ValueError("CRS required.")
+    if city_col not in subnodes or weight_col not in subnodes:
+        raise KeyError("Missing city_col or weight_col.")
+
+    # cores = original, undisputable geometry per city
+    cores = subnodes[[city_col, subnodes.geometry.name]].copy()
+    cores["geometry"] = cores.geometry.buffer(0)
+    cores = cores.dissolve(by=city_col).reset_index()
+    cores = gpd.GeoDataFrame(cores, geometry="geometry", crs=subnodes.crs)
+
+    # buffered shapes for arbitration (if requested)
+    g = subnodes[[city_col, weight_col, subnodes.geometry.name]].copy()
+    if buffer_dist is not None:
+        g["geometry"] = g.geometry.buffer(buffer_dist)
+    g["geometry"] = g.geometry.buffer(0)
+
+    # 1) Partition the union into disjoint cells
+    union_all = unary_union(g.geometry)
+    linework = unary_union(g.geometry.boundary)
+    cells = [c.intersection(union_all) for c in polygonize(linework)]
+    cells = [c for c in cells if not c.is_empty and (c.area > min_area)]
+    cells_gdf = gpd.GeoDataFrame({"cid": range(len(cells))}, geometry=cells, crs=g.crs)
+
+    if cells_gdf.empty:
+        # nothing to arbitrate; just return cores
+        owner_polys = cores.rename(columns={city_col: "owner"})
+        subnodes_out = subnodes.merge(
+            owner_polys[["owner", "geometry"]].rename(
+                columns={"owner": city_col, "geometry": "owner_geometry"}
+            ),
+            on=city_col,
+            how="left",
+        )
+        return owner_polys.rename(columns={"owner": city_col}), subnodes_out
+
+    # 2) PRE-ASSIGN: cells overlapping cores go to that city (max area overlap)
+    core_hit = gpd.overlay(cells_gdf, cores, how="intersection")
+    if not core_hit.empty:
+        core_hit["ov_area"] = core_hit.area
+        # for each cell, pick the city with the largest overlap area
+        winner_core = (
+            core_hit.sort_values("ov_area")
+            .groupby("cid", as_index=False)
+            .tail(1)[["cid", city_col]]
+        )
+        cells_gdf = cells_gdf.merge(winner_core, on="cid", how="left")
+        cells_gdf.rename(columns={city_col: "owner"}, inplace=True)
+    else:
+        cells_gdf["owner"] = pd.NA
+
+    # 3) For unassigned cells (collars), pick city by max weight among intersecting buffers
+    unowned = cells_gdf["owner"].isna()
+    if unowned.any():
+        w_by_city = subnodes.groupby(city_col, dropna=False)[weight_col].max().to_dict()
+        hits = gpd.sjoin(
+            cells_gdf.loc[unowned, ["cid", "geometry"]],
+            g[[city_col, g.geometry.name]],
+            how="left",
+            predicate="intersects",
+        )[["cid", city_col]]
+        hits = hits.dropna().drop_duplicates()
+        choose = hits.groupby("cid")[city_col].agg(
+            lambda s: max(s, key=lambda c: w_by_city.get(c, -np.inf))
+        )
+        cells_gdf.loc[unowned, "owner"] = cells_gdf.loc[unowned, "cid"].map(choose)
+
+    # 4) Dissolve by owner (cells are disjoint → no overlaps)
+    owner_polys = cells_gdf.dropna(subset=["owner"]).dissolve(
+        by="owner", as_index=False
+    )
+    owner_polys["geometry"] = owner_polys.geometry.buffer(0)
+
+    # 5) Attach owner polygons back to subnodes
+    subnodes_out = subnodes.copy().set_index("Stadt")
+    subnodes_out.loc[owner_polys.owner, "geometry"] = owner_polys.set_index("owner")[
+        "geometry"
+    ]
+    return subnodes_out.reset_index()
+
+
 def modify_dh_areas(
     dh_areas: gpd.GeoDataFrame,
     subnodes: gpd.GeoDataFrame,
@@ -615,29 +711,26 @@ def modify_dh_areas(
     gpd.GeoDataFrame
         Modified district heating areas with updated geometries.
     """
-    subnodes = subnodes.sort_values(
-        by="Wärmeeinspeisung in GWh/a", ascending=False
-    ).head(head)
-    regions_onshore_extended = regions_onshore_extended.to_crs(
-        dh_areas.crs
-    ).reset_index()
-    # Split dh_areas by onshore regions and subnode regions
-    dh_areas_lau_split = dh_areas.overlay(
-        regions_onshore_extended, how="intersection"
-    ).reset_index()
+    subnodes = (
+        subnodes.sort_values(by="Wärmeeinspeisung in GWh/a", ascending=False).head(head)
+    ).to_crs(dh_areas.crs)
 
-    # Replace geometries of dh_areas that lie within LAU regions of subnodes
-    # with dedicated subnodal geometries
-    dh_areas_in_subnodes = dh_areas_lau_split.loc[
-        dh_areas_lau_split.name.isin(subnodes.name)
-    ].index
-    dh_areas_lau_split.loc[dh_areas_in_subnodes, "geometry"] = dh_areas_lau_split.loc[
-        dh_areas_in_subnodes
-    ].apply(
-        lambda x: subnodes.loc[subnodes.name == x["name"], "geometry"].values[0], axis=1
+    dh_areas_cropped = dh_areas.overlay(subnodes, how="difference")
+
+    covered_by_subnodes = (
+        dh_areas.overlay(subnodes, how="intersection")
+        .sort_values(by="Dem_GWh", ascending=False)
+        .dissolve(
+            by="name", aggfunc={"Dem_GWh": "sum", "Label": "first", "country": "first"}
+        )
     )
 
-    return dh_areas_lau_split
+    covered_by_subnodes["geometry"] = subnodes.set_index("name")["geometry"]
+
+    # Concat cropped and covered geometries
+    dh_areas_new = pd.concat([dh_areas_cropped, covered_by_subnodes])
+
+    return dh_areas_new
 
 
 if __name__ == "__main__":
@@ -690,11 +783,11 @@ if __name__ == "__main__":
         census = load_census_data(z.open("Zensus2022_Heizungsart_100m-Gitter.csv"))
 
     subnodes = prepare_subnodes(
-        fernwaermeatlas,
-        cities,
-        regions_onshore,
-        lau,
-        heat_techs,
+        subnodes=fernwaermeatlas,
+        cities=cities,
+        regions_onshore=regions_onshore,
+        lau=lau,
+        heat_techs=heat_techs,
     )
 
     if snakemake.params.district_heating["subnodes"]["census_areas"]["enable"]:
@@ -710,6 +803,25 @@ if __name__ == "__main__":
         subnodes = refine_dh_areas_from_census_data(
             subnodes, census, min_dh_share, **processing_config
         )
+    else:
+        subnodes["geometry"] = subnodes["lau_shape"]
+        subnodes["lau_shape"] = subnodes["lau_shape"].to_wkt()
+        subnodes = subnodes.set_geometry("geometry")
+
+    # Add buffer in m around district heating shapes without intersecting other shapes
+    buffer_distance = (
+        snakemake.params.district_heating["subnodes"]["census_areas"]["processing"][
+            "buffer_absolute"
+        ]
+        * 1000
+    )
+
+    subnodes = buffer_subnodes(
+        subnodes,
+        city_col="Stadt",
+        weight_col="Wärmeeinspeisung in GWh/a",
+        buffer_dist=buffer_distance,
+    )
 
     if snakemake.params.district_heating["subnodes"]["limit_ptes_potential"]["enable"]:
         bounds = subnodes.to_crs("EPSG:4326").total_bounds  # (minx, miny, maxx, maxy)
