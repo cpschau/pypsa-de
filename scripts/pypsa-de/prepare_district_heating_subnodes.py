@@ -16,7 +16,10 @@ import xarray as xr
 from atlite.gis import ExclusionContainer, shape_availability
 from dask.diagnostics import ProgressBar
 from rasterio.windows import Window
+import os
+import sys
 
+sys.path.append(os.path.join(os.path.dirname(__file__), "../../"))
 from scripts._helpers import (
     configure_logging,
     set_scenario_config,
@@ -433,6 +436,8 @@ def add_ptes_limit(
     excluder_resolution: int,
     min_area: float = 10000,
     default_capacity: float = 4500,
+    max_top_temperature: float = 90,
+    min_bottom_temperature: float = 35,
 ) -> gpd.GeoDataFrame:
     """
     Add PTES limit to subnodes according to land availability within city regions.
@@ -514,12 +519,8 @@ def add_ptes_limit(
     # Calculate PTES potential according to storage configuration
     eligible_areas["area_m2"] = eligible_areas.area
     eligible_areas["nstorages_pot"] = eligible_areas.area_m2 / min_area
-
-    # scale effective potential capacity by achievable delta T in relation to DEA assumption of 55 K
-    correction_factor = (max_top_temperature - min_bottom_temperature) / 55
-
     eligible_areas["storage_pot_mwh"] = (
-        eligible_areas["nstorages_pot"] * default_capacity * correction_factor
+        eligible_areas["nstorages_pot"] * default_capacity
     )
 
     subnodes.set_index("Stadt", inplace=True)
@@ -692,7 +693,6 @@ def buffer_subnodes(
 def modify_dh_areas(
     dh_areas: gpd.GeoDataFrame,
     subnodes: gpd.GeoDataFrame,
-    regions_onshore_extended: gpd.GeoDataFrame,
     head: int = 40,
 ) -> gpd.GeoDataFrame:
     """
@@ -705,8 +705,6 @@ def modify_dh_areas(
         GeoDataFrame containing district heating areas.
     subnodes : gpd.GeoDataFrame
         GeoDataFrame containing district heating subnodes.
-    regions_onshore_extended : gpd.GeoDataFrame
-        GeoDataFrame containing extended onshore regions with LAU regions of subnodes.
     head : int, optional
         Number of top subnodes to consider based on yearly district heat feed-in.
         Default is 40.
@@ -750,13 +748,14 @@ if __name__ == "__main__":
 
         snakemake = mock_snakemake(
             "prepare_district_heating_subnodes",
+            configfiles=["config/config.sysgf.yaml", "config/scenarios.sysgf.yaml"],
             simpl="",
             clusters=27,
             opts="",
             ll="vopt",
             sector_opts="none",
             planning_horizons="2045",
-            run="LowGroundWaterDepth",
+            run="2PTESCAPEX",
         )
 
     configure_logging(snakemake)
@@ -811,6 +810,14 @@ if __name__ == "__main__":
         subnodes["geometry"] = subnodes["lau_shape"]
         subnodes["lau_shape"] = subnodes["lau_shape"].to_wkt()
         subnodes = subnodes.set_geometry("geometry")
+
+    dh_areas = gpd.read_file(snakemake.input.dh_areas)
+    dh_areas_modified = modify_dh_areas(
+        dh_areas,
+        subnodes,
+        snakemake.params.district_heating["subnodes"]["nlargest"],
+    )
+    dh_areas_modified.to_file(snakemake.output.dh_areas_modified, driver="GeoJSON")
 
     # Add buffer in m around district heating shapes without intersecting other shapes
     buffer_distance = (
@@ -867,12 +874,3 @@ if __name__ == "__main__":
     regions_onshore_modified["restricted"].to_file(
         snakemake.output.regions_onshore_restricted, driver="GeoJSON"
     )
-
-    dh_areas = gpd.read_file(snakemake.input.dh_areas)
-    dh_areas_modified = modify_dh_areas(
-        dh_areas,
-        subnodes,
-        regions_onshore_modified["extended"],
-        snakemake.params.district_heating["subnodes"]["nlargest"],
-    )
-    dh_areas_modified.to_file(snakemake.output.dh_areas_modified, driver="GeoJSON")

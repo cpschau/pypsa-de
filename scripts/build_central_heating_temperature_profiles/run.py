@@ -260,15 +260,44 @@ if __name__ == "__main__":
         )
     )
 
-    if snakemake.params.ptes["clip_forward_temperature"] == True:
+    if snakemake.params.ptes["clip_network_temperature"] == True:
+        # Clip max_forward_temperature at max_top_temperature if it is higher
+        if (
+            snakemake.params.ptes["max_top_temperature"]
+            > max_forward_temperature_central_heating_by_node_and_time.min()
+        ):
+            max_forward_temperature_central_heating_by_node_and_time = (
+                max_forward_temperature_central_heating_by_node_and_time.clip(
+                    min=snakemake.params.ptes["max_top_temperature"]
+                )
+            )
+            logger.warning(
+                "Clipped max_forward_temperature_central_heating_by_node_and_time to max_top_temperature"
+            )
+        # Clip min_forward_temperature at max_top_temperature if it is higher
         if (
             snakemake.params.ptes["max_top_temperature"]
             > min_forward_temperature_central_heating_by_node_and_time.min()
         ):
             min_forward_temperature_central_heating_by_node_and_time = (
                 min_forward_temperature_central_heating_by_node_and_time.clip(
-                    lower=snakemake.params.ptes["max_top_temperature"]
+                    min=snakemake.params.ptes["max_top_temperature"]
                 )
+            )
+            logger.warning(
+                "Clipped min_forward_temperature_central_heating_by_node_and_time to max_top_temperature"
+            )
+        if (
+            snakemake.params.ptes["min_bottom_temperature"]
+            > return_temperature_central_heating_by_node_and_time.min()
+        ):
+            return_temperature_central_heating_by_node_and_time = (
+                return_temperature_central_heating_by_node_and_time.clip(
+                    min=snakemake.params.ptes["min_bottom_temperature"] + 5
+                )
+            )
+            logger.warning(
+                "Clipped return_temperature_central_heating_by_node_and_time to min_bottom_temperature + 5K"
             )
 
     central_heating_temperature_approximator = CentralHeatingTemperatureApproximator(

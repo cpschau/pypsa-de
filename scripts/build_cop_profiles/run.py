@@ -158,6 +158,16 @@ if __name__ == "__main__":
                     source_outlet_temperature_celsius = (
                         central_heating_return_temperature
                     )
+                # Throw warning if source_outlet_temperature is warmer then return temperature
+                if (
+                    source_outlet_temperature_celsius
+                    > central_heating_return_temperature
+                ).any():
+                    logger.warning(
+                        f"Source outlet temperature {source_outlet_temperature_celsius} "
+                        f"is warmer than return temperature {central_heating_return_temperature}."
+                        " Adjust network or storage temperatures to allow integration of booster heat pumps."
+                    )
                 # Switch sink and source inlet temperature
                 sink_inlet_temperature = source_temperature_celsius
                 source_inlet_temperature_celsius = central_heating_return_temperature

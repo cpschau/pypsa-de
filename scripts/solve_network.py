@@ -1093,8 +1093,12 @@ def add_discharger_temperature_boosting_constraints(
         # accumulate
         lhs = expr if lhs is None else lhs + expr
 
-    # Add the constraint to the model
-    n.model.add_constraints(lhs >= rhs, name="ptes_discharger_temperature_boosting")
+    if "ptes" in ptes_booster_technologies:
+        # Avoid booster heat pump operation when storage is not discharged
+        n.model.add_constraints(lhs == rhs, name="ptes_discharger_temperature_boosting")
+    else:
+        # Add the constraint to the model
+        n.model.add_constraints(lhs >= rhs, name="ptes_discharger_temperature_boosting")
 
 
 def add_charger_temperature_boosting_constraints(

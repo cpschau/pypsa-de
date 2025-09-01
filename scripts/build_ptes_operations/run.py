@@ -91,6 +91,7 @@ if __name__ == "__main__":
         max_ptes_top_temperature=snakemake.params.max_ptes_top_temperature,
         min_ptes_bottom_temperature=snakemake.params.min_ptes_bottom_temperature,
         charger_temperature_boosting_required=snakemake.params.charger_temperature_boosting_required,
+        booster_technologies=snakemake.params.booster_technologies,
         dynamic_capacity=snakemake.params.dynamic_capacity,
     )
 

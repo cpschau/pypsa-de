@@ -102,9 +102,7 @@ class PtesTemperatureApproximator:
             available storage capacity as a percentage of maximum capacity.
         """
         delta_t = self.top_temperature - self.bottom_temperature
-        normalized_delta_t = delta_t / (
-            self.max_ptes_top_temperature - self.min_ptes_bottom_temperature
-        )
+        normalized_delta_t = delta_t / (90 - 35)
         return normalized_delta_t.clip(min=0)  # Ensure non-negative values
 
     @property

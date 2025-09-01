@@ -241,13 +241,17 @@ def add_stores(
         ]
 
     e_max_pu_static = stores.e_max_pu
-    e_max_pu = (
-        n.stores_t.e_max_pu[f"{subnode['cluster']} urban central water pits"]
-        .rename(f"{name} water pits")
-        .to_frame()
-        .reindex(columns=stores.index)
-        .fillna(e_max_pu_static)
-    )
+    if f"{subnode['cluster']} urban central water pits" in n.stores_t.e_max_pu:
+        e_max_pu = (
+            n.stores_t.e_max_pu[f"{subnode['cluster']} urban central water pits"]
+            .rename(f"{name} water pits")
+            .to_frame()
+            .reindex(columns=stores.index)
+            .fillna(e_max_pu_static)
+        )
+    else:
+        e_max_pu = e_max_pu_static
+
     n.add(
         "Store",
         stores.index,
@@ -323,7 +327,7 @@ def resample_to_snapshots(
     sns_extended = sns.append(pd.Index([sns[-1] + pd.Timedelta(hours=sw[sns[-1]])]))
 
     # Create bins: each interval is between snapshot_weightings.index[i] and [i+1]
-    bins = pd.IntervalIndex.from_breaks(sns_extended)
+    bins = pd.IntervalIndex.from_breaks(sns_extended, closed="left")
 
     # Assign each p_max_source timestamp to a bin
     bin_labels = pd.cut(series.index, bins)
@@ -454,6 +458,10 @@ def add_links(
             .drop(["efficiency", "efficiency2", "p_min_pu"], axis=1)
             .set_index("Link")
         )
+
+        if heat_pump.empty:
+            logger.warning(f"No heat pump found for {heat_source} in {name}")
+            continue
         if heat_pump["bus2"].str.match("$").any():
             if heat_source == "ptes":
                 n.add(
