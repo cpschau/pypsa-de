@@ -198,7 +198,7 @@ def add_stores(
     subnode: pd.Series,
     name: str,
     subnodes_rest: gpd.GeoDataFrame,
-    dynamic_ptes_capacity: bool = False,
+    limit_ptes_potential_subnodes: bool = False,
     limit_ptes_potential_mother_nodes: bool = False,
 ) -> None:
     """
@@ -558,6 +558,7 @@ def add_subnodes(
     direct_heat_source_utilisation_profile: xr.DataArray,
     head: int = 40,
     dynamic_ptes_capacity: bool = False,
+    limit_ptes_potential_subnodes: bool = True,
     limit_ptes_potential_mother_nodes: bool = True,
     heat_pump_sources: list[str] = None,
     direct_utilisation_heat_sources: list[str] = None,
@@ -639,6 +640,7 @@ def add_subnodes(
             name,
             subnodes_rest,
             dynamic_ptes_capacity,
+            limit_ptes_potential_subnodes,
             limit_ptes_potential_mother_nodes,
         )
         add_storage_units(n, subnode, name)
@@ -780,6 +782,9 @@ if __name__ == "__main__":
         dynamic_ptes_capacity=snakemake.params.district_heating["ptes"][
             "dynamic_capacity"
         ],
+        limit_ptes_potential_subnodes=snakemake.params.district_heating["subnodes"][
+            "limit_ptes_potential"
+        ]["enable"],
         limit_ptes_potential_mother_nodes=snakemake.params.district_heating["subnodes"][
             "limit_ptes_potential"
         ]["limit_mother_nodes"],

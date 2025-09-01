@@ -1522,10 +1522,6 @@ rule prepare_sector_network:
             resources(
                 "ptes_e_max_pu_profiles_base_s_{clusters}_{planning_horizons}.nc"
             )
-            if config_provider(
-                "sector", "district_heating", "ptes", "dynamic_capacity"
-            )(w)
-            else []
         ),
         solar_thermal_total=lambda w: (
             resources("solar_thermal_total_base_s_{clusters}.nc")
