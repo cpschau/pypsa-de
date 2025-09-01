@@ -455,12 +455,6 @@ rule build_river_heat_potential:
             "heat_source_power_river_water_base_s_{clusters}.csv"
         ),
         heat_source_temperature=resources("temp_river_water_base_s_{clusters}.nc"),
-        heat_source_temperature_temporal_aggregate=resources(
-            "temp_river_water_base_s_{clusters}_temporal_aggregate.nc"
-        ),
-        heat_source_energy_temporal_aggregate=resources(
-            "heat_source_energy_river_water_base_s_{clusters}_temporal_aggregate.nc"
-        ),
     resources:
         mem_mb=150000,
     log:
@@ -533,9 +527,6 @@ rule build_sea_heat_potential:
         clustered_pop_layout=resources("pop_layout_base_s_{clusters}.csv"),
     output:
         heat_source_temperature=resources("temp_sea_water_base_s_{clusters}.nc"),
-        heat_source_temperature_temporal_aggregate=resources(
-            "temp_sea_water_base_s_{clusters}_temporal_aggregate.nc"
-        ),
     resources:
         mem_mb=150000,
     log:

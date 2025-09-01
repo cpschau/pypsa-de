@@ -56,11 +56,6 @@ def get_regional_result(
 
     return {
         "spatial aggregate": seawater_heat_approximator.get_spatial_aggregate().compute(),
-        # temporal aggregate is only used for plotting/analysis
-        "temporal aggregate": seawater_heat_approximator.get_temporal_aggregate()
-        .rio.reproject("EPSG:4326")
-        .rename({"x": "longitude", "y": "latitude"})
-        .compute(),
     }
 
 
@@ -138,9 +133,3 @@ if __name__ == "__main__":
         time=snapshots
     )
     temperature.to_netcdf(snakemake.output.heat_source_temperature)
-
-    # Merge the temporal aggregate results
-    xr.concat(
-        [res["temporal aggregate"]["average_temperature"] for res in results],
-        dim=regions_onshore_with_data.index,
-    ).to_netcdf(snakemake.output.heat_source_temperature_temporal_aggregate)

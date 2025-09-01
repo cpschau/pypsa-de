@@ -80,8 +80,6 @@ def get_regional_result(
 
     return {
         "spatial aggregate": spatial_aggregate,
-        # temporal aggregate is only used for plotting/analysis
-        "temporal aggregate": temporal_aggregate,
     }
 
 
@@ -176,14 +174,3 @@ if __name__ == "__main__":
         time=snapshots
     )
     temperature.to_netcdf(snakemake.output.heat_source_temperature)
-
-    # Merge the temporal aggregate results
-    xr.concat(
-        [res["temporal aggregate"]["total_energy"] for res in results],
-        dim=regions_onshore_with_data.index,
-    ).to_netcdf(snakemake.output.heat_source_energy_temporal_aggregate)
-
-    xr.concat(
-        [res["temporal aggregate"]["average_temperature"] for res in results],
-        dim=regions_onshore_with_data.index,
-    ).to_netcdf(snakemake.output.heat_source_temperature_temporal_aggregate)

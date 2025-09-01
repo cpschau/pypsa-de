@@ -18,10 +18,10 @@ class RiverWaterHeatApproximator(SurfaceWaterHeatApproximator):
         volume_flow: xr.DataArray,
         ambient_temperature: xr.DataArray,
         region: shapely.geometry.polygon.Polygon,
-        max_relative_volume_flow: float = 0.1,
-        delta_t_max: float = 4,
-        min_outlet_temperature: float = 1,
-        min_distance_meters: int = 2000,
+        max_relative_volume_flow: float = 1.0,
+        delta_t_max: float = 1,
+        min_outlet_temperature: float = 5,
+        min_distance_meters: int = 25000,
     ):
         water_temperature = self._approximate_river_temperature(
             ambient_temperature=ambient_temperature
