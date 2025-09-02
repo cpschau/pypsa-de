@@ -17,13 +17,20 @@ import os
 
 sys.path.append(os.getcwd())
 
+import matplotlib
+
+matplotlib.use("Agg")  # Use non-interactive backend
 import matplotlib.pyplot as plt
 import matplotlib.patheffects as patheffects
+import matplotlib.cm as cm
+import matplotlib.colors as mcolors
+from matplotlib.collections import LineCollection
+from matplotlib.patches import Rectangle
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 import numpy as np
 import pandas as pd
 import pypsa
-import seaborn as sns
-import yaml
+import xarray as xr
 import sys
 import os
 
@@ -144,6 +151,12 @@ def calc_heat_venting_de(n):
         return heat_venting
     except:
         return 0
+
+
+def get_delta_ff_top(ff_temp):
+    """Calculate the delta between the top temperature of PTES and FF temperature."""
+    delta = ff_temp - 90
+    return delta
 
 
 def get_component_mask(lines_or_links, country, other_countries, bus=0):
@@ -422,6 +435,8 @@ def create_summary_df(networks):
             "TTES_capacity_TWh",
             "TTES_capacity_GW",
             "H2_store_TWh",
+            "co2_price_EU_EUR_per_ton",
+            "co2_price_DE_EUR_per_ton",
             "dh_price_EUR_per_MWh",
             "electricity_price_EUR_per_MWh",
             "peak_electricity_price_EUR_per_MWh",
@@ -480,6 +495,12 @@ def create_summary_df(networks):
                             .p_nom_opt.div(1e3)
                             .sum(),
                             "H2_store_TWh": calc_h2_store_capacity(n),
+                            "co2_price_EU_EUR_per_ton": -n.global_constraints.loc[
+                                "CO2Limit", "mu"
+                            ],
+                            "co2_price_DE_EUR_per_ton": -n.global_constraints.loc[
+                                "co2_limit-DE", "mu"
+                            ],
                             "dh_price_EUR_per_MWh": calc_average_dh_price(n),
                             "electricity_price_EUR_per_MWh": calc_average_elec_price(n),
                             "peak_electricity_price_EUR_per_MWh": n.buses_t.marginal_price.filter(
@@ -669,7 +690,7 @@ def process_seasonal_data(eb_data, start_date, end_date):
     mapping_dict = {
         col: "Other Load" if "load" in col else "Other Generation"
         for col, col_sum in column_sums.items()
-        if col_sum < 0.01 * column_sums.sum()
+        if col_sum < 0.005 * column_sums.sum()
     }
 
     data.rename(columns=mapping_dict, inplace=True)
@@ -680,8 +701,29 @@ def process_seasonal_data(eb_data, start_date, end_date):
     return data.T.groupby(data.columns).sum().T
 
 
-def plot_heat_balance(ax, data, prices, title, start_date, end_date, colors, ylim=None):
-    """Plot heat balance for a specific time period."""
+def plot_heat_balance_unified(
+    ax,
+    data,
+    secondary_data,
+    title,
+    start_date,
+    end_date,
+    colors,
+    ylim=None,
+    scenario_A=None,
+    scenario_B=None,
+    secondary_type="prices",  # "prices" or "temperature_delta"
+):
+    """
+    Unified function to plot heat balance with either electricity prices or temperature delta.
+
+    Parameters:
+    -----------
+    secondary_data : pd.Series
+        Either electricity prices or temperature delta values
+    secondary_type : str
+        Either "prices" or "temperature_delta" to determine secondary axis behavior
+    """
 
     data = data[data.abs().sum().sort_values(ascending=False).index]
 
@@ -707,24 +749,53 @@ def plot_heat_balance(ax, data, prices, title, start_date, end_date, colors, yli
     # Create twin axis first
     ax2 = ax.twinx()
 
-    # Plot the electricity price line first on secondary axis
-    # Using integer indices for plotting the line to match bar positions
-    if not prices.empty:
-        ax2.plot(
-            range(len(data)),
-            prices.values,
-            color="black",
-            lw=1.5,
-            markersize=6,
-            linestyle="-",
-            zorder=10,
-        )
+    line_collection = None  # Initialize return value for temperature delta
 
-    if "chargeboost" in title or "bidiboost" in title:
-        ax2.set_ylabel("Electricity price\n[€/MWh]", fontsize=12)
+    # Plot secondary data based on type
+    if not secondary_data.empty:
+        if secondary_type == "prices":
+            # Plot electricity price line
+            ax2.plot(
+                range(len(data)),
+                secondary_data.values,
+                color="black",
+                lw=1.5,
+                markersize=6,
+                linestyle="-",
+                zorder=10,
+            )
+            if scenario_B and scenario_B in title:
+                ax2.set_ylabel("Electricity price\n[€/MWh]", fontsize=12)
+            ax2.set_ylim(0, 1600)
+
+        elif secondary_type == "temperature_delta":
+            # Plot temperature delta with gradient colors
+            # Create segments for gradient coloring
+            points = np.array([range(len(data)), secondary_data.values]).T.reshape(
+                -1, 1, 2
+            )
+            segments = np.concatenate([points[:-1], points[1:]], axis=1)
+
+            # Create colormap from cyan to black to red with 0 at center
+            cmap = plt.cm.hot
+
+            # Normalize delta values with 0 at center
+            norm = mcolors.Normalize(vmin=0, vmax=40)
+
+            # Create LineCollection with gradient colors
+            lc = LineCollection(segments, cmap=cmap, norm=norm, linewidth=4, zorder=10)
+            lc.set_array(secondary_data.values)
+            ax2.add_collection(lc)
+
+            line_collection = lc  # Store for return
+
+            if scenario_B and scenario_B in title:
+                ax2.set_ylabel("T_ff,network - T_top,store\n[K]", fontsize=12)
+            ax2.set_ylim(0, 40)
+
     ax2.patch.set_visible(False)  # Make background transparent
 
-    # Now plot bars with some transparency on primary axis
+    # Plot bars with some transparency on primary axis
     data.div(1e3).plot.bar(
         ax=ax,
         color=data.columns.str.split().str[:-1].str.join(" ").map(colors),
@@ -750,15 +821,13 @@ def plot_heat_balance(ax, data, prices, title, start_date, end_date, colors, yli
     if ax.get_legend() is not None:
         ax.get_legend().remove()
 
-    ax2.set_ylim(0, 1600)
-
-    # If PTES in title set ax2 yticklabels to ""
-    if "NoPTES" in title or "noboost" in title:
+    # Handle y-tick labels based on scenarios
+    if scenario_A and scenario_A in title:
         ax2.set_yticklabels([])
-    if "chargeboost" in title or "bidiboost" in title:
+    if scenario_B and scenario_B in title:
         ax.set_yticklabels([])
 
-    if "NoPTES" in title or "noboost" in title:
+    if scenario_A and scenario_A in title:
         if "Summer" in title:
             ax.set_ylabel("Summer month:\nGeneration/Load\n[GW]", fontsize=12)
         else:
@@ -773,16 +842,41 @@ def plot_heat_balance(ax, data, prices, title, start_date, end_date, colors, yli
     # Add grid for ax2
     ax2.grid(True, axis="y", linestyle="--", alpha=0.7, zorder=-5)
     ax.tick_params(labelsize=12)
-    return ax.get_legend_handles_labels()
+
+    # Return legend handles and optionally line collection for colorbar
+    legend_handles_labels = ax.get_legend_handles_labels()
+    if secondary_type == "temperature_delta":
+        return legend_handles_labels, line_collection
+    else:
+        return legend_handles_labels
 
 
-def plot_seasonal_heat_balance(
-    network_A, network_B, scenario_A, scenario_B, colors, output_path, year
+def plot_seasonal_heat_balance_unified(
+    network_A,
+    network_B,
+    scenario_A,
+    scenario_B,
+    colors,
+    output_path,
+    year,
+    secondary_type="prices",  # "prices" or "temperature_delta"
 ):
-    """Plot seasonal heat balance comparison between two scenarios."""
-    logger.info(
-        f"Generating seasonal heat balance comparison for {scenario_A} vs {scenario_B}"
-    )
+    """
+    Unified function to plot seasonal heat balance comparison with either prices or temperature delta.
+
+    Parameters:
+    -----------
+    secondary_type : str
+        Either "prices" or "temperature_delta" to determine secondary axis data
+    """
+    if secondary_type == "prices":
+        logger.info(
+            f"Generating seasonal heat balance comparison with prices for {scenario_A} vs {scenario_B}"
+        )
+    else:
+        logger.info(
+            f"Generating seasonal heat balance comparison with temperature delta for {scenario_A} vs {scenario_B}"
+        )
 
     fig, axes = plt.subplots(2, 2, figsize=(8, 6), constrained_layout=True)
     # Increase padding around axes
@@ -794,37 +888,76 @@ def plot_seasonal_heat_balance(
         eb_noptes = calculate_heat_balance(network_A, "urban central heat")
 
         # Define seasonal dates
-        summer_start, summer_end = (
-            f"{network_A.snapshots.year[0]}-07-01",
-            f"{network_A.snapshots.year[0]}-08-31",
-        )
-        winter_start, winter_end = (
-            f"{network_A.snapshots.year[0]}-01-01",
-            f"{network_A.snapshots.year[0]}-02-28",
-        )
+        if secondary_type == "prices":
+            summer_start, summer_end = (
+                f"{network_A.snapshots.year[0]}-07-01",
+                f"{network_A.snapshots.year[0]}-09-30",
+            )
+            winter_start, winter_end = (
+                f"{network_A.snapshots.year[0]}-01-01",
+                f"{network_A.snapshots.year[0]}-03-28",
+            )
+        else:
+            summer_start, summer_end = (
+                f"{network_A.snapshots.year[0]}-07-01",
+                f"{network_A.snapshots.year[0]}-08-31",
+            )
+            winter_start, winter_end = (
+                f"{network_A.snapshots.year[0]}-01-01",
+                f"{network_A.snapshots.year[0]}-02-28",
+            )
 
         # Process data for each season and scenario
         summer_data_baseline = process_seasonal_data(
             eb_baseline, summer_start, summer_end
         )
-        summer_prices_baseline = calc_average_electricity_price_t_ordered(
-            network_B
-        ).loc[summer_start:summer_end]
         winter_data_baseline = process_seasonal_data(
             eb_baseline, winter_start, winter_end
         )
-        winter_prices_baseline = calc_average_electricity_price_t_ordered(
-            network_B
-        ).loc[winter_start:winter_end]
-
         summer_data_noptes = process_seasonal_data(eb_noptes, summer_start, summer_end)
-        summer_prices_noptes = calc_average_electricity_price_t_ordered(network_A).loc[
-            summer_start:summer_end
-        ]
         winter_data_noptes = process_seasonal_data(eb_noptes, winter_start, winter_end)
-        winter_prices_noptes = calc_average_electricity_price_t_ordered(network_A).loc[
-            winter_start:winter_end
-        ]
+
+        # Get secondary data based on type
+        if secondary_type == "prices":
+            summer_secondary_baseline = calc_average_electricity_price_t_ordered(
+                network_B
+            ).loc[summer_start:summer_end]
+            winter_secondary_baseline = calc_average_electricity_price_t_ordered(
+                network_B
+            ).loc[winter_start:winter_end]
+            summer_secondary_noptes = calc_average_electricity_price_t_ordered(
+                network_A
+            ).loc[summer_start:summer_end]
+            winter_secondary_noptes = calc_average_electricity_price_t_ordered(
+                network_A
+            ).loc[winter_start:winter_end]
+        else:
+            # Temperature delta data
+            ff_temp_B = xr.open_dataarray(
+                f"resources/{snakemake.params.run}/{scenario_B}/central_heating_forward_temperature_profiles_base_s_27_2045.nc"
+            )
+            delta_baseline = (
+                get_delta_ff_top(ff_temp_B)
+                .to_pandas()
+                .filter(like="DE0")
+                .min(1)
+                .loc[network_B.snapshots]
+            )
+            summer_secondary_baseline = delta_baseline.loc[summer_start:summer_end]
+            winter_secondary_baseline = delta_baseline.loc[winter_start:winter_end]
+
+            ff_temp_A = xr.open_dataarray(
+                f"resources/{snakemake.params.run}/{scenario_A}/central_heating_forward_temperature_profiles_base_s_27_2045.nc"
+            )
+            delta_noptes = (
+                get_delta_ff_top(ff_temp_A)
+                .to_pandas()
+                .filter(like="DE0")
+                .min(1)
+                .loc[network_A.snapshots]
+            )
+            summer_secondary_noptes = delta_noptes.loc[summer_start:summer_end]
+            winter_secondary_noptes = delta_noptes.loc[winter_start:winter_end]
 
         # Calculate ylim to standardize across plots
         try:
@@ -843,47 +976,140 @@ def plot_seasonal_heat_balance(
         except:
             ylim = None
 
-        # Plot each subplot
-        handles0, labels0 = plot_heat_balance(
-            axes[0, 1],
-            summer_data_baseline,
-            summer_prices_baseline,
-            f"{scenario_B} - Summer Month",
-            summer_start,
-            summer_end,
-            colors,
-            ylim,
-        )
-        handles1, labels1 = plot_heat_balance(
-            axes[1, 1],
-            winter_data_baseline,
-            winter_prices_baseline,
-            f"{scenario_B} - Winter Month",
-            winter_start,
-            winter_end,
-            colors,
-            ylim,
-        )
-        handles2, labels2 = plot_heat_balance(
-            axes[0, 0],
-            summer_data_noptes,
-            summer_prices_noptes,
-            f"{scenario_A} - Summer Week",
-            summer_start,
-            summer_end,
-            colors,
-            ylim,
-        )
-        handles3, labels3 = plot_heat_balance(
-            axes[1, 0],
-            winter_data_noptes,
-            winter_prices_noptes,
-            f"{scenario_A} - Winter Week",
-            winter_start,
-            winter_end,
-            colors,
-            ylim,
-        )
+        line_collections = []
+
+        # Plot each subplot using unified function
+        if secondary_type == "temperature_delta":
+            (handles0, labels0), lc0 = plot_heat_balance_unified(
+                axes[0, 1],
+                summer_data_baseline,
+                summer_secondary_baseline,
+                f"{scenario_B} - Summer Month",
+                summer_start,
+                summer_end,
+                colors,
+                ylim,
+                scenario_A,
+                scenario_B,
+                secondary_type,
+            )
+            line_collections.append(lc0)
+
+            (handles1, labels1), lc1 = plot_heat_balance_unified(
+                axes[1, 1],
+                winter_data_baseline,
+                winter_secondary_baseline,
+                f"{scenario_B} - Winter Month",
+                winter_start,
+                winter_end,
+                colors,
+                ylim,
+                scenario_A,
+                scenario_B,
+                secondary_type,
+            )
+            line_collections.append(lc1)
+
+            (handles2, labels2), lc2 = plot_heat_balance_unified(
+                axes[0, 0],
+                summer_data_noptes,
+                summer_secondary_noptes,
+                f"{scenario_A} - Summer Week",
+                summer_start,
+                summer_end,
+                colors,
+                ylim,
+                scenario_A,
+                scenario_B,
+                secondary_type,
+            )
+            line_collections.append(lc2)
+
+            (handles3, labels3), lc3 = plot_heat_balance_unified(
+                axes[1, 0],
+                winter_data_noptes,
+                winter_secondary_noptes,
+                f"{scenario_A} - Winter Week",
+                winter_start,
+                winter_end,
+                colors,
+                ylim,
+                scenario_A,
+                scenario_B,
+                secondary_type,
+            )
+            line_collections.append(lc3)
+        else:
+            handles0, labels0 = plot_heat_balance_unified(
+                axes[0, 1],
+                summer_data_baseline,
+                summer_secondary_baseline,
+                f"{scenario_B} - Summer Month",
+                summer_start,
+                summer_end,
+                colors,
+                ylim,
+                scenario_A,
+                scenario_B,
+                secondary_type,
+            )
+            handles1, labels1 = plot_heat_balance_unified(
+                axes[1, 1],
+                winter_data_baseline,
+                winter_secondary_baseline,
+                f"{scenario_B} - Winter Month",
+                winter_start,
+                winter_end,
+                colors,
+                ylim,
+                scenario_A,
+                scenario_B,
+                secondary_type,
+            )
+            handles2, labels2 = plot_heat_balance_unified(
+                axes[0, 0],
+                summer_data_noptes,
+                summer_secondary_noptes,
+                f"{scenario_A} - Summer Week",
+                summer_start,
+                summer_end,
+                colors,
+                ylim,
+                scenario_A,
+                scenario_B,
+                secondary_type,
+            )
+            handles3, labels3 = plot_heat_balance_unified(
+                axes[1, 0],
+                winter_data_noptes,
+                winter_secondary_noptes,
+                f"{scenario_A} - Winter Week",
+                winter_start,
+                winter_end,
+                colors,
+                ylim,
+                scenario_A,
+                scenario_B,
+                secondary_type,
+            )
+
+        # Handle colorbar for temperature delta
+        if secondary_type == "temperature_delta":
+            # Find the first valid LineCollection
+            valid_lc = next((lc for lc in line_collections if lc is not None), None)
+
+            if valid_lc is not None:
+                # Create space for the colorbar at the bottom
+                fig.subplots_adjust(bottom=0.15)
+
+                # Create colorbar axes at the bottom of the entire figure
+                cbar_ax = fig.add_axes(
+                    [0.15, -0.1, 0.7, 0.02]
+                )  # [left, bottom, width, height]
+
+                # Create the single colorbar
+                colorbar = fig.colorbar(valid_lc, cax=cbar_ax, orientation="horizontal")
+                colorbar.set_label("DeltaT [K]", fontsize=12)
 
         # Combine handles and labels while preserving order
         handles = handles0 + handles1 + handles2 + handles3
@@ -947,12 +1173,16 @@ def plot_seasonal_heat_balance(
                 fontsize=12,
             )
 
-        # Save figure
+        # Save figure with appropriate filename
+        if secondary_type == "prices":
+            filename = f"heat_balance_comparison_with_prices_{scenario_A}_{scenario_B}_{year}.pdf"
+        else:
+            filename = (
+                f"heat_balance_comparison_ffT_{scenario_A}_{scenario_B}_{year}.pdf"
+            )
+
         fig.savefig(
-            os.path.join(
-                output_path,
-                f"heat_balance_comparison_{scenario_A}_{scenario_B}_{year}.pdf",
-            ),
+            os.path.join(output_path, filename),
             bbox_inches="tight",
             pad_inches=0.1,
         )
@@ -965,8 +1195,63 @@ def plot_seasonal_heat_balance(
         plt.close(fig)  # Close figure even if there was an error
 
 
+# Wrapper functions for backward compatibility
+def plot_seasonal_heat_balance_with_prices(
+    network_A, network_B, scenario_A, scenario_B, colors, output_path, year
+):
+    """Plot seasonal heat balance comparison with electricity prices."""
+    return plot_seasonal_heat_balance_unified(
+        network_A,
+        network_B,
+        scenario_A,
+        scenario_B,
+        colors,
+        output_path,
+        year,
+        "prices",
+    )
+
+
+def plot_seasonal_heat_balance(
+    network_A, network_B, scenario_A, scenario_B, colors, output_path, year
+):
+    """Plot seasonal heat balance comparison with temperature delta."""
+    return plot_seasonal_heat_balance_unified(
+        network_A,
+        network_B,
+        scenario_A,
+        scenario_B,
+        colors,
+        output_path,
+        year,
+        "temperature_delta",
+    )
+
+
+def plot_seasonal_heat_balance(
+    network_A, network_B, scenario_A, scenario_B, colors, output_path, year
+):
+    """Plot seasonal heat balance comparison with temperature delta."""
+    return plot_seasonal_heat_balance_unified(
+        network_A,
+        network_B,
+        scenario_A,
+        scenario_B,
+        colors,
+        output_path,
+        year,
+        "temperature_delta",
+    )
+
+
 def plot_dual_comparison(
-    networks, costs_agg, scenario_A, scenario_B, colors, output_path
+    networks,
+    costs_agg,
+    scenario_A,
+    scenario_B,
+    colors,
+    output_path,
+    energy_balances_path=None,
 ):
     """Plot comparison between two scenarios (typically with/without PTES)."""
     logger.info(f"Plotting dual comparison between {scenario_A} and {scenario_B}")
@@ -1000,7 +1285,7 @@ def plot_dual_comparison(
         df_diff = df_diff.loc[(df_diff != 0)]  # Drop zero-difference entries
 
         # Group small contributions into "other technologies"
-        other_indices = df_diff[df_diff.abs() < 0.02 * df_diff.abs().sum()].index
+        other_indices = df_diff[df_diff.abs() < 0.01 * df_diff.abs().sum()].index
         df_diff["other technologies"] = df_diff[other_indices].sum()
         df_diff.drop(other_indices, inplace=True)
 
@@ -1015,18 +1300,10 @@ def plot_dual_comparison(
 
         # Order by magnitude
         costs_baseline = costs_baseline.loc[
-            costs_baseline.drop("neighbour countries", errors="ignore")
-            .abs()
-            .sort_values(ascending=False)
-            .index.append(pd.Index(["neighbour countries"]))
+            costs_baseline.abs().sort_values(ascending=False).index
         ]
 
-        df_diff = df_diff.loc[
-            df_diff.drop("neighbour countries", errors="ignore")
-            .abs()
-            .sort_values(ascending=False)
-            .index.append(pd.Index(["neighbour countries"]))
-        ]
+        df_diff = df_diff.loc[df_diff.abs().sort_values(ascending=False).index]
 
         # Plot Baseline scenario
         costs_baseline.to_frame().T.div(1e9).plot.bar(
@@ -1037,8 +1314,8 @@ def plot_dual_comparison(
         )
         ax[0].set_ylabel("Costs per Technology [bn€]", fontsize=12)
         ax[0].set_xlabel("")
-        ax[0].set_title(f"Total System Costs in {scenario_A} Scenario ({year})")
-        ax[0].set_ylim(0, 140)
+        ax[0].set_title(f"{scenario_A} Scenario ({year})", fontsize=12)
+        # ax[0].set_ylim(0, 140)
 
         # Plot differences
         df_diff.to_frame().T.div(1e9).plot.bar(
@@ -1085,51 +1362,10 @@ def plot_dual_comparison(
             path_effects=[patheffects.withStroke(linewidth=3)],
         )
 
-        # Annotate differences
-        ref_sum = costs_baseline.sum() / 1e9
-        ax[1].annotate(
-            (
-                f"+{markers_total:.1f}\n(+{markers_total/ref_sum*100:.2f}%)"
-                if markers_total > 0
-                else f"{markers_total:.1f}\n({markers_total/ref_sum*100:.2f}%)"
-            ),
-            (0, -0.8),
-            textcoords="offset points",
-            xytext=(0, -70),
-            ha="center",
-            va="bottom",
-            path_effects=[patheffects.withStroke(linewidth=3, foreground="white")],
-            bbox=dict(
-                boxstyle="round,pad=0", edgecolor="none", facecolor="white", alpha=0
-            ),
-            fontsize=14,
-        )
-
-        ref_sum_de = (
-            costs_baseline.drop("neighbour countries", errors="ignore").sum() / 1e9
-        )
-        ax[1].annotate(
-            (
-                f"+{markers_de:.1f}\n(+{markers_de/ref_sum_de*100:.2f}%)"
-                if markers_de > 0
-                else f"{markers_de:.1f}\n({markers_de/ref_sum_de*100:.2f}%)"
-            ),
-            (0, -0.8),
-            textcoords="offset points",
-            xytext=(0, 100),
-            ha="center",
-            va="top",
-            path_effects=[patheffects.withStroke(linewidth=3, foreground="white")],
-            bbox=dict(
-                boxstyle="round,pad=0", edgecolor="none", facecolor="white", alpha=0
-            ),
-            fontsize=14,
-        )
-
         # Add titles and labels
         ax[1].set_ylabel("Cost Difference [bn€]", fontsize=12)
         ax[1].set_title(
-            f"Difference in Investments ({scenario_A} - {scenario_B}) ({year})"
+            f"Cost Difference ({scenario_A} - {scenario_B}) ({year})", fontsize=12
         )
         ax[1].yaxis.tick_right()
         ax[1].yaxis.set_label_position("right")
@@ -1185,228 +1421,20 @@ def plot_dual_comparison(
         if scenario_A in networks and scenario_B in networks:
             # Check if networks contain this year
             if year in networks[scenario_A] and year in networks[scenario_B]:
+                balance_output_path = (
+                    energy_balances_path if energy_balances_path else output_path
+                )
                 plot_seasonal_heat_balance(
                     networks[scenario_A][year],
                     networks[scenario_B][year],
                     scenario_A,
                     scenario_B,
                     colors,
-                    output_path,
+                    balance_output_path,
                     year,
                 )
 
     logger.info(f"Dual comparison plots saved to {output_path}")
-
-
-def plot_sensitivity_analysis(
-    costs_agg, sensitivities, scenarios, reference_scenario, colors, output_path
-):
-    """Plot sensitivity analysis showing changes compared to reference scenario."""
-    if reference_scenario not in costs_agg.index.get_level_values(0):
-        logger.error(f"Reference scenario {reference_scenario} not found in data")
-        return
-
-    logger.info(f"Plotting sensitivity analysis for {sensitivities}")
-
-    # Get available years from the index
-    years = costs_agg.index.get_level_values(1).unique()
-
-    # Generate a separate plot for each year
-    for year in years:
-        logger.info(f"Generating sensitivity analysis plot for year {year}")
-
-        # Initialize figure with 2 columns and enough rows to fit all sensitivities
-        num_rows = (len(sensitivities) + 1) // 2
-        fig, axs = plt.subplots(nrows=num_rows, ncols=2, figsize=(12, 5 * num_rows))
-
-        # Flatten the axs array for easier iteration
-        axs = axs.flatten() if len(sensitivities) > 1 else [axs]
-
-        # Iterate over sensitivities
-        for i, sensitivity in enumerate(sensitivities):
-            if i >= len(axs):
-                break
-
-            ax = axs[i]
-
-            # Prepare data for both scenarios (Low and High) of the current sensitivity
-            scenarios = [f"Low{sensitivity}", f"High{sensitivity}"]
-            df_diff_scenarios = []
-
-            for scenario in scenarios:
-                if scenario not in costs_agg.index.get_level_values(0):
-                    logger.warning(
-                        f"Scenario {scenario} not found for sensitivity {sensitivity}"
-                    )
-                    continue
-
-                # Calculate difference from reference, filtering for the current year
-                try:
-                    df_diff_scenario = (
-                        costs_agg.loc[(scenario, year)]
-                        .squeeze()
-                        .sub(costs_agg.loc[(reference_scenario, year)].squeeze())
-                    )
-
-                    # Group small contributors into "other technologies"
-                    other_indices = df_diff_scenario[
-                        abs(df_diff_scenario) < 0.02 * abs(df_diff_scenario).sum()
-                    ].index
-                    df_diff_scenario["other technologies"] = df_diff_scenario[
-                        other_indices
-                    ].sum()
-                    df_diff_scenario.drop(other_indices, inplace=True)
-
-                    # Append to the list for concatenation
-                    df_diff_scenarios.append(
-                        df_diff_scenario.to_frame(
-                            name=scenario.replace(sensitivity, "")
-                        ).T
-                    )
-                except KeyError:
-                    logger.warning(
-                        f"Data not found for scenario {scenario} and year {year}"
-                    )
-                    continue
-
-            if not df_diff_scenarios:
-                continue
-
-            # Concatenate Low and High data for the current sensitivity
-            df_diff_combined = pd.concat(df_diff_scenarios).div(1e9)
-
-            # Sort by magnitude
-            df_diff_combined = df_diff_combined[
-                df_diff_combined.drop("neighbour countries", axis=1, errors="ignore")
-                .abs()
-                .sum()
-                .sort_values(ascending=False)
-                .index.append(
-                    pd.Index(["neighbour countries"]).intersection(
-                        df_diff_combined.columns
-                    )
-                )
-            ]
-
-            # Plot stacked bar chart
-            df_diff_combined.plot.bar(
-                stacked=True,
-                ax=ax,
-                color=df_diff_combined.columns.map(colors).fillna("black"),
-                legend=False,
-                width=0.8,
-            )
-
-            # Add horizontal line at 0
-            ax.hlines(
-                0, -0.5, len(df_diff_combined) - 0.5, color="black", linewidth=0.5
-            )
-
-            # Add markers and annotations for total system cost changes
-            markers_total = df_diff_combined.sum(axis=1)
-
-            for x, (idx, y) in enumerate(markers_total.items()):
-                ax.hlines(
-                    y=y,
-                    xmin=x - 0.4,
-                    xmax=x + 0.4,
-                    color="black",
-                    linewidth=3,
-                    zorder=3,
-                    linestyles="solid",
-                )
-
-                # Add absolute value annotation
-                ax.text(
-                    x,
-                    y + 0.1 if y > 0 else y - 0.1,
-                    f"+{y:.2f}" if y > 0 else f"{y:.2f}",
-                    color="black",
-                    ha="center",
-                    va="bottom" if y > 0 else "top",
-                    fontsize=12,
-                    path_effects=[
-                        patheffects.withStroke(linewidth=3, foreground="white")
-                    ],
-                )
-
-                # Add relative change annotation
-                try:
-                    reference_costs = (
-                        costs_agg.loc[(reference_scenario, year)].squeeze().sum() / 1e9
-                    )
-                    relative_change = (y / reference_costs) * 100
-                    ax.text(
-                        x,
-                        y + 0.3 if y > 0 else y - 0.3,
-                        f"({relative_change:+.2f}%)",
-                        color="black",
-                        ha="center",
-                        va="bottom" if y > 0 else "top",
-                        fontsize=12,
-                        path_effects=[
-                            patheffects.withStroke(linewidth=3, foreground="white")
-                        ],
-                    )
-                except:
-                    logger.warning(
-                        f"Could not calculate relative change for {sensitivity}"
-                    )
-
-            # Add titles and labels
-            ax.set_title(f"{sensitivity} Parameter Sensitivity")
-            ax.set_ylabel("Cost Difference [bn EUR]")
-            ax.set_xticklabels(df_diff_combined.index, rotation=0)
-
-            # Set y-axis limits consistently
-            y_max = max(2.5, df_diff_combined.abs().max().max() * 1.2)
-            ax.set_ylim(-y_max, y_max)
-
-        # Add legend
-        handles, labels = zip(*[ax.get_legend_handles_labels() for ax in axs])
-        handles = [item for sublist in handles for item in sublist]
-        labels = [item for sublist in labels for item in sublist]
-        if len(labels) == 0:
-            logger.warning(
-                f"No data for sensitivity analysis available for year {year}. Check your scenarios and make sure they match the names of the sensitivity runs."
-            )
-            continue
-
-        # Remove duplicates while preserving order
-        unique_labels = []
-        unique_handles = []
-        for j, label in enumerate(labels):
-            if label not in unique_labels:
-                unique_labels.append(label)
-                unique_handles.append(handles[j])
-
-        handles, labels = unique_handles, unique_labels
-
-        fig.legend(
-            handles,
-            labels,
-            loc="lower center",
-            bbox_to_anchor=(0.5, -0.05),
-            ncol=min(len(labels), 4),
-            frameon=False,
-        )
-
-        # Remove unused subplots
-        for j in range(i + 1, len(axs)):
-            fig.delaxes(axs[j])
-
-        # Adjust layout
-        fig.suptitle(f"Sensitivity Analysis - Year {year}", fontsize=16, y=0.98)
-        fig.tight_layout(rect=[0, 0.05, 1, 0.95])
-        fig.savefig(
-            os.path.join(output_path, f"sensitivity_analysis_{year}.pdf"),
-            bbox_inches="tight",
-            pad_inches=0.1,
-        )
-
-        plt.close(fig)  # Close the figure to free memory
-
-    logger.info(f"Sensitivity analysis plots saved to {output_path}")
 
 
 def plot_price_duration_curves(networks_dict, output_path, figsize=(21, 7)):
@@ -1484,6 +1512,11 @@ def plot_price_duration_curves(networks_dict, output_path, figsize=(21, 7)):
 
     fig, ax = plt.subplots(1, 3, figsize=figsize)
 
+    # Collect all price data to calculate 99.5 percentile
+    all_hv_prices = []
+    all_lv_prices = []
+    all_dh_prices = []
+
     # Plot for each scenario and network
     for scenario, networks_scenario in networks_dict.items():
         for year, network in networks_scenario.items():
@@ -1494,23 +1527,39 @@ def plot_price_duration_curves(networks_dict, output_path, figsize=(21, 7)):
                 hv_elec = calc_average_electricity_price(network)
                 if not hv_elec.empty:
                     hv_elec.plot(ax=ax[0], label=label, linewidth=0.5)
+                    all_hv_prices.extend(hv_elec.values)
 
                 # Average Low Voltage Electricity Price
                 lv_elec = calc_average_electricity_lv_price(network)
                 if not lv_elec.empty:
                     lv_elec.plot(ax=ax[1], label=label, linewidth=0.5)
+                    all_lv_prices.extend(lv_elec.values)
 
                 # Average District Heating Price
                 dh = calc_average_dh_price(network)
                 if not dh.empty:
                     dh.plot(ax=ax[2], label=label, linewidth=0.5)
+                    all_dh_prices.extend(dh.values)
             except Exception as e:
                 logger.warning(f"Error plotting price duration curves for {label}: {e}")
+
+    # Calculate 99.5 percentile for each price type
+    hv_ylim = np.percentile(all_hv_prices, 99.5) if all_hv_prices else None
+    lv_ylim = np.percentile(all_lv_prices, 99.5) if all_lv_prices else None
+    dh_ylim = np.percentile(all_dh_prices, 99.5) if all_dh_prices else None
 
     # Set titles and formatting
     ax[0].set_title("Average Electricity Price")
     ax[1].set_title("Average Low Voltage Electricity Price")
     ax[2].set_title("Average District Heating Price")
+
+    # Set y-axis limits based on 99.5 percentile
+    if hv_ylim is not None:
+        ax[0].set_ylim(0, hv_ylim)
+    if lv_ylim is not None:
+        ax[1].set_ylim(0, lv_ylim)
+    if dh_ylim is not None:
+        ax[2].set_ylim(0, dh_ylim)
 
     for ax_ in ax:
         ax_.set_ylabel("Price [EUR/MWh]")
@@ -1895,7 +1944,7 @@ def plot_energy_balance_comparison(network1, network2, scenarios, output_path, c
             .xs("urban central heat", level=3)
             .reset_index()
         )
-        eb_uch = eb_uch.loc[eb_uch.bus.str.contains("DE\d \d .*urban"), :]
+        eb_uch = eb_uch.loc[eb_uch.bus.str.contains(r"DE\d \d .*urban"), :]
 
         # Strip 'urban central heat' from the bus index
         eb_uch["bus"] = eb_uch["bus"].str.replace(" urban central heat", "")
@@ -1952,14 +2001,25 @@ def plot_energy_balance_comparison(network1, network2, scenarios, output_path, c
     # Prepare data for both networks
     to_plot_rel1, dh_prices1 = prepare_energy_balance_data(network1)
     to_plot_rel2, dh_prices2 = prepare_energy_balance_data(network2)
-    to_plot_rel1 = to_plot_rel1.loc[to_plot_rel2.index]
 
-    # Create subplots
+    # Calculate price savings (network1 - network2)
+    dh_price_savings = dh_prices1 - dh_prices2
+
+    # Sort systems by price savings (highest savings first)
+    sorted_systems = dh_price_savings.sort_values(ascending=False).index
+
+    # Reorder both plotting data and price data according to savings
+    to_plot_rel1 = to_plot_rel1.loc[sorted_systems]
+    to_plot_rel2 = to_plot_rel2.loc[sorted_systems]
+    dh_price_savings = dh_price_savings.loc[sorted_systems]
+
+    max_ylim = to_plot_rel2.clip(lower=0).sum(1).max() * 1.05
+
+    # Create subplots with original dimensions
     fig, axes = plt.subplots(2, 1, figsize=(9, 6), sharex=True)
 
     # Plot for Network 1
     ax1 = axes[0]
-    ax1_twin = ax1.twinx()
 
     col_order = [
         "low-temperature heat for industry",
@@ -1970,6 +2030,7 @@ def plot_energy_balance_comparison(network1, network2, scenarios, output_path, c
         "urban central river_water heat pump",
         "urban central sea_water heat pump",
         "urban central air heat pump",
+        "urban central ptes heat pump",
         "urban central resistive heater",
         "H2 Electrolysis",
         "urban central solid biomass CHP",
@@ -2001,23 +2062,12 @@ def plot_energy_balance_comparison(network1, network2, scenarios, output_path, c
     ax1.set_ylabel(
         "Share of district heating\nconsumption and supply\n[%]", fontsize=10
     )
-    ax1_twin.set_ylabel(
-        "Ratio between PTES potential\nand District Heating Demand",
-        color="black",
-        fontsize=10,
-    )
-    ax1_twin.set_yscale("log")
-    ax1.axhline(y=0, color="black", linestyle="-")
 
-    # Add horizontal lines for ratio of PTES potential to district heating load in Baseline scenario
-    for system in dh_prices1.index:
-        ptes_pot_to_demand_ratio = get_ptes_pot_to_demand_ratio(network2, system)
-        idx = to_plot_rel1.index.get_loc(system)
-        ax1_twin.scatter(idx, ptes_pot_to_demand_ratio, color="black", marker="x", s=10)
+    ax1.axhline(y=0, color="black", linestyle="-")
+    ax1.set_ylim(-max_ylim, max_ylim)
 
     # Plot for Network 2
     ax2 = axes[1]
-    ax2_twin = ax2.twinx()
 
     col_order = [
         "low-temperature heat for industry",
@@ -2028,6 +2078,7 @@ def plot_energy_balance_comparison(network1, network2, scenarios, output_path, c
         "urban central river_water heat pump",
         "urban central sea_water heat pump",
         "urban central air heat pump",
+        "urban central ptes heat pump",
         "urban central resistive heater",
         "H2 Electrolysis",
         "urban central solid biomass CHP",
@@ -2062,31 +2113,56 @@ def plot_energy_balance_comparison(network1, network2, scenarios, output_path, c
     ax2.set_ylabel(
         "Share of district heating\nconsumption and supply\n[%]", fontsize=10
     )
-    ax2_twin.set_ylabel("District Heating Price\n[€/MWh]", color="black", fontsize=10)
     ax2.axhline(y=0, color="black", linestyle="-")
+    ax2.set_ylim(-max_ylim, max_ylim)
+
+    # Add secondary y-axis for district heating price savings on second subplot only
+    ax2_price = ax2.twinx()
+
+    # Plot DH price savings for Network 2 with white circles and black borders
+    x_positions2 = range(len(dh_price_savings))
+    ax2_price.scatter(
+        x_positions2,
+        dh_price_savings.values,
+        s=40,
+        marker="o",
+        facecolor="white",
+        edgecolor="black",
+        linewidth=0.2,
+        zorder=20,
+        clip_on=False,
+    )
+
+    # Add mean DH price savings line
+    ax2_price.axhline(
+        y=dh_price_savings.mean(),
+        color="black",
+        linestyle="--",
+        linewidth=1,
+        alpha=1,
+        zorder=5,
+    )
+
+    # Set labels and formatting for price savings axis
+    ax2_price.set_ylabel("DH Price Savings [€/MWh]", fontsize=10)
+    ax2_price.tick_params(axis="y", labelsize=10)
+
+    # Set y-limits for price savings axis with some padding
+    price_min, price_max = dh_price_savings.min(), dh_price_savings.max()
+    price_range = price_max - price_min
+    if price_range > 0:
+        padding = price_range * 0.1  # 10% padding
+        price_ylim = (price_min - padding, price_max + padding)
+    else:
+        # If all savings are the same, add some padding around the value
+        price_ylim = (price_min * 0.95, price_max * 1.05)
+
+    ax2_price.set_ylim(price_ylim)
 
     # Decrease fontsize of ax2 xticks
 
     for tick in ax2.get_xticklabels():
         tick.set_fontsize(10)
-
-    # Add horizontal lines for DH prices
-    for system, price in dh_prices1.items():
-        idx = to_plot_rel2.index.get_loc(system)
-        ax2_twin.axhline(
-            y=price,
-            xmin=idx / len(to_plot_rel2),
-            xmax=(idx + 1) / len(to_plot_rel2),
-            color="black",
-            linestyle="-",
-            markeredgecolor="white",
-        )
-
-    for system, price in dh_prices2.items():
-        idx = to_plot_rel2.index.get_loc(system)
-        ax2_twin.scatter(
-            idx, price, color="black", marker="o", s=10, edgecolors="white"
-        )
 
     # Shared legend
     handles, labels = [], []
@@ -2125,30 +2201,42 @@ def plot_energy_balance_comparison(network1, network2, scenarios, output_path, c
             unique_labels.append(label)
             unique_handles.append(handles[i])
 
+    # Add DH price savings indicators to legend
+    from matplotlib.lines import Line2D
+
+    # Add DH price savings marker to legend
+    unique_handles.append(
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="white",
+            markeredgecolor="black",
+            markeredgewidth=0.2,
+            markersize=6,
+            linestyle="None",
+        )
+    )
+    unique_labels.append("Demand-weighted\nDH price savings")
+
+    # Add mean DH price savings line to legend
+    unique_handles.append(
+        Line2D(
+            [0],
+            [0],
+            color="black",
+            linestyle="--",
+            linewidth=1,
+            alpha=0.7,
+        )
+    )
+    unique_labels.append("Mean DH price savings")
+
     fig.legend(
         unique_handles,
         unique_labels,
         title="Technology",
-        bbox_to_anchor=(1.17, 0.65),
-        loc="center",
-        frameon=False,
-        fontsize=10,
-    )
-
-    # Second shared legend for PTES potential to demand ratio and DH prices
-    handles, labels = [], []
-    handles.append(plt.Line2D([0], [0], color="black", marker="x", linestyle="None"))
-    labels.append("PTES potential to demand ratio")
-    handles.append(plt.Line2D([0], [0], color="black", linestyle="-"))
-    labels.append("Average marginal price\nof district heat in No_PTES")
-    handles.append(plt.Line2D([0], [0], color="black", linestyle="None", marker="o"))
-    labels.append("Average marginal price\nof district heat in Baseline")
-
-    fig.legend(
-        handles,
-        labels,
-        title="",
-        bbox_to_anchor=(1.17, 0.2),
+        bbox_to_anchor=(1.17, 0.5),
         loc="center",
         frameon=False,
         fontsize=10,
@@ -2416,20 +2504,149 @@ def plot_ptes_socs(
     Plot the state of charge (SoC) ranges for PTES across different scenarios.
     """
     import matplotlib.pyplot as plt
+    import matplotlib.cm as cm
+    import numpy as np
 
     plt.figure(figsize=figsize)
 
+    # Collect all scenario-year combinations first to determine color mapping
+    scenario_year_combinations = []
+    cycle_counts = []
+
     for scenario, networks_scenario in networks.items():
         for year, networks_year in networks_scenario.items():
-            soc = networks_year.stores_t.e.filter(regex="DE.*water pits").sum(1)
-            if soc is not None:
-                plt.plot(soc.index, soc, alpha=0.5, label=scenario)
+            soc = (
+                networks_year.stores_t.e.filter(regex="DE.*water pits").div(1e6).sum(1)
+            )
+            if soc is not None and not soc.empty:
+                # Calculate number of cycles (approximate)
+                # A cycle is defined as the total energy discharged divided by storage capacity
+                ptes_stores = networks_year.stores.filter(
+                    regex="DE.*water pits", axis=0
+                )
+                total_capacity = ptes_stores.e_nom_opt.sum() / 1e6  # TWh
+
+                # Calculate total energy discharged (positive values from stores_t.p)
+                ptes_discharge = (
+                    networks_year.stores_t.p.filter(regex="DE.*water pits")
+                    .clip(lower=0)
+                    .sum(1)
+                )
+                total_discharged = (
+                    ptes_discharge * networks_year.snapshot_weightings.generators
+                ).sum() / 1e6  # TWh
+
+                # Number of cycles = total discharged / capacity
+                cycles = total_discharged / total_capacity if total_capacity > 0 else 0
+
+                scenario_year_combinations.append((scenario, year, soc))
+                cycle_counts.append(cycles)
+
+    # Sort scenarios by number of cycles (lowest cycles first for darkest blue)
+    n_combinations = len(scenario_year_combinations)
+    if n_combinations > 0:
+        # Create list of tuples with (cycle_count, scenario, year, soc) for sorting
+        sorted_combinations = sorted(
+            zip(cycle_counts, scenario_year_combinations),
+            key=lambda x: x[0],  # Sort by cycle count (ascending)
+        )
+
+        # Extract sorted data
+        sorted_cycle_counts = [x[0] for x in sorted_combinations]
+        sorted_scenario_year_combinations = [x[1] for x in sorted_combinations]
+
+        # Create Blues colormap with darkest blue for lowest cycles
+        # Reverse the color mapping so lowest cycles get darkest blue (1.0) and highest get lightest (0.3)
+        colors = cm.Blues(
+            np.linspace(1.0, 0.3, n_combinations)
+        )  # Start from 1.0 (darkest) to 0.3 (lightest)
+
+        years = list(set(year for _, year, _ in sorted_scenario_year_combinations))
+
+        # Plot each SOC curve with assigned color
+        for i, (scenario, year, soc) in enumerate(sorted_scenario_year_combinations):
+            label = f"{scenario}_{year}" if len(years) > 1 else scenario
+            plt.plot(
+                soc.index,
+                soc,
+                alpha=0.7,
+                color=colors[i],
+                label=label,
+                linewidth=1.5,
+            )
+
+        # Add cycle annotations with smart positioning to avoid overlaps
+        # Find good positions for annotations (spread them vertically)
+        y_positions = []
+        x_positions = []
+
+        for i, (scenario, year, soc) in enumerate(sorted_scenario_year_combinations):
+            # Use the maximum SOC value as the y position
+            max_soc_idx = soc.idxmax()
+            max_soc_val = soc.max()
+
+            # Store positions for overlap checking
+            y_positions.append(max_soc_val)
+            x_positions.append(max_soc_idx)
+
+        # Adjust y positions to avoid overlaps
+        adjusted_y_positions = []
+        for i, (y_pos, x_pos) in enumerate(zip(y_positions, x_positions)):
+            adjusted_y = y_pos
+
+            # Check for overlaps with previously placed annotations
+            for j, prev_y in enumerate(adjusted_y_positions):
+                if (
+                    abs(adjusted_y - prev_y)
+                    < (max(y_positions) - min(y_positions)) * 0.05
+                ):  # 5% of range
+                    # Move annotation up or down to avoid overlap
+                    if i % 2 == 0:
+                        adjusted_y = (
+                            prev_y + (max(y_positions) - min(y_positions)) * 0.08
+                        )
+                    else:
+                        adjusted_y = (
+                            prev_y - (max(y_positions) - min(y_positions)) * 0.08
+                        )
+
+            adjusted_y_positions.append(adjusted_y)
+
+        # Add the cycle annotations
+        for i, (scenario, year, soc) in enumerate(sorted_scenario_year_combinations):
+            cycles = sorted_cycle_counts[i]
+            x_pos = x_positions[i]
+            y_pos = adjusted_y_positions[i]
+
+            # Create annotation text
+            cycles_text = f"{cycles:.0f} cycles"
+
+            # Add annotation with arrow pointing to the curve
+            plt.annotate(
+                cycles_text,
+                xy=(x_pos, y_positions[i]),  # Point to actual curve
+                xytext=(x_pos, y_pos),  # Position of text (adjusted)
+                arrowprops=dict(arrowstyle="->", color=colors[i], alpha=0.7, lw=1),
+                fontsize=9,
+                fontweight="bold",
+                color=colors[i],
+                ha="center",
+                va="center",
+                bbox=dict(
+                    boxstyle="round,pad=0.3",
+                    facecolor="white",
+                    edgecolor=colors[i],
+                    alpha=0.8,
+                ),
+            )
 
     plt.title("PTES State of Charge Ranges")
     plt.xlabel("Time")
-    plt.ylabel("State of Charge")
+    plt.ylabel("State of Charge [TWh]")
+    plt.legend(loc="upper center", bbox_to_anchor=(0.5, -0.15), ncol=3)
     plt.grid()
-    plt.savefig(output_path)
+    plt.tight_layout()
+    plt.savefig(output_path, bbox_inches="tight", pad_inches=0.1)
     plt.close()
 
 
@@ -2702,10 +2919,17 @@ def plot_ptes_price_impact_scatter(
 
 
 def plot_ptes_savings_comparison(
-    scenario_tuples, costs_agg, colors, year, output_path, figsize=(8, 4)
+    scenario_tuples,
+    costs_agg,
+    colors,
+    year,
+    output_path,
+    figsize=(8, 4),
+    output_suffix="",
 ):
     """
     Plot cost savings comparison between scenarios with and without PTES.
+    All subplots share the same y-axis limits for better comparability.
 
     Parameters:
     -----------
@@ -2722,26 +2946,128 @@ def plot_ptes_savings_comparison(
         Path to save the output figure
     figsize : tuple, optional
         Figure size (width, height)
+    output_suffix : str, optional
+        Suffix to add to the output filename (e.g., "HighSupplyTemperature", "LowSupplyTemperature")
     """
     logger.info(f"Generating PTES savings comparison for year {year}")
 
     # Filter the costs data for the specified year
     costs_year = costs_agg.xs(year, level="year")
 
-    # Create figure with one subplot for each scenario pair
+    # Create single figure for all scenarios
     n_comparisons = len(scenario_tuples)
-    fig, axs = plt.subplots(1, n_comparisons, figsize=figsize, sharey=True)
-
-    # If only one comparison, convert axs to a list for consistent indexing
-    if n_comparisons == 1:
-        axs = [axs]
+    # Adjust figure width based on number of comparisons
+    adjusted_figsize = (max(6, n_comparisons * 1.2), figsize[1])
+    fig, ax = plt.subplots(1, 1, figsize=adjusted_figsize)
 
     # Keep track of all displayed technologies across all comparisons for the legend
     all_displayed_techs = set()
 
-    # Process each scenario pair
-    for i, (ref_scenario, comp_scenario) in enumerate(scenario_tuples):
-        ax = axs[i]
+    # First pass: collect all cost differences to determine global y-axis limits
+    all_cumulative_values = []
+    scenario_data = {}
+    baseline_costs = {}  # Store baseline costs for percentage calculations
+
+    for ref_scenario, comp_scenario in scenario_tuples:
+        # Check if both scenarios exist in the data
+        if (
+            ref_scenario not in costs_year.index
+            or comp_scenario not in costs_year.index
+        ):
+            continue
+
+        # Get baseline costs for percentage calculation
+        ref_costs = costs_year.loc[ref_scenario]
+        baseline_total = ref_costs.sum()
+        baseline_german = ref_costs.drop("neighbour countries", errors="ignore").sum()
+        baseline_costs[(ref_scenario, comp_scenario)] = {
+            "total": baseline_total,
+            "german": baseline_german,
+        }
+
+        # Calculate cost differences: comp_scenario - ref_scenario
+        df_diff = costs_year.loc[comp_scenario].sub(costs_year.loc[ref_scenario])
+        df_diff = df_diff[df_diff != 0]
+
+        # Group small contributors into "other technologies"
+        small_indices = df_diff.index[df_diff.abs() < 0.02 * df_diff.abs().sum()]
+        if len(small_indices) > 0:
+            df_diff["other technologies"] = df_diff[small_indices].sum()
+            df_diff = df_diff.drop(small_indices)
+
+        # Convert to billion EUR for plotting
+        df_diff_bn = df_diff.div(1e9)
+
+        # Sort by magnitude for proper stacking calculation
+        if "neighbour countries" in df_diff_bn.index:
+            neighbour_value = df_diff_bn["neighbour countries"]
+            df_diff_bn_sorted = df_diff_bn.drop("neighbour countries")
+            df_diff_bn_sorted = df_diff_bn_sorted.reindex(
+                df_diff_bn_sorted.abs().sort_values(ascending=False).index
+            )
+            df_diff_bn_sorted["neighbour countries"] = neighbour_value
+        else:
+            df_diff_bn_sorted = df_diff_bn.reindex(
+                df_diff_bn.abs().sort_values(ascending=False).index
+            )
+
+        # Store for later plotting (in billion EUR for the bars)
+        scenario_data[(ref_scenario, comp_scenario)] = df_diff_bn_sorted
+
+        # Calculate cumulative sums for stacked bar limits
+        # For stacked bars, we need to consider positive and negative contributions separately
+        positive_values = df_diff_bn_sorted[df_diff_bn_sorted > 0]
+        negative_values = df_diff_bn_sorted[df_diff_bn_sorted < 0]
+
+        # Calculate cumulative positive and negative sums
+        max_positive_cumsum = positive_values.sum() if not positive_values.empty else 0
+        min_negative_cumsum = negative_values.sum() if not negative_values.empty else 0
+
+        # Also include the total sum (which represents the net difference markers)
+        total_sum = df_diff_bn_sorted.sum()
+
+        # Collect all extreme values
+        all_cumulative_values.extend(
+            [max_positive_cumsum, min_negative_cumsum, total_sum, 0]
+        )
+
+    # Calculate global y-axis limits with some padding
+    if all_cumulative_values:
+        global_min = min(all_cumulative_values)
+        global_max = max(all_cumulative_values)
+        y_range = global_max - global_min
+        padding = y_range * 0.15  # 15% padding for better visibility
+        global_ylim = (global_min - padding, global_max + padding)
+        logger.info(
+            f"Global y-axis limits for cost comparison: [{global_ylim[0]:.2f}, {global_ylim[1]:.2f}] bn€"
+        )
+    else:
+        global_ylim = None
+
+    # Sort scenario tuples by their total system savings (descending order)
+    scenario_savings = []
+    for ref_scenario, comp_scenario in scenario_tuples:
+        if (
+            ref_scenario in costs_year.index
+            and comp_scenario in costs_year.index
+            and (ref_scenario, comp_scenario) in scenario_data
+        ):
+            total_savings = scenario_data[(ref_scenario, comp_scenario)].sum()
+            scenario_savings.append((total_savings, ref_scenario, comp_scenario))
+
+    # Sort by total savings (descending - largest savings first)
+    scenario_savings.sort(key=lambda x: x[0], reverse=True)
+    sorted_scenario_tuples = [(ref, comp) for _, ref, comp in scenario_savings]
+
+    logger.info(f"Scenarios ordered by total system savings:")
+    for savings, ref, comp in scenario_savings:
+        logger.info(f"  {comp}: {savings:.2f} bn€")
+
+    # Process each scenario pair for plotting
+    plot_data_list = []
+    x_labels = []
+
+    for ref_scenario, comp_scenario in sorted_scenario_tuples:
 
         # Check if both scenarios exist in the data
         if (
@@ -2751,169 +3077,240 @@ def plot_ptes_savings_comparison(
             logger.warning(
                 f"Scenarios {ref_scenario} or {comp_scenario} not found in data for year {year}"
             )
-            # Clear the unused axis
-            ax.set_visible(False)
             continue
 
         logger.info(f"  Processing comparison: {ref_scenario} vs {comp_scenario}")
 
-        # Calculate cost differences: comp_scenario - ref_scenario
-        # Positive values mean cost increases in the comparison scenario with PTES
-        df_diff = costs_year.loc[comp_scenario].sub(costs_year.loc[ref_scenario])
+        # Get pre-calculated and sorted data
+        if (ref_scenario, comp_scenario) not in scenario_data:
+            logger.warning(f"No data available for {ref_scenario} vs {comp_scenario}")
+            continue
 
-        # Filter out technologies with zero contribution
-        df_diff = df_diff[df_diff != 0]
-
-        # Group small contributors into "other technologies"
-        small_indices = df_diff.index[df_diff.abs() < 0.01 * df_diff.abs().sum()]
-        if len(small_indices) > 0:
-            df_diff["other technologies"] = df_diff[small_indices].sum()
-            df_diff = df_diff.drop(small_indices)
-
-        # Sort by magnitude (absolute value), but keep "neighbour countries" at the end
-        if "neighbour countries" in df_diff.index:
-            neighbour_value = df_diff["neighbour countries"]
-            df_diff = df_diff.drop("neighbour countries")
-
-            # Sort by absolute value
-            df_diff = df_diff.reindex(df_diff.abs().sort_values(ascending=False).index)
-
-            # Add neighbour countries back at the end
-            df_diff["neighbour countries"] = neighbour_value
-        else:
-            # Sort by absolute value
-            df_diff = df_diff.reindex(df_diff.abs().sort_values(ascending=False).index)
-
-        # Convert to billion EUR
-        df_diff_bn = df_diff.div(1e9)
+        df_diff_bn = scenario_data[(ref_scenario, comp_scenario)]
 
         # Add the displayed technologies from this comparison to our set
         all_displayed_techs.update(df_diff_bn.index)
 
-        # Plot stacked bar
-        df_diff_bn.to_frame().T.plot.bar(
-            stacked=True,
-            ax=ax,
-            color=df_diff_bn.index.map(colors).fillna("black"),
-            legend=False,
-            width=0.8,
+        # Store data for plotting
+        plot_data_list.append(df_diff_bn)
+        x_labels.append(comp_scenario)
+
+    # Create combined DataFrame for plotting
+    if not plot_data_list:
+        logger.warning("No valid scenario comparisons found for plotting")
+        return None, None
+
+    # Combine all data into one DataFrame with scenarios as columns
+    combined_plot_data = pd.DataFrame(index=sorted(all_displayed_techs))
+    for i, (data, label) in enumerate(zip(plot_data_list, x_labels)):
+        combined_plot_data[label] = data.reindex(combined_plot_data.index, fill_value=0)
+
+    # Transpose so scenarios are rows and technologies are columns
+    combined_plot_data = combined_plot_data.T
+
+    # Calculate savings markers from the combined plot data (AFTER sorting and combining)
+    total_savings_list = []
+    germany_savings_list = []
+
+    for i, scenario in enumerate(combined_plot_data.index):
+        # Find the corresponding reference scenario for this comparison
+        ref_scenario, comp_scenario = None, None
+        for ref_scen, comp_scen in sorted_scenario_tuples:
+            if comp_scen == scenario:
+                ref_scenario, comp_scenario = ref_scen, comp_scen
+                break
+
+        if ref_scenario is None:
+            # Fallback: total savings is the sum of all technologies for this scenario (in bn€)
+            total_savings = combined_plot_data.loc[scenario].sum()
+            germany_savings = (
+                combined_plot_data.loc[scenario]
+                .drop("neighbour countries", errors="ignore")
+                .sum()
+            )
+            # Convert to percentage for annotations (assuming baseline of 100 bn€ as fallback)
+            total_savings_pct = (total_savings / 100) * 100  # Fallback conversion
+            germany_savings_pct = (germany_savings / 100) * 100
+        else:
+            # Total savings is the sum of all technologies for this scenario (in bn€)
+            total_savings = combined_plot_data.loc[scenario].sum()
+
+            # German savings excludes neighbour countries if present (in bn€)
+            germany_data = combined_plot_data.loc[scenario].drop(
+                "neighbour countries", errors="ignore"
+            )
+            germany_savings = germany_data.sum()
+
+            # Convert to percentage for annotations using stored baseline costs
+            baseline_info = baseline_costs[(ref_scenario, comp_scenario)]
+            total_savings_pct = (
+                total_savings / baseline_info["total"] * 1e9
+            ) * 100  # Convert back from bn€ to €, then to %
+            germany_savings_pct = (
+                germany_savings / baseline_info["german"] * 1e9
+            ) * 100  # Use total baseline for consistency
+
+        total_savings_list.append(total_savings)
+        germany_savings_list.append(germany_savings)
+
+        # Store percentage values for annotations
+        if i == 0:  # Initialize lists on first iteration
+            total_savings_pct_list = []
+            germany_savings_pct_list = []
+        total_savings_pct_list.append(total_savings_pct)
+        germany_savings_pct_list.append(germany_savings_pct)
+
+    # Plot stacked bar chart
+    combined_plot_data.plot.bar(
+        stacked=True,
+        ax=ax,
+        color=combined_plot_data.columns.map(colors).fillna("black"),
+        legend=False,
+        width=0.8,
+    )
+
+    # Add horizontal line at 0
+    ax.axhline(y=0, color="black", linestyle="-", linewidth=0.5, zorder=1)
+
+    # Add markers for total system cost savings and German system cost savings
+    for i, (
+        total_savings,
+        germany_savings,
+        total_savings_pct,
+        germany_savings_pct,
+    ) in enumerate(
+        zip(
+            total_savings_list,
+            germany_savings_list,
+            total_savings_pct_list,
+            germany_savings_pct_list,
+        )
+    ):
+        # Calculate gross savings (sum of all negative entries) for this scenario
+        scenario_data_row = combined_plot_data.iloc[i]
+        gross_savings = scenario_data_row[scenario_data_row < 0].sum()
+
+        # Determine annotation position based on gross savings direction
+        if gross_savings < 0:
+            # Net savings - place annotations below the bar
+            annotation_y = gross_savings
+            y_offset = -15
+            va = "top"
+        else:
+            # Net costs - place annotations above the bar (at 0 line)
+            annotation_y = 0
+            y_offset = 15
+            va = "bottom"
+
+        # Add total system savings marker (white star with black border)
+        ax.scatter(
+            i,
+            total_savings,
+            s=100,
+            marker="*",
+            facecolor="whitesmoke",
+            edgecolor="black",
+            linewidth=1,
+            zorder=12,
         )
 
-        # Add horizontal line at 0
-        ax.axhline(y=0, color="black", linestyle="-", linewidth=0.5, zorder=1)
-
-        # Add markers for total system cost savings and German system cost savings
-        total_savings = df_diff_bn.sum()
-        germany_savings = df_diff_bn.drop("neighbour countries", errors="ignore").sum()
-
-        # Add total system savings marker
-        ax.hlines(
-            y=total_savings,
-            xmin=-0.42,
-            xmax=0.42,
-            color="black",
-            linewidth=3,
-            zorder=10,
-            path_effects=[patheffects.withStroke(linewidth=3)],
-            label="Total system savings",
+        # Add annotation for total system savings with star symbol
+        ax.annotate(
+            f"★ {total_savings_pct:.2f} %",
+            xy=(i, annotation_y),
+            xytext=(0, y_offset),
+            textcoords="offset points",
+            fontsize=10,
+            fontweight="bold",
+            ha="center",
+            va=va,
+            zorder=15,
         )
 
-        # Add German system savings marker (if different)
-        if "neighbour countries" in df_diff_bn:
-            ax.hlines(
-                y=germany_savings,
-                xmin=-0.42,
-                xmax=0.42,
-                color="black",
-                linewidth=1.5,
-                linestyle="--",
+        # Add German system savings marker (white circle with black border) if different
+        if germany_savings != total_savings:
+            ax.scatter(
+                i,
+                germany_savings,
+                s=100,
+                marker="o",
+                facecolor="white",
+                edgecolor="black",
+                linewidth=1,
                 zorder=10,
-                path_effects=[patheffects.withStroke(linewidth=3)],
-                label="German system savings",
             )
 
-        # Compute y-axis limits
-        y_lims = ax.get_ylim()
-        padding = 0.05 * (y_lims[1] - y_lims[0])
-
-        y_top = y_lims[1] - padding  # always near the top of plot
-        y_bottom = y_lims[0] + padding  # always near the bottom of plot
-
-        # Calculate percentage against reference total
-        ref_total = costs_year.loc[ref_scenario].sum() / 1e9
-        pct_change_total = (total_savings / ref_total) * 100
-
-        # Add annotation for total system savings
-        sign_total = "+" if total_savings > 0 else ""
-        # ax.annotate(
-        #     f"Total:\n{sign_total}{total_savings:.1f} bn€\n({sign_total}{pct_change_total:.1f}%)",
-        #     xy=(0, total_savings),
-        #     xytext=(0, 1.3),
-        #     textcoords="data",
-        #     ha="center",
-        #     va="top",
-        #     fontweight="bold",
-        #     path_effects=[patheffects.withStroke(linewidth=3, foreground="white")],
-        #     bbox=dict(boxstyle="round,pad=0", edgecolor="none", facecolor="white", alpha=0),
-        #     fontsize=9
-        # )
-
-        # Add annotation for German system savings (if different)
-        if "neighbour countries" in df_diff_bn:
-            ref_germany_total = (
-                costs_year.loc[ref_scenario].drop("neighbour countries").sum() / 1e9
+            # Add annotation for German system savings with circle symbol
+            # Position slightly offset from total system annotation
+            ax.annotate(
+                f"○ {germany_savings_pct:.2f} %",
+                xy=(i, annotation_y),
+                xytext=(0, y_offset + (-10 if va == "top" else 10)),
+                textcoords="offset points",
+                fontsize=10,
+                fontweight="bold",
+                ha="center",
+                va=va,
+                zorder=15,
             )
-            pct_change_germany = (germany_savings / ref_germany_total) * 100
 
-            sign_germany = "+" if germany_savings > 0 else ""
-            # ax.annotate(
-            #     f"Germany:\n{sign_germany}{germany_savings:.1f} bn€\n({sign_germany}{pct_change_germany:.1f}%)",
-            #     xy=(0, germany_savings),
-            #     xytext=(0, -1.7),
-            #     textcoords="data",
-            #     ha="center",
-            #     va="bottom",
-            #     fontweight="bold",
-            #     path_effects=[patheffects.withStroke(linewidth=3, foreground="white")],
-            #     bbox=dict(boxstyle="round,pad=0", edgecolor="none", facecolor="white", alpha=0),
-            #     fontsize=9
-            # )
+    # Set labels and formatting
+    ax.set_xlabel("Boosting configuration", fontsize=16)
+    ax.set_ylabel("Cost Difference [bn€]", fontsize=16)
+    ax.tick_params(axis="both", labelsize=14)
 
-        # Set the comparison scenario name as x-tick label instead of title
-        ax.set_xticks([0])
-        ax.set_xticklabels([comp_scenario], fontsize=16)
-        ax.tick_params(axis="x", which="both", bottom=True, labelbottom=True)
+    # Process x-tick labels: split at underscore and remove first part
+    current_labels = [label.get_text() for label in ax.get_xticklabels()]
+    processed_labels = []
+    for label in current_labels:
+        if "_" in label:
+            # Split at underscore and take everything after the first part
+            parts = label.split("_")
+            processed_label = "_".join(parts[1:])
+        else:
+            processed_label = label
+        processed_labels.append(processed_label)
 
-        # Remove the title setting since we're using x-tick labels instead
-        # title = comp_scenario
+    # Set the processed labels
+    ax.set_xticklabels(processed_labels)
 
-        # Set axis labels and title with larger font sizes
-        # ax.set_title(title, fontsize=18)
-        if i == 0:
-            ax.set_ylabel("Cost Difference [bn€]", fontsize=16)
+    # Rotate x-axis labels for better readability and ensure proper alignment
+    plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
 
-        # Increase tick label sizes
-        ax.tick_params(axis="y", labelsize=14)
+    # Add plot title if output_suffix is provided
+    if output_suffix:
+        ax.set_title(output_suffix, fontsize=18, pad=20)
 
-    # Add legend for the markers - position more centered
+    # Set global y-axis limits for uniform comparison
+    if global_ylim is not None:
+        ax.set_ylim(global_ylim)
+
+    # Add legend for the markers - position more compactly with proper marker symbols
     from matplotlib.lines import Line2D
 
     line_handles = [
-        Line2D([0], [0], color="black", linewidth=3),
-        Line2D([0], [0], color="black", linewidth=3, linestyle="--"),
+        Line2D(
+            [0],
+            [0],
+            marker="*",
+            color="white",
+            markeredgecolor="black",
+            markeredgewidth=1,
+            markersize=10,
+            linestyle="None",
+        ),
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="white",
+            markeredgecolor="black",
+            markeredgewidth=1,
+            markersize=10,
+            linestyle="None",
+        ),
     ]
     line_labels = ["Total system", "German system"]
-
-    fig.legend(
-        line_handles,
-        line_labels,
-        loc="upper center",
-        bbox_to_anchor=(0.5, 1.1),  # More centered position
-        frameon=True,
-        title="Net difference in",
-        fontsize=14,
-        ncol=2,  # Horizontal layout
-    )
 
     # Create a separate legend for technologies - ONLY for actually displayed technologies
     # Sort displayed technologies by their total importance across all comparisons
@@ -2943,32 +3340,411 @@ def plot_ptes_savings_comparison(
         tech_handles.append(plt.Rectangle((0, 0), 1, 1, color=tech_color))
         tech_labels.append(tech)
 
-    # Add legend for technologies on the right side
+    # Add legend for the markers on the right side above technologies
+    fig.legend(
+        line_handles,
+        line_labels,
+        title="Net difference for",
+        bbox_to_anchor=(0.8, 0.9),
+        loc="center left",
+        ncol=1,
+        frameon=False,
+        fontsize=12,
+        title_fontsize=14,
+    )
+
+    # Add legend for technologies on the right side, below markers
     fig.legend(
         tech_handles,
         tech_labels,
         title="Technology",
-        bbox_to_anchor=(0.9, 0.5),
+        bbox_to_anchor=(0.8, 0.5),
         loc="center left",
         ncol=1,
-        frameon=True,
+        frameon=False,
         fontsize=12,
+        title_fontsize=14,
     )
 
-    # Remove the overall title to avoid overlap
-    # fig.suptitle(f"Cost Impact of PTES Across Different Scenarios - {year}", fontsize=20, y=0.98)
-
-    # Adjust layout with more space for right legend
+    # Adjust layout with reduced space for more compact figure
     plt.tight_layout()
-    plt.subplots_adjust(top=0.85, right=0.75)  # Reduced top margin since no suptitle
+    plt.subplots_adjust(right=0.75)  # More space for legends on the right
 
     # Save figure
-    output_file = os.path.join(output_path, f"ptes_savings_comparison_{year}.pdf")
-    fig.savefig(output_file, bbox_inches="tight", pad_inches=0.3)
+    if output_suffix:
+        output_file = os.path.join(
+            output_path, f"ptes_savings_comparison_{year}_{output_suffix}.pdf"
+        )
+    else:
+        output_file = os.path.join(output_path, f"ptes_savings_comparison_{year}.pdf")
+    fig.savefig(output_file, bbox_inches="tight", pad_inches=0.1)  # Reduced padding
 
     logger.info(f"PTES savings comparison plot saved to {output_file}")
 
-    return fig, axs
+    return fig, ax
+
+
+def plot_neighbour_countries_cost_comparison(
+    networks,
+    scenario_tuples,
+    colors,
+    year,
+    output_path,
+    figsize=(8, 4),
+    output_suffix="",
+):
+    """
+    Plot cost differences by technology in neighbour countries between scenarios.
+
+    Parameters:
+    -----------
+    networks : dict
+        Dictionary mapping scenario names to networks by year
+    scenario_tuples : list of tuples
+        List of (reference_scenario, comparison_scenario) tuples
+    colors : dict
+        Dictionary of colors for each technology
+    year : int
+        Year to plot
+    output_path : str
+        Path to save the output figure
+    figsize : tuple, optional
+        Figure size (width, height)
+    output_suffix : str, optional
+        Suffix to add to the output filename
+    """
+    logger.info(f"Generating neighbour countries cost comparison for year {year}")
+
+    def get_neighbour_costs_by_technology(network):
+        """Extract neighbour countries costs by technology from a network."""
+        capex = network.statistics.capex(
+            nice_names=False, groupby=["bus", "carrier", "bus_carrier"]
+        )
+        capex = capex.drop(capex.filter(like="DE").index)
+
+        opex = network.statistics.opex(
+            nice_names=False, groupby=["bus", "carrier", "bus_carrier"]
+        )
+        opex = opex.drop(opex.filter(like="DE").index)
+
+        # Combine capex and opex
+        costs = pd.concat([capex, opex], axis=1).sum(axis=1)
+
+        # Group by carrier (technology) by dropping bus and component levels
+        costs_by_tech = costs.droplevel([0, 1, 3]).groupby(level=0).sum()
+
+        return costs_by_tech
+
+    # Create single figure for all scenarios
+    n_comparisons = len(scenario_tuples)
+    adjusted_figsize = (max(6, n_comparisons * 1.2), figsize[1])
+    fig, ax = plt.subplots(1, 1, figsize=adjusted_figsize)
+
+    # Keep track of all displayed technologies across all comparisons
+    all_displayed_techs = set()
+
+    # First pass: collect all cost differences to determine global y-axis limits
+    all_cumulative_values = []
+    scenario_data = {}
+    baseline_costs = {}
+
+    for ref_scenario, comp_scenario in scenario_tuples:
+        # Check if both scenarios exist in the networks
+        if (
+            ref_scenario not in networks
+            or comp_scenario not in networks
+            or year not in networks[ref_scenario]
+            or year not in networks[comp_scenario]
+        ):
+            logger.warning(
+                f"Missing data for {ref_scenario} or {comp_scenario} in year {year}"
+            )
+            continue
+
+        # Get neighbour costs for both scenarios
+        ref_costs = get_neighbour_costs_by_technology(networks[ref_scenario][year])
+        comp_costs = get_neighbour_costs_by_technology(networks[comp_scenario][year])
+
+        # Store baseline costs for percentage calculations
+        baseline_total = ref_costs.sum()
+        baseline_costs[(ref_scenario, comp_scenario)] = {"total": baseline_total}
+
+        # Calculate cost differences: comp_scenario - ref_scenario
+        # Align indices to include all technologies from both scenarios
+        all_techs = ref_costs.index.union(comp_costs.index)
+        ref_costs_aligned = ref_costs.reindex(all_techs, fill_value=0)
+        comp_costs_aligned = comp_costs.reindex(all_techs, fill_value=0)
+
+        df_diff = comp_costs_aligned.sub(ref_costs_aligned)
+        df_diff = df_diff[df_diff != 0]  # Remove zero differences
+
+        # Group small contributors into "other technologies"
+        small_indices = df_diff.index[df_diff.abs() < 0.02 * df_diff.abs().sum()]
+        if len(small_indices) > 0:
+            df_diff["other technologies"] = df_diff[small_indices].sum()
+            df_diff = df_diff.drop(small_indices)
+
+        # Convert to billion EUR for plotting
+        df_diff_bn = df_diff.div(1e9)
+
+        # Sort by magnitude for proper stacking calculation
+        df_diff_bn_sorted = df_diff_bn.reindex(
+            df_diff_bn.abs().sort_values(ascending=False).index
+        )
+
+        # Store for later plotting
+        scenario_data[(ref_scenario, comp_scenario)] = df_diff_bn_sorted
+
+        # Calculate cumulative sums for stacked bar limits
+        positive_values = df_diff_bn_sorted[df_diff_bn_sorted > 0]
+        negative_values = df_diff_bn_sorted[df_diff_bn_sorted < 0]
+
+        max_positive_cumsum = positive_values.sum() if not positive_values.empty else 0
+        min_negative_cumsum = negative_values.sum() if not negative_values.empty else 0
+        total_sum = df_diff_bn_sorted.sum()
+
+        all_cumulative_values.extend(
+            [max_positive_cumsum, min_negative_cumsum, total_sum, 0]
+        )
+
+    # Calculate global y-axis limits with padding
+    if all_cumulative_values:
+        global_min = min(all_cumulative_values)
+        global_max = max(all_cumulative_values)
+        y_range = global_max - global_min
+        padding = y_range * 0.15
+        global_ylim = (global_min - padding, global_max + padding)
+        logger.info(
+            f"Global y-axis limits for neighbour countries comparison: [{global_ylim[0]:.2f}, {global_ylim[1]:.2f}] bn€"
+        )
+    else:
+        global_ylim = None
+
+    # Sort scenario tuples by their total system cost changes
+    scenario_savings = []
+    for ref_scenario, comp_scenario in scenario_tuples:
+        if (ref_scenario, comp_scenario) in scenario_data:
+            total_change = scenario_data[(ref_scenario, comp_scenario)].sum()
+            scenario_savings.append((total_change, ref_scenario, comp_scenario))
+
+    # Sort by total cost change (descending - largest savings first)
+    scenario_savings.sort(key=lambda x: x[0], reverse=True)
+    sorted_scenario_tuples = [(ref, comp) for _, ref, comp in scenario_savings]
+
+    logger.info(f"Neighbour countries scenarios ordered by total cost change:")
+    for change, ref, comp in scenario_savings:
+        logger.info(f"  {comp}: {change:.2f} bn€")
+
+    # Process each scenario pair for plotting
+    plot_data_list = []
+    x_labels = []
+
+    for ref_scenario, comp_scenario in sorted_scenario_tuples:
+        if (ref_scenario, comp_scenario) not in scenario_data:
+            continue
+
+        df_diff_bn = scenario_data[(ref_scenario, comp_scenario)]
+        all_displayed_techs.update(df_diff_bn.index)
+        plot_data_list.append(df_diff_bn)
+        x_labels.append(comp_scenario)
+
+    # Create combined DataFrame for plotting
+    if not plot_data_list:
+        logger.warning(
+            "No valid scenario comparisons found for neighbour countries plotting"
+        )
+        return None, None
+
+    combined_plot_data = pd.DataFrame(index=sorted(all_displayed_techs))
+    for i, (data, label) in enumerate(zip(plot_data_list, x_labels)):
+        combined_plot_data[label] = data.reindex(combined_plot_data.index, fill_value=0)
+
+    # Transpose so scenarios are rows and technologies are columns
+    combined_plot_data = combined_plot_data.T
+
+    # Calculate cost change markers
+    total_changes_list = []
+    total_changes_pct_list = []
+
+    for i, scenario in enumerate(combined_plot_data.index):
+        # Find the corresponding reference scenario
+        ref_scenario, comp_scenario = None, None
+        for ref_scen, comp_scen in sorted_scenario_tuples:
+            if comp_scen == scenario:
+                ref_scenario, comp_scenario = ref_scen, comp_scen
+                break
+
+        total_change = combined_plot_data.loc[scenario].sum()
+        total_changes_list.append(total_change)
+
+        if ref_scenario and (ref_scenario, comp_scenario) in baseline_costs:
+            baseline_info = baseline_costs[(ref_scenario, comp_scenario)]
+            total_change_pct = (total_change / baseline_info["total"] * 1e9) * 100
+        else:
+            total_change_pct = 0  # Fallback
+
+        total_changes_pct_list.append(total_change_pct)
+
+    # Plot stacked bar chart
+    combined_plot_data.plot.bar(
+        stacked=True,
+        ax=ax,
+        color=combined_plot_data.columns.map(colors).fillna("black"),
+        legend=False,
+        width=0.8,
+    )
+
+    # Add horizontal line at 0
+    ax.axhline(y=0, color="black", linestyle="-", linewidth=0.5, zorder=1)
+
+    # Add markers for total cost changes
+    for i, (total_change, total_change_pct) in enumerate(
+        zip(total_changes_list, total_changes_pct_list)
+    ):
+        # Determine annotation position
+        scenario_data_row = combined_plot_data.iloc[i]
+        gross_change = (
+            scenario_data_row[scenario_data_row < 0].sum()
+            if (scenario_data_row < 0).any()
+            else 0
+        )
+
+        if gross_change < 0:
+            annotation_y = gross_change
+            y_offset = -15
+            va = "top"
+        else:
+            annotation_y = 0
+            y_offset = 15
+            va = "bottom"
+
+        # Add total cost change marker
+        ax.scatter(
+            i,
+            total_change,
+            s=100,
+            marker="^",
+            facecolor="lightblue",
+            edgecolor="black",
+            linewidth=1,
+            zorder=12,
+        )
+
+        # Add annotation
+        ax.annotate(
+            f"▲ {total_change_pct:.2f} %",
+            xy=(i, annotation_y),
+            xytext=(0, y_offset),
+            textcoords="offset points",
+            fontsize=10,
+            fontweight="bold",
+            ha="center",
+            va=va,
+            zorder=15,
+        )
+
+    # Set labels and formatting
+    ax.set_xlabel("Boosting configuration", fontsize=16)
+    ax.set_ylabel("Cost Difference in Neighbour Countries [bn€]", fontsize=16)
+    ax.tick_params(axis="both", labelsize=14)
+
+    # Process x-tick labels: split at underscore and remove first part
+    current_labels = [label.get_text() for label in ax.get_xticklabels()]
+    processed_labels = []
+    for label in current_labels:
+        if "_" in label:
+            parts = label.split("_")
+            processed_label = "_".join(parts[1:])
+        else:
+            processed_label = label
+        processed_labels.append(processed_label)
+
+    ax.set_xticklabels(processed_labels)
+    plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
+
+    # Add plot title
+    title = f"Neighbour Countries Cost Impact"
+    if output_suffix:
+        title += f" - {output_suffix}"
+    ax.set_title(title, fontsize=18, pad=20)
+
+    # Set global y-axis limits
+    if global_ylim is not None:
+        ax.set_ylim(global_ylim)
+
+    # Add legends
+    from matplotlib.lines import Line2D
+
+    # Marker legend
+    marker_handle = Line2D(
+        [0],
+        [0],
+        marker="^",
+        color="lightblue",
+        markeredgecolor="black",
+        markeredgewidth=1,
+        markersize=10,
+        linestyle="None",
+    )
+
+    # Technology legend
+    sorted_displayed_techs = sorted(
+        all_displayed_techs, key=lambda x: sum(abs(combined_plot_data[x])), reverse=True
+    )
+
+    tech_handles = []
+    tech_labels = []
+    for tech in sorted_displayed_techs:
+        tech_color = colors.get(tech, "black")
+        if not tech_color or tech_color == "":
+            tech_color = "black"
+        tech_handles.append(plt.Rectangle((0, 0), 1, 1, color=tech_color))
+        tech_labels.append(tech)
+
+    # Add legends
+    fig.legend(
+        [marker_handle],
+        ["Total cost change"],
+        title="Net difference",
+        bbox_to_anchor=(0.8, 0.9),
+        loc="center left",
+        ncol=1,
+        frameon=False,
+        fontsize=12,
+        title_fontsize=14,
+    )
+
+    fig.legend(
+        tech_handles,
+        tech_labels,
+        title="Technology",
+        bbox_to_anchor=(0.8, 0.5),
+        loc="center left",
+        ncol=1,
+        frameon=False,
+        fontsize=12,
+        title_fontsize=14,
+    )
+
+    # Adjust layout
+    plt.tight_layout()
+    plt.subplots_adjust(right=0.75)
+
+    # Save figure
+    if output_suffix:
+        output_file = os.path.join(
+            output_path,
+            f"neighbour_countries_cost_comparison_{year}_{output_suffix}.pdf",
+        )
+    else:
+        output_file = os.path.join(
+            output_path, f"neighbour_countries_cost_comparison_{year}.pdf"
+        )
+
+    fig.savefig(output_file, bbox_inches="tight", pad_inches=0.1)
+    logger.info(f"Neighbour countries cost comparison plot saved to {output_file}")
+
+    return fig, ax
 
 
 def plot_system_costs(costs_agg, scenarios, year, output_path, colors):
@@ -2991,7 +3767,7 @@ def plot_system_costs(costs_agg, scenarios, year, output_path, colors):
 
     # Group small technologies into "other technologies"
     other_indices = plot_data.loc[
-        :, (plot_data.max() < 0.001 * plot_data.sum(1).max())
+        :, (plot_data.max() < 0.01 * plot_data.sum(1).max())
     ].columns
     plot_data["other technologies"] = plot_data[other_indices].sum(1)
     plot_data.drop(other_indices, axis=1, inplace=True)
@@ -3002,8 +3778,13 @@ def plot_system_costs(costs_agg, scenarios, year, output_path, colors):
     scenario_order = plot_data.sum(axis=1).sort_values(ascending=False).index
     plot_data = plot_data.loc[scenario_order, tech_totals.index]
 
+    # Scale figure size based on number of scenarios
+    n_scenarios = len(available_scenarios)
+    base_width = 6
+    width = max(base_width, n_scenarios * 0.4)  # Minimum 6, scale with scenarios
+
     # Create figure with 2 subplots (total system costs and German system costs)
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(6, 5), sharex=True)
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(width, 8), sharex=True)
 
     # Plot 1: Total system costs - simplified to Germany vs neighbour countries
     plot_data_total = plot_data.div(1e9)  # Convert to billion EUR
@@ -3061,6 +3842,11 @@ def plot_system_costs(costs_agg, scenarios, year, output_path, colors):
     ax2.set_xlabel("Scenario")
 
     # Add value labels on top of each bar for both plots
+    # Scale annotation font size based on number of scenarios
+    annotation_fontsize = max(
+        6, 10 - n_scenarios * 0.3
+    )  # Minimum 6, scale down with more scenarios
+
     for ax, data in zip([ax1, ax2], [plot_data_simplified, plot_data_de]):
         for i, scenario in enumerate(data.index):
             total = data.loc[scenario].sum()
@@ -3071,11 +3857,13 @@ def plot_system_costs(costs_agg, scenarios, year, output_path, colors):
                 ha="center",
                 va="bottom",
                 fontweight="bold",
+                fontsize=annotation_fontsize,
+                rotation=90,  # Rotate annotations vertically
             )
 
         # Set y-axis limit to accommodate annotations
         max_value = data.sum(axis=1).max()
-        ax.set_ylim(0, max_value * 1.2)  # Add 20% padding above the highest bar
+        ax.set_ylim(0, max_value * 1.4)  # Increased padding for vertical annotations
 
     # Add individual value annotations for Germany and neighbour countries on first plot
     for i, scenario in enumerate(plot_data_simplified.index):
@@ -3090,7 +3878,8 @@ def plot_system_costs(costs_agg, scenarios, year, output_path, colors):
             va="center",
             fontweight="bold",
             color="white",
-            fontsize=10,
+            fontsize=annotation_fontsize,
+            rotation=90,  # Rotate annotations vertically
         )
 
         # Annotate neighbour countries value if it exists
@@ -3106,7 +3895,8 @@ def plot_system_costs(costs_agg, scenarios, year, output_path, colors):
                     va="center",
                     fontweight="bold",
                     color="black",
-                    fontsize=10,
+                    fontsize=annotation_fontsize,
+                    rotation=90,  # Rotate annotations vertically
                 )
 
     # Create legend for regional breakdown (above the plots)
@@ -3118,15 +3908,15 @@ def plot_system_costs(costs_agg, scenarios, year, output_path, colors):
         )
         simplified_labels.append(region)
 
-    # Add legend for regional breakdown above the plots
+    # Add legend for regional breakdown below the plots
     fig.legend(
         simplified_handles,
         simplified_labels,
         title="Region",
-        bbox_to_anchor=(1.1, 1.1),
+        bbox_to_anchor=(0.5, -0.05),
         loc="upper center",
         ncol=len(simplified_labels),
-        frameon=True,
+        frameon=False,
     )
 
     # Create legend for the detailed German costs (below the plots)
@@ -3140,20 +3930,24 @@ def plot_system_costs(costs_agg, scenarios, year, output_path, colors):
             legend_handles.append(plt.Rectangle((0, 0), 1, 1, color=colors[tech]))
             legend_labels.append(tech)
 
-    # Add unified legend for technologies to the right side of the plots
+    # Add unified legend for technologies below the plots
+    # Calculate number of columns based on number of technologies and available width
+    n_tech_cols = min(
+        4, max(2, len(legend_labels) // 7)
+    )  # 2-4 columns depending on tech count
     fig.legend(
         legend_handles,
         legend_labels,
         title="Technology",
-        bbox_to_anchor=(1.05, 0.5),
-        loc="center left",
-        ncol=2,
-        frameon=True,
-        # alpha=1
+        bbox_to_anchor=(0.5, -0.15),
+        loc="upper center",
+        ncol=n_tech_cols,
+        frameon=False,
+        fontsize=10,
     )
 
-    # Adjust layout to accommodate legends
-    plt.subplots_adjust(top=0.85, bottom=0.25)
+    # Adjust layout to accommodate legends below
+    plt.subplots_adjust(top=0.95, bottom=0.25)
     plt.savefig(
         os.path.join(output_path, f"system_costs_comparison_{year}.pdf"),
         bbox_inches="tight",
@@ -3161,6 +3955,1182 @@ def plot_system_costs(costs_agg, scenarios, year, output_path, colors):
 
     logger.info(f"System costs comparison plot saved for year {year}")
     return fig, (ax1, ax2)
+
+
+def plot_storage_psd(networks_dict, year, output_path):
+    """
+    Plot power spectrum density (PSD) analysis for different storage technologies across scenarios.
+
+    Parameters:
+    -----------
+    networks_dict : dict
+        Dictionary mapping scenario names to year-network dictionaries
+    year : int
+        Year to analyze
+    output_path : str
+        Path to save the output figure
+    """
+    logger.info(f"Generating storage power spectrum analysis for year {year}")
+
+    # Define total hours per year
+    total_hours_per_year = 8760
+
+    # Define frequency bands
+    bands = {
+        "Intersemestral": (1, 2),
+        "Intrasemestral": (2, 17),
+        "Synoptical": (17, 51),
+        "Intraweekly": (51, 364),
+        "Daily": (364, 367),
+        "Intradaily": (367, np.inf),
+    }
+
+    # Storage configurations
+    storage_colors = {
+        "PTES": "Blues_r",
+        "TTES": "Blues_r",
+        "H2 Storage": "Blues_r",
+        "Battery": "Blues_r",
+    }
+
+    # Get networks for the specified year
+    year_networks = {}
+    for scenario, networks_scenario in networks_dict.items():
+        if year in networks_scenario:
+            year_networks[scenario] = networks_scenario[year]
+
+    if not year_networks:
+        logger.warning(f"No networks found for year {year}")
+        return
+
+    # Compute intersemestral share for sorting scenarios
+    intersemestral_shares = {}
+    for scenario, n in year_networks.items():
+        try:
+            storage_ts = n.stores_t.p[
+                n.stores.filter(regex="DE.*urban central water pits", axis=0).index
+            ]
+            if storage_ts.empty:
+                intersemestral_shares[scenario] = 0
+                continue
+
+            storage_ts = storage_ts.resample("H").ffill().mean(axis=1).values
+
+            # Compute FFT and Power Spectrum
+            n_samples = len(storage_ts)
+            fft_result = np.fft.fft(storage_ts)
+            freqs = np.fft.fftfreq(n_samples, d=1 / total_hours_per_year)
+            power_spectrum = np.abs(fft_result) ** 2
+
+            # Filter positive frequencies and normalize power spectrum
+            positive_indices = freqs > 0
+            freqs = freqs[positive_indices]
+            power_spectrum = power_spectrum[positive_indices]
+            power_spectrum /= power_spectrum.sum()
+
+            # Calculate intersemestral share
+            low, high = bands["Intersemestral"]
+            band_indices = (freqs >= low) & (freqs < high)
+            intersemestral_shares[scenario] = power_spectrum[band_indices].sum()
+        except Exception as e:
+            logger.warning(f"Error computing intersemestral share for {scenario}: {e}")
+            intersemestral_shares[scenario] = 0
+
+    # Sort scenarios by intersemestral share
+    sorted_scenarios = sorted(
+        intersemestral_shares.keys(),
+        key=lambda x: intersemestral_shares[x],
+        reverse=True,
+    )
+
+    if not sorted_scenarios:
+        logger.warning(f"No valid scenarios found for storage PSD analysis")
+        return
+
+    # Initialize the plot with increased spacing between subplots
+    fig, axes = plt.subplots(2, 2, figsize=(10, 8), sharex=True)
+    plt.subplots_adjust(hspace=0.4, wspace=0.3)  # Increase padding between subplots
+    axes = axes.flatten()
+
+    # Loop over storage technologies and create subplots
+    for ax, (storage_name, cmap_name) in zip(axes, storage_colors.items()):
+        scenario_data = []  # Store normalized band power data for all scenarios
+        capacity_data = []  # Store capacity data for secondary y-axis
+
+        for scenario in sorted_scenarios:
+            n = year_networks[scenario]
+
+            try:
+                # Select storage time series and capacity for the current scenario
+                if storage_name == "PTES":
+                    storage_ts = n.stores_t.p[
+                        n.stores.filter(regex="DE.*urban central water pits", axis=0)
+                        .query("e_nom_opt > 0")
+                        .index
+                    ]
+                    # Get total capacity for this storage type
+                    storage_capacity = (
+                        n.stores.filter(
+                            regex="DE.*urban central water pits", axis=0
+                        ).e_nom_opt.sum()
+                        / 1e6
+                    )  # Convert to TWh
+                elif storage_name == "TTES":
+                    storage_ts = n.stores_t.p[
+                        n.stores.filter(regex="DE.*urban central water tanks", axis=0)
+                        .query("e_nom_opt > 0")
+                        .index
+                    ]
+                    storage_capacity = (
+                        n.stores.filter(
+                            regex="DE.*urban central water tanks", axis=0
+                        ).e_nom_opt.sum()
+                        / 1e6
+                    )  # Convert to TWh
+                elif storage_name == "H2 Storage":
+                    storage_ts = n.stores_t.p[
+                        n.stores.filter(regex="DE.*H2 Store", axis=0)
+                        .query("e_nom_opt > 0")
+                        .index
+                    ]
+                    storage_capacity = (
+                        n.stores.filter(regex="DE.*H2 Store", axis=0).e_nom_opt.sum()
+                        / 1e6
+                    )  # Convert to TWh
+                elif storage_name == "Battery":
+                    storage_ts = n.stores_t.p[
+                        n.stores.filter(regex="DE.*battery", axis=0)
+                        .query("e_nom_opt > 0")
+                        .index
+                    ]
+                    storage_capacity = (
+                        n.stores.filter(regex="DE.*battery", axis=0).e_nom_opt.sum()
+                        / 1e6
+                    )  # Convert to TWh
+                else:
+                    continue
+
+                capacity_data.append(storage_capacity)
+
+                if storage_ts.empty:
+                    # Add zeros for scenarios without this storage type
+                    scenario_data.append([0] * len(bands))
+                    continue
+
+                storage_ts = storage_ts.resample("H").ffill().sum(axis=1).values
+
+                # Compute FFT and Power Spectrum
+                n_samples = len(storage_ts)
+                fft_result = np.fft.fft(storage_ts)
+                freqs = np.fft.fftfreq(
+                    n_samples, d=1 / total_hours_per_year
+                )  # Convert to cycles per year
+                power_spectrum = np.abs(fft_result) ** 2
+
+                # Filter positive frequencies and normalize power spectrum
+                positive_indices = freqs > 0
+                freqs = freqs[positive_indices]
+                power_spectrum = power_spectrum[positive_indices]
+                power_spectrum /= power_spectrum.sum()
+
+                # Categorize power into bands and normalize to a sum of 1
+                band_values = []
+                for band_name, (low, high) in bands.items():
+                    band_indices = (freqs >= low) & (freqs < high)
+                    band_values.append(power_spectrum[band_indices].sum())
+                scenario_data.append(band_values)
+
+            except Exception as e:
+                logger.warning(
+                    f"Error processing {storage_name} for scenario {scenario}: {e}"
+                )
+                # Add zeros for failed scenarios
+                scenario_data.append([0] * len(bands))
+                capacity_data.append(0)
+
+        # Stack the band values for each scenario and plot
+        scenario_data = np.array(scenario_data)
+        bottom_stack = np.zeros(len(sorted_scenarios))
+        cmap = cm.get_cmap(cmap_name, len(bands))
+        colors = [mcolors.rgb2hex(cmap(i)) for i in range(len(bands))]
+
+        for i, (band_name, color) in enumerate(zip(bands.keys(), colors)):
+            ax.bar(
+                sorted_scenarios,
+                scenario_data[:, i],
+                bottom=bottom_stack,
+                color=color,
+                width=1.0,
+                label=band_name,
+            )
+            bottom_stack += scenario_data[:, i]
+
+        # Create secondary y-axis for capacity
+        ax2 = ax.twinx()
+
+        # Plot capacity as line with markers
+        x_positions = range(len(sorted_scenarios))
+        if capacity_data and max(capacity_data) > 0:
+            ax2.plot(
+                x_positions,
+                capacity_data,
+                "ro-",
+                linewidth=2,
+                markersize=6,
+                color="red",
+                alpha=0.8,
+                # label=f"{storage_name} Capacity",
+            )
+            ax2.set_ylabel(f"{storage_name} Capacity [TWh]", fontsize=10, color="red")
+            ax2.tick_params(axis="y", labelcolor="red", labelsize=9)
+
+            # Add capacity annotations
+            for i, capacity in enumerate(capacity_data):
+                if capacity > 0:  # Only annotate non-zero capacities
+                    ax2.annotate(
+                        f"{capacity:.1f}",
+                        xy=(i, capacity),
+                        xytext=(0, 10),  # 10 points above the marker
+                        textcoords="offset points",
+                        ha="center",
+                        va="bottom",
+                        fontsize=8,
+                        color="red",
+                        fontweight="bold",
+                    )
+
+            # Set y-limits for capacity axis to give some breathing room
+            max_cap = max(capacity_data)
+            if max_cap > 0:
+                ax2.set_ylim(0, max_cap * 1.2)
+
+        # Format the subplot
+        ax.set_title(f"{storage_name}", fontsize=12)
+        ax.set_ylabel("Normalized\nPower Spectrum", fontsize=12)
+        ax.grid(axis="y", linestyle="--", linewidth=0.5)
+
+    # X-axis labels (shared across subplots)
+    for ax in axes:
+        ax.set_xticks(range(len(sorted_scenarios)))
+        ax.set_xticklabels(sorted_scenarios, rotation=45, ha="right")
+    axes[-1].set_xlabel("Scenario", fontsize=12)
+
+    # Create a single legend for the entire figure
+    # Use the last subplot's data to create legend handles and labels
+    legend_handles = []
+    legend_labels = list(bands.keys())
+    cmap = cm.get_cmap("Blues_r", len(bands))
+    colors_legend = [mcolors.rgb2hex(cmap(i)) for i in range(len(bands))]
+
+    for i, (band_name, color) in enumerate(zip(legend_labels, colors_legend)):
+        legend_handles.append(plt.Rectangle((0, 0), 1, 1, color=color))
+
+    # Add the legend to the figure - positioned below plots centrally with 3 columns
+    fig.legend(
+        legend_handles,
+        legend_labels,
+        title="Frequency Band",
+        bbox_to_anchor=(0.5, -0.03),
+        loc="upper center",
+        fontsize=12,
+        title_fontsize=12,
+        frameon=False,
+        ncol=3,
+    )
+
+    # Adjust layout to accommodate the legend and increased padding
+    fig.tight_layout()
+
+    # Save and show the plot
+    output_file = os.path.join(output_path, f"storage_power_spectrum_{year}.pdf")
+    fig.savefig(output_file, bbox_inches="tight", pad_inches=0.1)
+    plt.close(fig)
+
+    logger.info(f"Storage power spectrum analysis saved to {output_file}")
+
+
+def compute_psd(storage_ts, total_hours_per_year):
+    """Compute power spectrum density for storage time series."""
+    # Compute FFT and Power Spectrum
+    n = len(storage_ts)
+    fft_result = np.fft.fft(storage_ts)
+    freqs = np.fft.fftfreq(n, d=1 / total_hours_per_year)  # Convert to cycles per year
+    power_spectrum = np.abs(fft_result) ** 2
+
+    # Filter positive frequencies and normalize power spectrum
+    positive_indices = freqs > 0
+    freqs = freqs[positive_indices]
+    power_spectrum = power_spectrum[positive_indices]
+    power_spectrum /= power_spectrum.sum()
+
+    return pd.Series(power_spectrum, index=freqs)
+
+
+def plot_storage_psd_stacked(networks_dict, year, output_path):
+    """
+    Plot normalized PSD stacked by frequency for PTES and TTES side by side with capacity info.
+
+    Parameters:
+    -----------
+    networks_dict : dict
+        Dictionary mapping scenario names to year-network dictionaries
+    year : int
+        Year to analyze
+    output_path : str
+        Path to save the output figure
+    """
+    logger.info(f"Generating stacked storage PSD analysis for year {year}")
+
+    # Define total hours per year
+    total_hours_per_year = 8760
+
+    # Get networks for the specified year
+    year_networks = {}
+    for scenario, networks_scenario in networks_dict.items():
+        if year in networks_scenario:
+            year_networks[scenario] = networks_scenario[year]
+
+    if not year_networks:
+        logger.warning(f"No networks found for year {year}")
+        return
+
+    # Create figure with space for horizontal colorbar positioned lower
+    fig = plt.figure(figsize=(8, 8))
+    gs = fig.add_gridspec(
+        4, 2, height_ratios=[1, 0.1, 0.05, 0.1], hspace=0.4, wspace=0.4
+    )
+    ax1 = fig.add_subplot(gs[0, 0])  # Top left
+    ax2 = fig.add_subplot(gs[0, 1])  # Top right
+    cbar_ax = fig.add_subplot(gs[2, :])  # Horizontal colorbar positioned lower
+
+    # First pass: collect all data to determine common scenario order
+    all_ptes_data = pd.DataFrame()
+    all_ttes_data = pd.DataFrame()
+    all_caps_data = {}
+
+    storage_configs = [
+        ("PTES", "DE0.*water pits", all_ptes_data),
+        ("TTES", "DE0.*water tanks", all_ttes_data),
+    ]
+
+    # Collect data for both storage types
+    for storage_name, regex_pattern, df_storage in storage_configs:
+        caps_data = {}
+
+        for scenario, n in year_networks.items():
+            try:
+                # Get storage components
+                storage_components = n.stores.filter(regex=regex_pattern, axis=0).query(
+                    "e_nom_opt > 0"
+                )
+
+                if storage_components.empty:
+                    continue
+
+                # Get storage time series
+                storage_ts = n.stores_t.p[storage_components.index]
+                storage_ts = storage_ts.resample("H").ffill().sum(axis=1)
+
+                # Compute PSD
+                storage_psd = compute_psd(
+                    storage_ts, total_hours_per_year=total_hours_per_year
+                )
+
+                # Calculate the capacity for this scenario (convert to TWh)
+                caps = storage_components.e_nom_opt.sum() / 1e6
+                caps_data[scenario] = caps
+
+                # Round frequencies to integers for grouping and add scenario name
+                storage_psd.index = storage_psd.index.round().astype(int)
+                storage_psd.name = scenario
+
+                # Append to DataFrame
+                if storage_name == "PTES":
+                    all_ptes_data = pd.concat([all_ptes_data, storage_psd], axis=1)
+                else:
+                    all_ttes_data = pd.concat([all_ttes_data, storage_psd], axis=1)
+
+            except Exception as e:
+                logger.warning(
+                    f"Error processing {storage_name} for scenario {scenario}: {e}"
+                )
+                continue
+
+        all_caps_data[storage_name] = caps_data
+
+    # Determine common scenario order based on PTES intersemestral share (frequency = 1)
+    # or TTES if PTES is not available, or capacity as final fallback
+    common_scenario_order = None
+
+    if not all_ptes_data.empty and 1 in all_ptes_data.index:
+        common_scenario_order = all_ptes_data.loc[1].sort_values(ascending=False).index
+    elif not all_ttes_data.empty and 1 in all_ttes_data.index:
+        common_scenario_order = all_ttes_data.loc[1].sort_values(ascending=False).index
+    elif all_caps_data.get("PTES"):
+        common_scenario_order = (
+            pd.Series(all_caps_data["PTES"]).sort_values(ascending=False).index
+        )
+    elif all_caps_data.get("TTES"):
+        common_scenario_order = (
+            pd.Series(all_caps_data["TTES"]).sort_values(ascending=False).index
+        )
+    else:
+        common_scenario_order = list(year_networks.keys())
+
+    # Process PTES and TTES with common ordering
+    storage_types = [
+        ("PTES", "DE0.*water pits", "PTES (Water Pits)", ax1, all_ptes_data),
+        ("TTES", "DE0.*water tanks", "TTES (Water Tanks)", ax2, all_ttes_data),
+    ]
+
+    # Determine common frequency range for colorbar
+    all_freqs = set()
+    if not all_ptes_data.empty:
+        all_freqs.update(all_ptes_data.index)
+    if not all_ttes_data.empty:
+        all_freqs.update(all_ttes_data.index)
+
+    if all_freqs:
+        norm = mcolors.LogNorm(
+            vmin=max(1, min(all_freqs)),
+            vmax=min(max(all_freqs), 365 * n.snapshot_weightings.generators.min()),
+        )
+    else:
+        norm = mcolors.LogNorm(vmin=1, vmax=365)
+
+    cmap = cm.Blues_r
+
+    for storage_name, regex_pattern, title, ax, df in storage_types:
+        if df.empty:
+            logger.warning(f"No valid data found for {storage_name}")
+            ax.text(
+                0.5,
+                0.5,
+                f"No {storage_name} data available",
+                horizontalalignment="center",
+                verticalalignment="center",
+                transform=ax.transAxes,
+                fontsize=12,
+            )
+            ax.set_title(title, fontsize=14)
+            continue
+
+        # Apply common scenario order (only include scenarios that exist in this dataset)
+        available_scenarios = [s for s in common_scenario_order if s in df.columns]
+        if available_scenarios:
+            df = df[available_scenarios]
+
+        caps_data = all_caps_data.get(storage_name, {})
+        cap_data = [caps_data.get(i, 0) for i in df.columns]
+
+        # Normalize each column so that the total bar height is 1
+        df = df.div(df.sum(axis=0), axis=1)
+
+        # Iterate through frequencies and plot each frequency as a stacked contribution
+        x_positions = np.arange(len(df.columns))
+        width = 1  # Bar width
+        bottom_stack = np.zeros(len(df.columns))
+
+        for freq in df.index:
+            heights = df.loc[freq]
+            ax.bar(
+                x_positions,
+                heights,
+                width=width,
+                color=cmap(norm(freq)),
+                bottom=bottom_stack,
+                edgecolor="none",
+            )
+            bottom_stack += heights  # Update the bottom stack for the next segment
+
+        # Add a secondary y-axis for the capacity
+        if cap_data and max(cap_data) > 0:
+            ax_twin = ax.twinx()
+            ax_twin.scatter(
+                x_positions,
+                cap_data,
+                color="red",
+                marker="o",
+                s=100,
+                zorder=10,
+            )
+            ax_twin.set_ylabel(
+                f"{storage_name} capacity [TWh]", fontsize=12, color="red"
+            )
+            ax_twin.tick_params(axis="y", labelcolor="red")
+            ax_twin.set_ylim(0, max(cap_data) * 1.1)  # Add some padding for clarity
+
+        # Format the plot
+        ax.set_xticks(x_positions)
+        ax.set_xticklabels(df.columns, rotation=45, ha="right")
+        ax.set_title(f"{title}", fontsize=14)
+        ax.set_ylabel("Normalized Density", fontsize=12)
+        ax.set_xlabel("Scenario", fontsize=12)
+        ax.grid(axis="y", linestyle="--", linewidth=0.5)
+        ax.set_ylim(0, 1)
+        ax.set_xlim(-0.5, len(df.columns) - 0.5)
+
+    # Add horizontal colorbar between the plots
+    if all_freqs:
+        sm = cm.ScalarMappable(cmap=cmap, norm=norm)
+        sm.set_array([])  # Required for colorbar
+        cbar = fig.colorbar(sm, cax=cbar_ax, orientation="horizontal", pad=0.1)
+        cbar.set_label("Frequency (cycles per year)", fontsize=12)
+
+        # Set custom ticks and labels for frequencies
+        freq_labels = [1, 17, 52, 365]
+        available_freqs = [
+            f for f in freq_labels if f <= max(all_freqs) and f >= min(all_freqs)
+        ]
+        if available_freqs:
+            cbar.set_ticks(available_freqs)
+            cbar.set_ticklabels(
+                [
+                    (
+                        f"Yearly\n(1)"
+                        if f == 1
+                        else (
+                            f"Synoptical\n(17)"
+                            if f == 17
+                            else (
+                                f"Weekly\n(52)"
+                                if f == 52
+                                else f"Daily\n(365)" if f == 365 else str(f)
+                            )
+                        )
+                    )
+                    for f in available_freqs
+                ]
+            )
+
+    # Adjust layout
+    plt.tight_layout()
+
+    # Save the plot
+    output_file = os.path.join(
+        output_path, f"storage_psd_stacked_comparison_{year}.png"
+    )
+    fig.savefig(output_file, bbox_inches="tight", pad_inches=0.1, dpi=300)
+    plt.close(fig)
+
+    logger.info(f"Stacked storage PSD comparison saved to {output_file}")
+
+
+def resample_to_snapshots(
+    n: pypsa.Network, series: pd.Series, func: str = "mean"
+) -> pd.Series:
+    """
+    Resample a series to match the network's snapshots.
+
+    Parameters
+    ----------
+    n : pypsa.Network
+        The PyPSA network object containing the snapshots.
+    series : pd.Series
+        The series to be resampled.
+    func : str
+        The mode of resampling, e.g., 'mean', 'sum', etc.
+
+    Returns
+    -------
+    pd.Series
+        The resampled series with the same index as the network's snapshots.
+    """
+    sns = n.snapshots
+    sw = n.snapshot_weightings.generators
+
+    # Append last snapshot of year for bin assignment using concat instead of deprecated append
+    last_snapshot = sns[-1] + pd.Timedelta(hours=sw[sns[-1]])
+    sns_extended = pd.Index(sns.tolist() + [last_snapshot])
+
+    # Create bins: each interval is between snapshot_weightings.index[i] and [i+1]
+    bins = pd.IntervalIndex.from_breaks(sns_extended, closed="left")
+
+    # Assign each p_max_source timestamp to a bin
+    bin_labels = pd.cut(series.index, bins)
+
+    # Group by bin and apply the specified mode using agg with dictionary
+    binned_values = series.groupby(bin_labels, observed=True).agg(func)
+
+    # Reindex to match the network's snapshots
+    binned_values = binned_values.reindex(sns, fill_value=0)
+
+    return binned_values
+
+
+def get_ptes_discharge(network):
+    """Get PTES discharge energy weighted by snapshot weightings."""
+    return network.snapshot_weightings.generators.mul(
+        network.stores_t.p.clip(lower=0).filter(regex="DE.*water pit").T
+    ).T
+
+
+def get_ptes_charge(network):
+    """Get PTES charge energy weighted by snapshot weightings."""
+    return network.snapshot_weightings.generators.mul(
+        network.stores_t.p.clip(upper=0).filter(regex="DE.*water pit").T
+    ).T
+
+
+def plot_ptes_energy_quantiles(
+    network,
+    boosting_ratio_data,
+    output_path,
+    scenario_name="scenario",
+    figsize=(6, 6),
+    xlim=None,
+):
+    """
+    Plot charged and discharged energy at different electricity price quantiles
+    including boosting energy visualization.
+
+    Parameters
+    ----------
+    network : pypsa.Network
+        The PyPSA network object
+    boosting_ratio_data : xr.DataArray or pd.DataFrame
+        The boosting ratio data for PTES dischargers
+    output_path : str
+        Path to save the output plot
+    scenario_name : str
+        Name of the scenario for plot title
+    figsize : tuple
+        Figure size for the plot
+    xlim : tuple, optional
+        Fixed x-axis limits as (left_lim, right_lim) for uniform comparison across plots
+    """
+    logger.info(f"Generating PTES energy quantiles plot for {scenario_name}")
+
+    # Get PTES operation data
+    ptes_charge = get_ptes_charge(network).rename(
+        columns=lambda x: x.replace(" urban central water pits-2045", "")
+    )
+    ptes_discharge = get_ptes_discharge(network).rename(
+        columns=lambda x: x.replace(" urban central water pits-2045", "")
+    )
+
+    if ptes_charge.empty or ptes_discharge.empty:
+        logger.warning(f"No PTES data found for {scenario_name}")
+        return
+
+    # Handle boosting ratio data - convert to pandas if needed
+    if hasattr(boosting_ratio_data, "to_pandas"):
+        discharger_boosting_ratio = boosting_ratio_data.to_pandas().filter(like="DE")
+    else:
+        discharger_boosting_ratio = boosting_ratio_data.filter(like="DE")
+
+    # Match columns between discharge data and boosting ratio data
+    common_columns = ptes_discharge.columns.intersection(
+        discharger_boosting_ratio.columns
+    )
+    if common_columns.empty:
+        logger.warning(
+            f"No matching columns between discharge data and boosting ratio data for {scenario_name}"
+        )
+        return
+
+    # Filter to common columns
+    ptes_discharge_filtered = ptes_discharge[common_columns]
+    discharger_boosting_ratio_filtered = discharger_boosting_ratio[common_columns]
+
+    # Resample boosting ratios and calculate alpha (inverse)
+    try:
+        # Handle the case where boosting ratio data might be a DataFrame with multiple columns
+        if isinstance(discharger_boosting_ratio_filtered, pd.DataFrame):
+            alpha = pd.DataFrame(index=network.snapshots, columns=common_columns)
+            for col in common_columns:
+                if col in discharger_boosting_ratio_filtered.columns:
+                    resampled_series = resample_to_snapshots(
+                        network, discharger_boosting_ratio_filtered[col]
+                    )
+                    alpha[col] = resampled_series.pow(-1).replace(np.inf, 0)
+        else:
+            # Single series case
+            alpha = (
+                resample_to_snapshots(network, discharger_boosting_ratio_filtered)
+                .pow(-1)
+                .replace(np.inf, 0)
+            )
+            alpha = pd.DataFrame(alpha).reindex(columns=common_columns, fill_value=0)
+    except Exception as e:
+        logger.warning(f"Error processing boosting ratio data for {scenario_name}: {e}")
+        # Create a default alpha matrix with all ones (no boosting)
+        alpha = pd.DataFrame(1.0, index=network.snapshots, columns=common_columns)
+
+    # Create electricity prices dataframe
+    electricity_prices = pd.DataFrame(index=network.snapshots, columns=common_columns)
+    for col in common_columns:
+        bus_name = " ".join(col.split()[:2])
+        if bus_name in network.buses_t.marginal_price.columns:
+            electricity_prices[col] = network.buses_t.marginal_price[bus_name]
+
+    # Filter charge data to common columns as well
+    ptes_charge_filtered = (
+        ptes_charge[common_columns] if len(common_columns) > 0 else ptes_charge
+    )
+
+    # Create combined dataframes
+    charge_combined = pd.concat(
+        [ptes_charge_filtered.unstack(0), electricity_prices.unstack(0)], axis=1
+    )
+    charge_combined.columns = ["charge", "electricity_price"]
+    charge_combined = charge_combined.dropna()
+
+    discharge_combined = pd.concat(
+        [
+            ptes_discharge_filtered.unstack(0),
+            electricity_prices.unstack(0),
+            alpha.unstack(-1),
+        ],
+        axis=1,
+    )
+    discharge_combined.columns = ["discharge", "electricity_price", "alpha"]
+    discharge_combined = discharge_combined.dropna()
+
+    # --- reshape to long format ---
+    def to_long_signed_charge(df):
+        out = pd.DataFrame(
+            {
+                "system": df.index.get_level_values(0),
+                "ts": df.index.get_level_values(1),
+                "price": pd.to_numeric(df["electricity_price"], errors="coerce"),
+                "e": pd.to_numeric(df["charge"], errors="coerce"),
+            }
+        ).dropna(subset=["price", "e"])
+        out["e"] = out["e"].clip(upper=0)  # keep charge negative
+        return out
+
+    def to_long_signed_discharge(df):
+        out = pd.DataFrame(
+            {
+                "system": df.index.get_level_values(0),
+                "ts": df.index.get_level_values(1),
+                "price": pd.to_numeric(df["electricity_price"], errors="coerce"),
+                "e": pd.to_numeric(df["discharge"], errors="coerce"),
+                "alpha": pd.to_numeric(df["alpha"], errors="coerce"),
+            }
+        ).dropna(subset=["price", "e", "alpha"])
+        out["e"] = out["e"].clip(lower=0)  # keep discharge positive
+        return out
+
+    charge_long = to_long_signed_charge(charge_combined)
+    discharge_long = to_long_signed_discharge(discharge_combined)
+
+    if charge_long.empty or discharge_long.empty:
+        logger.warning(f"No valid charge/discharge data for {scenario_name}")
+        return
+
+    # --- 20 shared price-quantiles ---
+    n_q = 20
+    all_prices = pd.concat([charge_long["price"], discharge_long["price"]]).to_numpy()
+    edges = np.unique(
+        np.quantile(all_prices, np.linspace(0, 1, n_q + 1))
+    )  # handle flats
+    n_bins = len(edges) - 1
+
+    def add_q(df, edges):
+        q = pd.cut(
+            df["price"], bins=edges, labels=False, include_lowest=True, right=True
+        )
+        return df.assign(q=(q + 1).astype("Int64")).dropna(subset=["q"])
+
+    charge_q = add_q(charge_long, edges)
+    discharge_q = add_q(discharge_long, edges)
+
+    # --- aggregate per quantile ---
+    qs = pd.RangeIndex(1, n_bins + 1)
+
+    # charge totals (negative)
+    charge_tot = (
+        charge_q.groupby("q", observed=True)["e"].sum().reindex(qs, fill_value=0.0)
+    )
+
+    # discharge totals and boosting energy
+    g = discharge_q.groupby("q", observed=True)
+    dis_tot = g["e"].sum().reindex(qs, fill_value=0.0)
+
+    # Calculate boosting energy: sum of (alpha * discharge) for each quantile
+    boosting_energy = g.apply(
+        lambda d: (d["alpha"] * d["e"]).sum(), include_groups=False
+    ).reindex(qs, fill_value=0.0)
+
+    # --- labels: rounded € price ranges ---
+    er = np.round(edges).astype(int)
+    y_labels = [f"€{er[i]}–€{er[i+1]}" for i in range(n_bins)]
+
+    # --- convert to TWh ---
+    charge_twh = charge_tot / 1e6
+    dis_twh = dis_tot / 1e6
+    boosting_twh = boosting_energy / 1e6
+
+    # Calculate total energy amounts for legend labels
+    total_charge = abs(charge_twh.sum())  # absolute value since charge is negative
+    total_discharge = dis_twh.sum()
+    total_boosting = boosting_twh.sum()
+
+    # --- create the plot ---
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # charge bars (negative side) - blue
+    bars_charge = ax.barh(
+        qs, charge_twh.values, label=f"Charge ({total_charge:.1f} TWh)", color="blue"
+    )
+
+    # discharge bars (positive side) - red
+    bars_discharge = ax.barh(
+        qs, dis_twh.values, label=f"Discharge ({total_discharge:.1f} TWh)", color="red"
+    )
+
+    # boosting energy stacked on top of discharge - teal
+    bars_boosting = ax.barh(
+        qs,
+        boosting_twh.values,
+        left=dis_twh.values,
+        label=f"Boosting energy ({total_boosting:.1f} TWh)",
+        color="teal",
+    )
+
+    # zero line
+    ax.axvline(0, color="black", linewidth=1.2)
+
+    # axes & ticks with consistent font sizing
+    ax.set_xlabel("Aggregate energy [TWh]", fontsize=12)
+    ax.set_ylabel("Electricity price range per quantile", fontsize=12)
+    ax.set_yticks(qs)
+    ax.set_yticklabels(y_labels)
+    ax.tick_params(axis="y", labelsize=10)
+    ax.tick_params(axis="x", labelsize=10)
+
+    # x-limits with more space to ensure 0.5 TWh tick is included
+    if xlim is not None:
+        # Use provided global limits for uniform comparison
+        left_lim, right_lim = xlim
+    else:
+        # Use hardcoded default limits if no xlim parameter is provided
+        left_lim, right_lim = -20, 10
+
+    ax.grid(True, axis="x", linestyle=":", linewidth=0.6)
+    ax.legend(loc="upper left", fontsize=10)
+    ax.set_title(f"PTES Energy by Price Quantile - {scenario_name}", fontsize=14)
+
+    plt.tight_layout()
+
+    # Apply xlim after tight_layout to prevent it from being overridden
+    ax.set_xlim(left_lim, right_lim)
+
+    # Save the plot
+    output_file = os.path.join(
+        output_path, f"ptes_energy_quantiles_{scenario_name}.pdf"
+    )
+    fig.savefig(output_file, bbox_inches="tight", pad_inches=0.1)
+    plt.close(fig)
+
+    logger.info(f"PTES energy quantiles plot saved to {output_file}")
+
+
+def prepare_energy_data(network, exclude_water_pits=True):
+    """Prepare energy balance data for district heating analysis."""
+    eb_t = network.statistics.energy_balance(
+        groupby=pypsa.statistics.groupers["bus", "carrier", "bus_carrier"],
+        nice_names=False,
+        aggregate_time=False,
+    )
+    uch_de_t = eb_t.xs("urban central heat", level="bus_carrier").filter(
+        regex="DE", axis=0
+    )
+
+    uch_de_t = uch_de_t.droplevel(["component", "bus"]).groupby("carrier").sum()
+
+    return uch_de_t
+
+
+def process_generation_and_load(uch_de_t, network):
+    """Process generation and load data into price ventiles."""
+    uch_de_t_gen = (
+        uch_de_t.clip(lower=0)
+        .T.resample("3h")
+        .mean()
+        .T.mul(network.snapshot_weightings.generators)
+    )
+    uch_de_t_gen = uch_de_t_gen.loc[uch_de_t_gen[uch_de_t_gen.sum(axis=1) > 0].index]
+
+    uch_de_t_gen_prices = (
+        calc_average_electricity_price_t_ordered(network).resample("3h").mean()
+    )
+
+    uch_de_t_load = (
+        uch_de_t.clip(upper=0)
+        .T.resample("3h")
+        .mean()
+        .T.mul(network.snapshot_weightings.generators)
+    )
+    uch_de_t_load = uch_de_t_load.loc[
+        uch_de_t_load[uch_de_t_load.sum(axis=1) < 0].index
+    ]
+
+    percentiles = [
+        0,
+        0.05,
+        0.1,
+        0.15,
+        0.2,
+        0.25,
+        0.3,
+        0.35,
+        0.4,
+        0.45,
+        0.5,
+        0.55,
+        0.6,
+        0.65,
+        0.7,
+        0.75,
+        0.8,
+        0.85,
+        0.9,
+        0.95,
+        1,
+    ]
+    price_bins, bin_edges = pd.qcut(
+        uch_de_t_gen_prices, q=percentiles, labels=None, retbins=True
+    )
+
+    def format_bin_edge(value):
+        if value < 1:
+            return f"{value:.4f}"
+        if value < 10:
+            return f"{value:.2f}"
+        elif value < 100:
+            return f"{value:.1f}"
+        elif value < 1000:
+            return f"{value:.0f} "
+        else:
+            return f"{value:.0f}"
+
+    # Create labels based on actual bin edges (which may be fewer than percentiles due to duplicates='drop')
+    bin_labels_with_edges = [
+        f"< {format_bin_edge(bin_edges[i+1])}" for i in range(len(bin_edges) - 1)
+    ]
+
+    uch_de_t_gen_prices = pd.qcut(
+        uch_de_t_gen_prices,
+        q=percentiles,
+        labels=bin_labels_with_edges,
+    )
+
+    uch_de_t_gen.rename(columns=uch_de_t_gen_prices, inplace=True)
+    uch_de_t_gen = uch_de_t_gen.T.groupby(uch_de_t_gen.columns).sum().T
+    uch_de_t_gen = uch_de_t_gen[bin_labels_with_edges]
+
+    uch_de_t_load.rename(columns=uch_de_t_gen_prices, inplace=True)
+    uch_de_t_load = uch_de_t_load.T.groupby(uch_de_t_load.columns).sum().T
+    uch_de_t_load = uch_de_t_load[bin_labels_with_edges]
+
+    return uch_de_t_gen, uch_de_t_load, bin_labels_with_edges
+
+
+def plot_energy_balance_combined(
+    uch_de_t_gen_dict,
+    uch_de_t_load_dict,
+    bin_labels_with_edges,
+    output_file,
+    scenario_names,
+    colors,
+):
+    """Plot energy balance comparison across scenarios and price ventiles."""
+    fig, axes = plt.subplots(1, 2, figsize=(10, 5), sharey=True)
+    handles, labels = None, None
+
+    for ax, (scenario, uch_de_t_gen) in zip(axes, uch_de_t_gen_dict.items()):
+        uch_de_t_load = uch_de_t_load_dict[scenario]
+
+        storage_discharge_indices = uch_de_t_gen.filter(regex="discharge", axis=0).index
+        markers_to_plot = (
+            uch_de_t_gen.drop(storage_discharge_indices).sum().div(1e6).cumsum()
+        )
+
+        to_plot_gen = uch_de_t_gen.div(uch_de_t_gen.sum()).T * 100
+        to_plot_load = -uch_de_t_load.div(uch_de_t_load.sum()).T * 100
+        to_plot = pd.concat([to_plot_gen, to_plot_load], axis=1)
+
+        # 1. Drop heat vents from the technologies
+        heat_vent_cols = [col for col in to_plot.columns if "heat vent" in col.lower()]
+        to_plot.drop(heat_vent_cols, axis=1, inplace=True, errors="ignore")
+
+        # 2. Aggregate CHPs (H2, gas, and waste) as one technology
+        chp_cols = [
+            col
+            for col in to_plot.columns
+            if any(
+                chp_type in col.lower()
+                for chp_type in ["h2 chp", "gas chp", "waste chp"]
+            )
+        ]
+        if chp_cols:
+            to_plot["CHP"] = to_plot[chp_cols].sum(axis=1)
+            to_plot.drop(chp_cols, axis=1, inplace=True)
+
+        # 3. Aggregate heat pumps as one technology (excluding PTES heat pump)
+        heat_pump_cols = [
+            col
+            for col in to_plot.columns
+            if any(
+                hp_type in col.lower()
+                for hp_type in [
+                    "air heat pump",
+                    "geothermal heat pump",
+                    "river_water heat pump",
+                    "sea_water heat pump",
+                ]
+            )
+            and "ptes" not in col.lower()
+        ]
+        if heat_pump_cols:
+            to_plot["Heat pumps"] = to_plot[heat_pump_cols].sum(axis=1)
+            to_plot.drop(heat_pump_cols, axis=1, inplace=True)
+
+        # 4. Aggregate heat demand categories
+        heat_demand_cols = []
+        # Find all columns that contain demand-related keywords
+        for col in to_plot.columns:
+            col_lower = col.lower()
+            if any(
+                keyword in col_lower
+                for keyword in [
+                    "low-temperature heat for industry",
+                    "urban central heat",
+                ]
+            ):
+                heat_demand_cols.append(col)
+
+        if heat_demand_cols:
+            to_plot["Heat demand"] = to_plot[heat_demand_cols].sum(axis=1)
+            to_plot.drop(heat_demand_cols, axis=1, inplace=True)
+
+        # 5. Rescale load (demand) data to ensure it sums to -100% after removing heat vents
+        load_cols = [col for col in to_plot.columns if (to_plot[col] < 0).any()]
+        if load_cols:
+            load_sum = to_plot[load_cols].sum(axis=1)
+            # Only rescale where load_sum is not zero to avoid division by zero
+            non_zero_mask = load_sum != 0
+            scaling_factor = -100 / load_sum.where(non_zero_mask, -100)
+            to_plot.loc[non_zero_mask, load_cols] = to_plot.loc[
+                non_zero_mask, load_cols
+            ].multiply(scaling_factor[non_zero_mask], axis=0)
+
+        # Group irrelevant columns as other technologies
+        other_techs = to_plot.T.where(to_plot.abs().sum() < 5).dropna().index
+        to_plot["other technologies"] = to_plot[other_techs].sum(axis=1)
+        to_plot.drop(other_techs, inplace=True, axis=1)
+
+        to_plot = to_plot[to_plot.abs().sum().sort_values(ascending=False).index]
+
+        # Map colors from the provided color scheme
+        plot_colors = to_plot.columns.map(colors).fillna("black")
+
+        to_plot.plot.bar(ax=ax, stacked=True, color=plot_colors, width=1)
+
+        ax.axhline(0, color="black", linewidth=0.5)
+        ax2 = ax.twinx()
+        ax2.scatter(
+            markers_to_plot.index,
+            markers_to_plot,
+            color="white",
+            s=50,
+            edgecolor="black",
+        )
+
+        # Set labels and titles based on scenario position
+        if ax == axes[0]:
+            ax.set_ylabel("District heating share [%]", fontsize=14)
+            ax2.set_yticks([])
+        else:
+            ax2.set_ylabel(
+                "Cumulative heat generation\nwithout storage [TWh]", fontsize=14
+            )
+
+        # Use the provided scenario name or clean up the key
+        scenario_title = scenario_names.get(scenario, scenario)
+        ax.set_title(scenario_title, fontsize=16)
+        ax.set_xlabel("Electricity price ventiles [€/MWh]", fontsize=14)
+        ax.set_xlim(-0.5, len(to_plot) - 0.5)
+        ax.set_ylim(-100, 100)
+        ax2.set_ylim(0, 220)
+
+        if handles is None and labels is None:
+            handles, labels = ax.get_legend_handles_labels()
+        else:
+            handles += ax.get_legend_handles_labels()[0]
+            labels += ax.get_legend_handles_labels()[1]
+
+        # Turn ax legend off
+        if ax.get_legend():
+            ax.get_legend().remove()
+        # Increase xticklabel fontsize
+        ax.tick_params(labelsize=13)
+        ax2.tick_params(labelsize=13)
+
+    # Clean up labels for legend
+    import re
+
+    labels = [
+        re.sub(
+            "urban central heat$",
+            "urban central heat for residential and services",
+            label,
+        )
+        for label in labels
+    ]
+    labels = [label.replace("urban central ", "") for label in labels]
+    labels = [label.replace("water pits", "PTES") for label in labels]
+    labels = [label.replace("water tanks", "TTES") for label in labels]
+    labels = [
+        label.replace(" charger", "").replace(" discharger", "") for label in labels
+    ]
+
+    # Handle new aggregated technology names
+    labels = [label.replace("CHP", "Combined heat and power") for label in labels]
+    labels = [
+        label.replace("Heat pumps", "Heat pumps (without booster)") for label in labels
+    ]
+    labels = [label.replace("Heat demand", "Heat demand") for label in labels]
+
+    # More aggressive cleanup for heat demand variations
+    labels = [
+        (
+            "Heat demand"
+            if any(
+                demand_term in label.lower()
+                for demand_term in [
+                    "heat for residential and services",
+                    "low-temperature heat for industry",
+                    "residential and services",
+                ]
+            )
+            else label
+        )
+        for label in labels
+    ]
+
+    # Remove duplicates
+    unique_labels = list(dict.fromkeys(labels))
+    unique_handles = [handles[labels.index(label)] for label in unique_labels]
+
+    fig.legend(
+        unique_handles,
+        unique_labels,
+        loc="lower center",
+        bbox_to_anchor=(0.5, -0.2),
+        ncol=4,
+        frameon=False,
+        title="Technology",
+        fontsize=10,
+    )
+    fig.tight_layout()
+    fig.savefig(output_file, bbox_inches="tight", pad_inches=0.2)
+    plt.close(fig)
+
+    logger.info(f"Energy balance comparison plot saved to {output_file}")
 
 
 def main(snakemake):
@@ -3181,9 +5151,22 @@ def main(snakemake):
     except:
         override_colors = {}
 
-    # Create output directory
+    # Create output directory and subdirectories for organization
     output_path = os.path.dirname(snakemake.output.sysgf_summary)
     os.makedirs(output_path, exist_ok=True)
+
+    # Create subdirectories for different plot categories
+    subdirs = {
+        "costs": os.path.join(output_path, "costs"),
+        "energy_balances": os.path.join(output_path, "energy_balances"),
+        "storage_operation": os.path.join(output_path, "storage_operation"),
+        "prices": os.path.join(output_path, "prices"),
+        "supply": os.path.join(output_path, "supply"),
+        "summary": os.path.join(output_path, "summary"),
+    }
+
+    for subdir in subdirs.values():
+        os.makedirs(subdir, exist_ok=True)
 
     logger.info(f"Generating system analysis for run: {run_name}")
 
@@ -3191,6 +5174,9 @@ def main(snakemake):
     networks, summary_df, costs_agg = process_networks(
         run_name, scenarios, planning_horizons
     )
+
+    # Save summary DataFrame
+    summary_df.to_csv(os.path.join(subdirs["summary"], "summary.csv"), index=False)
 
     if not networks:
         logger.error("No networks could be loaded")
@@ -3206,21 +5192,23 @@ def main(snakemake):
         costs_agg,
         scenarios,
         2045,
-        output_path,
+        subdirs["costs"],
         colors,
     )
 
     # 1. Plot price duration curves with new implementation
-    plot_price_duration_curves(networks, output_path)
+    plot_price_duration_curves(networks, subdirs["prices"])
 
     # 2. Plot urban central heat supply comparison for each scenario - consolidated in one figure
-    plot_uch_supply(networks, os.path.join(output_path, "uch_supply.pdf"), colors)
+    plot_uch_supply(networks, os.path.join(subdirs["supply"], "uch_supply.pdf"), colors)
 
     # 3. Plot summary metrics
-    plot_summary_metrics(summary_df, output_path)
+    plot_summary_metrics(summary_df, subdirs["summary"])
 
     # 4. Plot PTES SOCs ranges for networks
-    plot_ptes_socs(networks, output_path + "/soc_comparison.png")
+    plot_ptes_socs(
+        networks, os.path.join(subdirs["storage_operation"], "soc_comparison.png")
+    )
 
     # Plot PTES savings comparison
     # Define scenario tuples for PTES comparison
@@ -3235,30 +5223,101 @@ def main(snakemake):
             available_tuples.append((ref, comp))
 
     if available_tuples:
-        plot_ptes_price_impact_scatter(networks, available_tuples, output_path)
+        plot_ptes_price_impact_scatter(networks, available_tuples, subdirs["prices"])
 
-    # 6. Plot PTES savings comparison
+    # 6. Plot PTES savings comparison grouped by supply temperature scenarios
     if available_tuples:
-        for year in planning_horizons:
-            plot_ptes_savings_comparison(
-                available_tuples, costs_agg, colors, year, output_path, figsize=(8, 8)
-            )
+        # Split available tuples by supply temperature scenarios
+        high_temp_tuples = []
+        low_temp_tuples = []
 
-    # 5. Plot dual comparison if configured
-    if (
-        "dual_comparison" in snakemake.params.plotting
-        and snakemake.params.plotting["dual_comparison"]["enable"]
-    ):
-        scenario_A = snakemake.params.plotting["dual_comparison"]["scenario_A"]
-        scenario_B = snakemake.params.plotting["dual_comparison"]["scenario_B"]
-        if scenario_A in costs_agg.index.get_level_values(
-            0
-        ) and scenario_B in costs_agg.index.get_level_values(0):
+        for ref_scenario, comp_scenario in available_tuples:
+            # Check if either scenario contains "HighSupplyTemperature" or "LowSupplyTemperature"
+            if (
+                "HighSupplyTemperature" in ref_scenario
+                or "HighSupplyTemperature" in comp_scenario
+            ):
+                high_temp_tuples.append((ref_scenario, comp_scenario))
+            elif (
+                "LowSupplyTemperature" in ref_scenario
+                or "LowSupplyTemperature" in comp_scenario
+            ):
+                low_temp_tuples.append((ref_scenario, comp_scenario))
+            else:
+                # If neither scenario contains the temperature keywords, add to both groups
+                # (this handles edge cases where scenario naming might be different)
+                logger.warning(
+                    f"Scenario tuple {ref_scenario} vs {comp_scenario} doesn't contain temperature keywords"
+                )
+
+        # Plot PTES savings comparison for HighSupplyTemperature scenarios
+        if high_temp_tuples:
+            logger.info(
+                f"Plotting PTES savings comparison for HighSupplyTemperature scenarios: {high_temp_tuples}"
+            )
+            for year in planning_horizons:
+                plot_ptes_savings_comparison(
+                    high_temp_tuples,
+                    costs_agg,
+                    colors,
+                    year,
+                    subdirs["costs"],
+                    figsize=(6, 8),
+                    output_suffix="HighSupplyTemperature",
+                )
+                # Call the neighbour countries cost comparison function
+                plot_neighbour_countries_cost_comparison(
+                    networks=networks,  # Your networks dictionary
+                    scenario_tuples=high_temp_tuples,
+                    colors=colors,  # Same colors dictionary you use for other plots
+                    year=year,  # Or whatever year you're analyzing
+                    output_path=subdirs["costs"],
+                    output_suffix="HighSupplyTemperature",  # Optional, same as for regular function
+                )
+        else:
+            logger.info("No HighSupplyTemperature scenario tuples found")
+
+        # Plot PTES savings comparison for LowSupplyTemperature scenarios
+        if low_temp_tuples:
+            logger.info(
+                f"Plotting PTES savings comparison for LowSupplyTemperature scenarios: {low_temp_tuples}"
+            )
+            for year in planning_horizons:
+                plot_ptes_savings_comparison(
+                    low_temp_tuples,
+                    costs_agg,
+                    colors,
+                    year,
+                    subdirs["costs"],
+                    figsize=(6, 8),
+                    output_suffix="LowSupplyTemperature",
+                )
+                # Call the neighbour countries cost comparison function
+                plot_neighbour_countries_cost_comparison(
+                    networks=networks,  # Your networks dictionary
+                    scenario_tuples=low_temp_tuples,
+                    colors=colors,  # Same colors dictionary you use for other plots
+                    year=year,  # Or whatever year you're analyzing
+                    output_path=subdirs["costs"],
+                    output_suffix="LowSupplyTemperature",  # Optional, same as for regular function
+                )
+        else:
+            logger.info("No LowSupplyTemperature scenario tuples found")
+
+    # 5. Plot dual comparison for all available tuples
+    if available_tuples:
+        for scenario_A, scenario_B in available_tuples:
             plot_dual_comparison(
-                networks, costs_agg, scenario_A, scenario_B, colors, output_path
+                networks,
+                costs_agg,
+                scenario_A,
+                scenario_B,
+                colors,
+                subdirs["costs"],
+                subdirs["energy_balances"],
             )
 
-            # Also plot energy balance comparison when dual comparison is enabled
+            # Also plot energy balance comparison for each tuple
             if scenario_A in networks and scenario_B in networks:
                 # First check that we have valid network data for both scenarios
                 network_A = networks[scenario_A]
@@ -3273,24 +5332,168 @@ def main(snakemake):
                     plot_energy_balance_comparison(
                         network_A_year,
                         network_B_year,
-                        f"Energy Balance Comparison: {scenario_A} vs {scenario_B}",
+                        [scenario_A, scenario_B],
                         os.path.join(
-                            output_path,
+                            subdirs["energy_balances"],
                             f"energy_balance_comparison_{scenario_A}_{scenario_B}.pdf",
                         ),
                         colors,
                     )
 
-    # 5. Plot sensitivity analysis if configured
-    if sensitivity_runs:
-        plot_sensitivity_analysis(
-            costs_agg,
-            sensitivity_runs,
-            scenarios,
-            reference_scenario,
-            colors,
-            output_path,
-        )
+                    # Plot seasonal heat balance comparison with deltaT visualization
+                    plot_seasonal_heat_balance(
+                        network_A_year,
+                        network_B_year,
+                        scenario_A,
+                        scenario_B,
+                        colors,
+                        subdirs["energy_balances"],
+                        list(network_A_year.snapshots.year)[0],
+                    )
+
+                    # Plot seasonal heat balance comparison with electricity prices
+                    plot_seasonal_heat_balance_with_prices(
+                        network_A_year,
+                        network_B_year,
+                        scenario_A,
+                        scenario_B,
+                        colors,
+                        subdirs["energy_balances"],
+                        list(network_A_year.snapshots.year)[0],
+                    )
+
+                    # Plot energy balance combined comparison across price ventiles
+                    try:
+                        uch_de_t_A = prepare_energy_data(network_A_year)
+                        uch_de_t_B = prepare_energy_data(network_B_year)
+
+                        uch_de_t_gen_A, uch_de_t_load_A, bin_labels_A = (
+                            process_generation_and_load(uch_de_t_A, network_A_year)
+                        )
+                        uch_de_t_gen_B, uch_de_t_load_B, bin_labels_B = (
+                            process_generation_and_load(uch_de_t_B, network_B_year)
+                        )
+
+                        # Use consistent bin labels (from first scenario)
+                        bin_labels_with_edges = bin_labels_A
+
+                        # Create dictionaries for the plotting function
+                        uch_de_t_gen_dict = {
+                            scenario_A: uch_de_t_gen_A,
+                            scenario_B: uch_de_t_gen_B,
+                        }
+                        uch_de_t_load_dict = {
+                            scenario_A: uch_de_t_load_A,
+                            scenario_B: uch_de_t_load_B,
+                        }
+
+                        # Create clean scenario names for display
+                        scenario_names = {
+                            scenario_A: scenario_A.replace("_", " "),
+                            scenario_B: scenario_B.replace("_", " "),
+                        }
+
+                        plot_energy_balance_combined(
+                            uch_de_t_gen_dict,
+                            uch_de_t_load_dict,
+                            bin_labels_with_edges,
+                            os.path.join(
+                                subdirs["energy_balances"],
+                                f"uch_balance_price_ventiles_{scenario_A}_{scenario_B}.pdf",
+                            ),
+                            scenario_names,
+                            colors,
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to generate price ventiles comparison for {scenario_A} vs {scenario_B}: {e}"
+                        )
+
+    # 7. Plot storage power spectrum analysis for sensitivity runs
+    if (
+        "sensitivities" in snakemake.params.plotting
+        and snakemake.params.plotting["sensitivities"]["enable"]
+    ):
+        sensitivity_reference = snakemake.params.plotting["sensitivities"]["reference"]
+        sensitivity_runs = snakemake.params.plotting["sensitivities"]["runs"]
+
+        # Create filtered networks dict with only reference and sensitivity scenarios
+        sensitivity_scenarios = [sensitivity_reference] + sensitivity_runs
+        filtered_networks = {
+            scenario: networks[scenario]
+            for scenario in sensitivity_scenarios
+            if scenario in networks
+        }
+
+        if filtered_networks:
+            for year in planning_horizons:
+                plot_storage_psd(filtered_networks, year, subdirs["storage_operation"])
+                plot_storage_psd_stacked(
+                    filtered_networks, year, subdirs["storage_operation"]
+                )
+                plot_ptes_socs(
+                    filtered_networks,
+                    output_path=os.path.join(
+                        subdirs["storage_operation"],
+                        f"soc_comparison_sensitivity_{year}.png",
+                    ),
+                )
+        else:
+            logger.warning(
+                "No sensitivity scenarios found in networks for storage PSD analysis"
+            )
+    else:
+        logger.info("Sensitivity analysis disabled, skipping storage PSD plot")
+
+    # 8. Plot PTES energy quantiles for each scenario with uniform x-axis limits
+    # Use simplified global xlim: -20 to +10 TWh
+    global_ptes_xlim = (-20, 10)
+
+    for scenario in scenarios:
+        if scenario in networks:
+            scenario_networks = networks[scenario]
+            for year, network in scenario_networks.items():
+                # Try to find the corresponding boosting ratio file dynamically
+                resources_path = os.path.join("resources", run_name, scenario)
+
+                if os.path.exists(resources_path):
+                    # Look for the boosting ratio file
+                    for file in os.listdir(resources_path):
+                        if file.startswith(
+                            "ptes_discharger_temperature_boosting_ratio_profiles"
+                        ) and file.endswith(f"{year}.nc"):
+                            boosting_ratio_file = os.path.join(resources_path, file)
+
+                            try:
+                                logger.info(
+                                    f"Loading boosting ratio data from {boosting_ratio_file}"
+                                )
+                                boosting_ratio_data = xr.open_dataarray(
+                                    boosting_ratio_file
+                                )
+                                if "noboost" in scenario.lower():
+                                    boosting_ratio_data = boosting_ratio_data.where(
+                                        boosting_ratio_data <= 0, 0
+                                    )
+
+                                # Generate the plot with uniform x-axis limits
+                                plot_ptes_energy_quantiles(
+                                    network,
+                                    boosting_ratio_data,
+                                    subdirs["storage_operation"],
+                                    scenario_name=f"{scenario}_{year}",
+                                    figsize=(8, 8),
+                                    xlim=global_ptes_xlim,
+                                )
+                                break  # Found and processed the file
+                            except Exception as e:
+                                logger.warning(
+                                    f"Failed to load boosting ratio data for {scenario} {year}: {e}"
+                                )
+                else:
+                    logger.warning(
+                        f"Resources path {resources_path} does not exist for scenario {scenario}"
+                    )
 
     # Save data for further analysis
     summary_df.to_csv(snakemake.output.sysgf_summary)
