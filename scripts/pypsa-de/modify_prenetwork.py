@@ -1298,7 +1298,17 @@ def _get_component_pair(n, n_ref, component_type):
     return component, baseline_component
 
 
-def _identify_non_german_extendable(component, component_type):
+def _get_component_mask(lines_or_links, country, countries):
+    return (
+        lines_or_links.bus0.str.contains(country)
+        & lines_or_links.bus1.str.contains("|".join(countries))
+    ) | (
+        lines_or_links.bus0.str.contains("|".join(countries))
+        & lines_or_links.bus0.str.contains(country)
+    )
+
+
+def _identify_non_german_extendable(component, component_type, countries):
     """
     Identify non-German extendable components.
 
@@ -1308,6 +1318,8 @@ def _identify_non_german_extendable(component, component_type):
         Component dataframe.
     component_type : str
         Component type name.
+    countries : list
+        List of country codes (excluding Germany).
 
     Returns
     -------
@@ -1321,6 +1333,10 @@ def _identify_non_german_extendable(component, component_type):
             lambda x: (~x.str.startswith("DE").any()) & (not x.name.startswith("EU")),
             axis=1,
         )
+        # Unify with cross-country interconnector indices
+        ic_component_mask = _get_component_mask(component, "DE", countries)
+        non_german = non_german | ic_component_mask
+
     else:
         # For other components, check if bus is not in Germany
         non_german = ~component.bus.str.startswith(("DE", "EU"))
@@ -1417,6 +1433,10 @@ def _apply_capacity_limits(
                 ),
                 axis=1,
             )
+        else:
+            component_df.loc[indices, nom_max_attr] = baseline_component.loc[
+                indices, nom_max_attr
+            ]
 
 
 def fix_foreign_investments(n, n_ref, slack=0, nom_min=True, nom_max=False):
@@ -1456,16 +1476,20 @@ def fix_foreign_investments(n, n_ref, slack=0, nom_min=True, nom_max=False):
     # List of component types that can have investment decisions
     investment_components = ["Generator", "StorageUnit", "Store", "Link", "Line"]
 
+    # Get list of countries (excluding Germany and empty strings)
+    countries = n.buses.country.unique()
+    countries = countries[(countries != "") & (countries != "DE") & ~pd.isna(countries)]
+
     # For each component type
     for component_type in investment_components:
         component, baseline_component = _get_component_pair(n, n_ref, component_type)
 
-        to_fix = _identify_non_german_extendable(component, component_type)
+        to_fix = _identify_non_german_extendable(component, component_type, countries)
 
         if not any(to_fix):
             continue
 
-        indices = component.index[to_fix]
+        indices = component.index[to_fix].intersection(baseline_component.index)
 
         # Set optimized capacity from reference network as lower and upper
         # bound rounding values to the nearest integer and inserting slack
