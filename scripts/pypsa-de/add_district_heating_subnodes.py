@@ -639,7 +639,6 @@ def add_subnodes(
             subnode,
             name,
             subnodes_rest,
-            dynamic_ptes_capacity,
             limit_ptes_potential_subnodes,
             limit_ptes_potential_mother_nodes,
         )
