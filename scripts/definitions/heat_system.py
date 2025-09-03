@@ -223,7 +223,13 @@ class HeatSystem(Enum):
         str
             The name for the heat pump costs.
         """
-        if heat_source in ["ptes", "sea_water", "river_water", "geothermal"]:
+        if heat_source in [
+            "ptes",
+            "geothermal",
+            "electrolysis excess",
+            "sea_water",
+            "river_water",
+        ]:
             return f"{self.central_or_decentral} excess-heat-sourced heat pump"
         else:
             return f"{self.central_or_decentral} {heat_source}-sourced heat pump"
