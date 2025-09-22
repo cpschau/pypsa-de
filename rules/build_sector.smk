@@ -322,7 +322,7 @@ rule build_geothermal_heat_potential:
     input:
         isi_heat_potentials="data/isi_heat_utilisation_potentials.xlsx",
         regions_onshore=lambda w: (
-            resources("regions_onshore_base-restricted_s_{clusters}.geojson")
+            resources("regions_onshore_base-extended_s_{clusters}.geojson")
             if config_provider("sector", "district_heating", "subnodes", "enable")(w)
             else resources("regions_onshore_base_s_{clusters}.geojson")
         ),

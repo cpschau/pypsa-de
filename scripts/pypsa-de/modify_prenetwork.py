@@ -1061,9 +1061,9 @@ def force_connection_nep_offshore(n, current_year, costs):
 
     if int(snakemake.params.offshore_nep_force["delay_years"]) != 0:
         # Modify 'Inbetriebnahmejahr' by adding the delay years for rows where 'Inbetriebnahmejahr' > 2025
-        offshore.loc[offshore["Inbetriebnahmejahr"] > 2025, "Inbetriebnahmejahr"] += (
-            int(snakemake.params.offshore_nep_force["delay_years"])
-        )
+        offshore.loc[
+            offshore["Inbetriebnahmejahr"] > 2025, "Inbetriebnahmejahr"
+        ] += int(snakemake.params.offshore_nep_force["delay_years"])
         logger.info(
             f"Delaying NEP offshore connection points by {snakemake.params.offshore_nep_force['delay_years']} years."
         )
@@ -1335,7 +1335,7 @@ def _identify_non_german_extendable(component, component_type, countries):
         )
         # Unify with cross-country interconnector indices
         ic_component_mask = _get_component_mask(component, "DE", countries)
-        non_german = non_german | ic_component_mask
+        non_german = non_german  # | ic_component_mask
 
     else:
         # For other components, check if bus is not in Germany
@@ -1354,8 +1354,110 @@ def _identify_non_german_extendable(component, component_type, countries):
     return non_german & extendable
 
 
+def _unfix_bottlenecks(component_df, baseline_component, component_type, indices):
+    if component_type == "Link":
+        # Links that have 0-cost and are extendable
+        virtual_links = [
+            "land transport oil",
+            "land transport fuel cell",
+            "solid biomass for industry",
+            "gas for industry",
+            "industry methanol",
+            "naphtha for industry",
+            "process emissions",
+            "coal for industry",
+            "H2 for industry",
+            "shipping methanol",
+            "shipping oil",
+            "kerosene for aviation",
+            "agriculture machinery oil",
+            "co2 sequestered",
+        ]
+
+        _idx = component_df.loc[
+            component_df.carrier.isin(virtual_links)
+        ].index.intersection(indices)
+        component_df.loc[_idx, "p_nom_extendable"] = True
+
+        # Bottleneck links can be extended, but not reduced to fix infeasibilities due to numerical inconsistencies
+        bottleneck_links = [
+            "electricity distribution grid",
+            "waste CHP",
+            "SMR",
+            # Boilers create bottlenecks AND should be extendable for fixed_profile_scaling constraints to be applied correctly
+            "rural gas boiler",
+            "urban decentral gas boiler",
+            # Biomass for 2035 when gas is banned
+            "rural biomass boiler",
+            "urban decentral biomass boiler",
+        ]
+        _idx = component_df.loc[
+            component_df.carrier.isin(bottleneck_links)
+        ].index.intersection(indices)
+        component_df.loc[_idx, "p_nom_extendable"] = baseline_component.loc[
+            _idx, "p_nom_extendable"
+        ]
+        component_df.loc[_idx, "p_nom_min"] = baseline_component.loc[_idx, "p_nom_opt"]
+
+        # Waste outside DE can also be burned directly
+        _idx = component_df.query(
+            "carrier == 'HVC to air' and not index.str.startswith('DE')"
+        ).index.intersection(indices)
+        component_df.loc[_idx, "p_nom_extendable"] = True
+        component_df.loc[_idx, "p_nom_min"] = baseline_component.loc[_idx, "p_nom_opt"]
+
+    if component_type == "Generator":
+        fuels = [
+            "lignite",
+            "coal",
+            "oil primary",
+            "uranium",
+            "gas primary",
+        ]
+        vents = [
+            "urban central heat vent",
+            "rural heat vent",
+            "urban decentral heat vent",
+        ]
+        _idx = component_df.loc[
+            component_df.carrier.isin(fuels + vents)
+        ].index.intersection(indices)
+        component_df.loc[_idx, "p_nom_extendable"] = True
+
+    if component_type == "Store":
+        carriers = [
+            "co2",
+            "co2 sequestered",
+        ]
+        _idx = component_df.loc[component_df.carrier.isin(carriers)].index.intersection(
+            indices
+        )
+        component_df.loc[_idx, "e_nom_extendable"] = True
+
+    if component_type == "Line":
+        component_df.loc[indices, "s_nom_extendable"] = baseline_component.loc[
+            indices, "s_nom_extendable"
+        ]
+        component_df.loc[indices, "s_nom_min"] = np.minimum(
+            baseline_component.loc[indices, "s_nom_opt"] * (1 - 0.01),
+            baseline_component.loc[indices, "s_nom"],
+        )
+        component_df.loc[indices, "s_nom_max"] = baseline_component.loc[
+            indices, "s_nom_opt"
+        ] * (1 + 0.01)
+        component_df.loc[indices, "s_nom"] = baseline_component.loc[indices, "s_nom"]
+    return
+
+
 def _apply_capacity_limits(
-    n, component_type, indices, baseline_component, slack, nom_min, nom_max
+    n,
+    component_type,
+    indices,
+    baseline_component,
+    slack,
+    nom_min,
+    nom_max,
+    unfix_bottlenecks,
 ):
     """
     Apply capacity limits to components.
@@ -1412,13 +1514,17 @@ def _apply_capacity_limits(
             indices, nom_opt_attr
         ]
         component_df.loc[indices, extendable_attr] = False
+        if unfix_bottlenecks:
+            _unfix_bottlenecks(
+                component_df, baseline_component, component_type, indices
+            )
     else:
         if nom_min:
             component_df.loc[indices, nom_min_attr] = baseline_component.loc[
                 indices
             ].apply(
                 lambda row: max(
-                    np.floor(row[nom_opt_attr]) * (1 - slack),
+                    row[nom_opt_attr] * (1 - slack),
                     row[nom_min_attr],
                 ),
                 axis=1,
@@ -1439,7 +1545,9 @@ def _apply_capacity_limits(
             ]
 
 
-def fix_foreign_investments(n, n_ref, slack=0, nom_min=True, nom_max=False):
+def fix_foreign_investments(
+    n, n_ref, slack=0, nom_min=True, nom_max=False, unfix_bottlenecks=False
+):
     """
     For all extendable components located outside Germany, this function sets their
     minimum and maximum capacity limits to match the optimized capacity from a
@@ -1495,7 +1603,14 @@ def fix_foreign_investments(n, n_ref, slack=0, nom_min=True, nom_max=False):
         # bound rounding values to the nearest integer and inserting slack
         # to avoid constraint violations
         _apply_capacity_limits(
-            n, component_type, indices, baseline_component, slack, nom_min, nom_max
+            n,
+            component_type,
+            indices,
+            baseline_component,
+            slack,
+            nom_min,
+            nom_max,
+            unfix_bottlenecks,
         )
 
         logger.info(f"Fixed {sum(to_fix)} {component_type} components outside Germany")
@@ -1600,6 +1715,7 @@ if __name__ == "__main__":
             snakemake.params["fix_foreign_investments"]["slack"],
             snakemake.params["fix_foreign_investments"]["nom_min"],
             snakemake.params["fix_foreign_investments"]["nom_max"],
+            snakemake.params["fix_foreign_investments"]["unfix_virtual_components"],
         )
 
     n.export_to_netcdf(snakemake.output.network)

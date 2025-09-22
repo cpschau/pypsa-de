@@ -934,7 +934,7 @@ def plot_seasonal_heat_balance_unified(
         else:
             # Temperature delta data
             ff_temp_B = xr.open_dataarray(
-                f"resources/{snakemake.params.run}/{scenario_B}/central_heating_forward_temperature_profiles_base_s_27_2045.nc"
+                f"resources/{snakemake.params.run}/{scenario_B}/central_heating_forward_temperature_profiles_base_s_49_2045.nc"
             )
             delta_baseline = (
                 get_delta_ff_top(ff_temp_B)
@@ -947,7 +947,7 @@ def plot_seasonal_heat_balance_unified(
             winter_secondary_baseline = delta_baseline.loc[winter_start:winter_end]
 
             ff_temp_A = xr.open_dataarray(
-                f"resources/{snakemake.params.run}/{scenario_A}/central_heating_forward_temperature_profiles_base_s_27_2045.nc"
+                f"resources/{snakemake.params.run}/{scenario_A}/central_heating_forward_temperature_profiles_base_s_49_2045.nc"
             )
             delta_noptes = (
                 get_delta_ff_top(ff_temp_A)
@@ -1554,12 +1554,13 @@ def plot_price_duration_curves(networks_dict, output_path, figsize=(21, 7)):
     ax[2].set_title("Average District Heating Price")
 
     # Set y-axis limits based on 99.5 percentile
-    if hv_ylim is not None:
-        ax[0].set_ylim(0, hv_ylim)
-    if lv_ylim is not None:
-        ax[1].set_ylim(0, lv_ylim)
-    if dh_ylim is not None:
-        ax[2].set_ylim(0, dh_ylim)
+    # logger.info(f"HV Y-Limit: {hv_ylim}")
+    # if hv_ylim is not None and hv_ylim != np.nan and hv_ylim != np.inf:
+    #     ax[0].set_ylim(0, hv_ylim)
+    # if lv_ylim is not None:
+    #     ax[1].set_ylim(0, lv_ylim)
+    # if dh_ylim is not None:
+    #     ax[2].set_ylim(0, dh_ylim)
 
     for ax_ in ax:
         ax_.set_ylabel("Price [EUR/MWh]")
@@ -1944,7 +1945,7 @@ def plot_energy_balance_comparison(network1, network2, scenarios, output_path, c
             .xs("urban central heat", level=3)
             .reset_index()
         )
-        eb_uch = eb_uch.loc[eb_uch.bus.str.contains(r"DE\d \d .*urban"), :]
+        eb_uch = eb_uch.loc[eb_uch.bus.str.contains(r"DE\d \d+ .*urban"), :]
 
         # Strip 'urban central heat' from the bus index
         eb_uch["bus"] = eb_uch["bus"].str.replace(" urban central heat", "")
@@ -2025,6 +2026,7 @@ def plot_energy_balance_comparison(network1, network2, scenarios, output_path, c
         "low-temperature heat for industry",
         "urban central heat",
         "urban central heat vent",
+        "urban central electrolysis excess heat pump",
         "urban central geothermal heat pump",
         "urban central geothermal heat direct utilisation",
         "urban central river_water heat pump",
@@ -2073,6 +2075,7 @@ def plot_energy_balance_comparison(network1, network2, scenarios, output_path, c
         "low-temperature heat for industry",
         "urban central heat",
         "urban central heat vent",
+        "urban central electrolysis excess heat pump",
         "urban central geothermal heat pump",
         "urban central geothermal heat direct utilisation",
         "urban central river_water heat pump",
@@ -4929,6 +4932,158 @@ def process_generation_and_load(uch_de_t, network):
     return uch_de_t_gen, uch_de_t_load, bin_labels_with_edges
 
 
+def get_boosting_energy(
+    n: pypsa.Network,
+    boosting_technology: str = "resistive heater",
+    boosting_ratio_fn: str = None,
+):
+    """Calculate boosting energy for PTES discharge per snapshot (Germany).
+
+    Parameters
+    ----------
+    n : pypsa.Network
+        Network with snapshots and time series.
+    boosting_technology : str
+        Either "resistive heater" or "urban central ptes heat pump".
+    boosting_ratio_fn : str | None
+        Path to an xarray DataArray/Dataset containing boosting ratios per node and time
+        (required for "resistive heater").
+
+    Returns
+    -------
+    pd.Series
+        Boosting energy per snapshot (same units as the weighted discharge/power integration in the network,
+        typically MWh per snapshot when multiplied by snapshot weights).
+    """
+    # Branch 1: Resistive heater uses a boosting ratio times PTES discharge per node
+    if boosting_technology.lower() == "resistive heater":
+        if boosting_ratio_fn is None:
+            logger.error("boosting_ratio_fn is required for resistive heater boosting")
+            return pd.Series(0.0, index=n.snapshots)
+
+        # Lazy import to avoid global dependency if unused
+        try:
+            import xarray as xr
+        except Exception as e:
+            logger.error(f"xarray is required to read boosting ratio file: {e}")
+            return pd.Series(0.0, index=n.snapshots)
+
+        # Load boosting ratio from file as a DataArray
+        try:
+            try:
+                br_da = xr.open_dataarray(boosting_ratio_fn)
+            except Exception:
+                ds = xr.open_dataset(boosting_ratio_fn)
+                # Pick the first data variable if dataset
+                if len(ds.data_vars) == 0:
+                    raise ValueError("Dataset has no data variables")
+                first_var = list(ds.data_vars)[0]
+                br_da = ds[first_var]
+        except Exception as e:
+            logger.error(f"Failed to load boosting ratio from {boosting_ratio_fn}: {e}")
+            return pd.Series(0.0, index=n.snapshots)
+
+        # Identify a time-like dimension (fallback to first dim)
+        time_dim = None
+        for d in br_da.dims:
+            if "time" in d.lower() or "snapshot" in d.lower() or "date" in d.lower():
+                time_dim = d
+                break
+        if time_dim is None:
+            # Fallback to the first dim
+            time_dim = br_da.dims[0]
+
+        # Choose a node dimension if present
+        node_dim = None
+        for d in br_da.dims:
+            if d != time_dim:
+                node_dim = d
+                break
+
+        # Convert to a pandas DataFrame: index=time, columns=node
+        try:
+            s = br_da.to_series().dropna()
+            # Ensure the time dimension is the index level
+            if time_dim in s.index.names and node_dim in s.index.names:
+                br_df = s.unstack(node_dim)
+            elif time_dim in s.index.names:
+                # Single series over time
+                br_df = s.rename("ratio").to_frame()
+            else:
+                # Put the first level as time
+                br_df = s.unstack(0)
+            # Ensure datetime index if possible
+            try:
+                br_df.index = pd.to_datetime(br_df.index)
+            except Exception:
+                pass
+        except Exception as e:
+            logger.error(f"Failed to convert boosting ratio to pandas: {e}")
+            return pd.Series(0.0, index=n.snapshots)
+
+        # PTES discharge (positive), weighted per snapshot, DE nodes only
+        ptes_discharge = get_ptes_discharge(n)
+        ptes_discharge.columns = ptes_discharge.columns.str.split(" urban").str[0]
+        # Align boosting ratio columns to discharge columns
+        common_cols = ptes_discharge.columns.intersection(br_df.columns)
+        if common_cols.empty:
+            logger.warning(
+                "No overlapping nodes between boosting ratio and PTES discharge; returning zeros"
+            )
+            return pd.Series(0.0, index=n.snapshots)
+
+        # Resample boosting ratio to network snapshots per column
+        alpha_df = pd.DataFrame(index=n.snapshots, columns=common_cols, dtype=float)
+        for col in common_cols:
+            try:
+                series = br_df[col].dropna()
+                series = series[~series.index.duplicated(keep="last")]
+                alpha_df[col] = resample_to_snapshots(n, series, func="mean")
+            except Exception as e:
+                logger.warning(f"Failed resampling boosting ratio for {col}: {e}")
+                alpha_df[col] = 1.0  # fallback to no boosting
+
+        # Multiply element-wise by PTES discharge and sum over nodes to get per-snapshot boosting energy
+        boosting_energy_df = (
+            ptes_discharge[common_cols]
+            .div(alpha_df[common_cols])
+            .replace(np.inf, 0.0)
+            .fillna(0.0)
+        )
+        boosting_ts = boosting_energy_df.sum(axis=1)
+        # Ensure index matches snapshots
+        boosting_ts = boosting_ts.reindex(n.snapshots, fill_value=0.0)
+        return boosting_ts
+
+    # Branch 2: Heat pump booster — sum p0 over all relevant nodes (weighted)
+    if boosting_technology.lower() in [
+        "heat pump",
+        "urban central ptes heat pump",
+        "ptes heat pump",
+    ]:
+        try:
+            hp_cols = n.links_t.p0.filter(
+                regex=r"DE.*urban central ptes heat pump"
+            ).columns
+        except Exception:
+            # If naming differs slightly, try a broader pattern
+            hp_cols = n.links_t.p0.filter(regex=r"DE.*ptes.*heat pump").columns
+
+        if len(hp_cols) == 0:
+            logger.warning("No PTES heat pump (p0) time series found; returning zeros")
+            return pd.Series(0.0, index=n.snapshots)
+
+        hp_p0 = n.links_t.p0[hp_cols]
+        # Weight to convert to per-snapshot energy consistent with other calculations
+        weighted = n.snapshot_weightings.generators.mul(hp_p0.T).T
+        boosting_ts = weighted.sum(axis=1)
+        boosting_ts = boosting_ts.reindex(n.snapshots, fill_value=0.0)
+        return boosting_ts
+
+    logger.error(f"Unknown boosting technology: {boosting_technology}")
+    return pd.Series(0.0, index=n.snapshots)
+
+
 def plot_energy_balance_combined(
     uch_de_t_gen_dict,
     uch_de_t_load_dict,
@@ -4936,21 +5091,138 @@ def plot_energy_balance_combined(
     output_file,
     scenario_names,
     colors,
+    networks=None,
+    boosting_ratio_files=None,
+    dh_supply_temperatures=None,
 ):
     """Plot energy balance comparison across scenarios and price ventiles."""
     fig, axes = plt.subplots(1, 2, figsize=(10, 5), sharey=True)
     handles, labels = None, None
 
+    # Track if we already added a temperature colorbar; store mappable for later
+    temp_colorbar_added = False
+    sm_for_colorbar = None
+
     for ax, (scenario, uch_de_t_gen) in zip(axes, uch_de_t_gen_dict.items()):
         uch_de_t_load = uch_de_t_load_dict[scenario]
 
-        storage_discharge_indices = uch_de_t_gen.filter(regex="discharge", axis=0).index
-        markers_to_plot = (
-            uch_de_t_gen.drop(storage_discharge_indices).sum().div(1e6).cumsum()
-        )
+        # Optionally compute boosting energy per price bin for this scenario
+        boosting_by_label_twh = None
+        try:
+            if networks is not None and scenario in networks:
+                n_obj = networks[scenario]
+                # networks can be a dict of years -> network, pick the first if needed
+                if isinstance(n_obj, dict):
+                    # Pick the first available network
+                    n = next(iter(n_obj.values()))
+                else:
+                    n = n_obj
 
-        to_plot_gen = uch_de_t_gen.div(uch_de_t_gen.sum()).T * 100
-        to_plot_load = -uch_de_t_load.div(uch_de_t_load.sum()).T * 100
+                # Decide boosting technology from scenario name
+                scen_lower = str(scenario).lower()
+                if "hpboost" in scen_lower:
+                    boosting_tech = "heat pump"
+                elif "rhboost" in scen_lower:
+                    boosting_tech = "resistive heater"
+                else:
+                    boosting_tech = None
+
+                boosting_ts = None
+                if boosting_tech is not None:
+                    # Resolve file for resistive heater if provided as dict or string
+                    ratio_fn = None
+                    if boosting_tech == "resistive heater":
+                        if isinstance(boosting_ratio_files, dict):
+                            ratio_fn = boosting_ratio_files.get(scenario)
+                        elif isinstance(boosting_ratio_files, str):
+                            ratio_fn = boosting_ratio_files
+                    # Compute boosting time series per snapshot
+                    boosting_ts = get_boosting_energy(
+                        n,
+                        boosting_technology=boosting_tech,
+                        boosting_ratio_fn=ratio_fn,
+                    )
+
+                # Build price series and bin into same quantiles (3h resolution like input processing)
+                prices_3h = (
+                    calc_average_electricity_price_t_ordered(n).resample("3h").mean()
+                )
+                boosting_3h = (
+                    boosting_ts.resample("3h").sum()
+                    if boosting_ts is not None
+                    else None
+                )
+
+                # Use same percentiles and labeling approach as process_generation_and_load
+                percentiles = [
+                    0,
+                    0.05,
+                    0.1,
+                    0.15,
+                    0.2,
+                    0.25,
+                    0.3,
+                    0.35,
+                    0.4,
+                    0.45,
+                    0.5,
+                    0.55,
+                    0.6,
+                    0.65,
+                    0.7,
+                    0.75,
+                    0.8,
+                    0.85,
+                    0.9,
+                    0.95,
+                    1,
+                ]
+                # First qcut to get bin edges (labels=None)
+                _price_bins_tmp, bin_edges = pd.qcut(
+                    prices_3h, q=percentiles, labels=None, retbins=True
+                )
+
+                def _format_bin_edge(value):
+                    if value < 1:
+                        return f"{value:.4f}"
+                    if value < 10:
+                        return f"{value:.2f}"
+                    elif value < 100:
+                        return f"{value:.1f}"
+                    elif value < 1000:
+                        return f"{value:.0f} "
+                    else:
+                        return f"{value:.0f}"
+
+                # Build labels from edges exactly as in process_generation_and_load
+                _bin_labels_with_edges = [
+                    f"< {_format_bin_edge(bin_edges[i+1])}"
+                    for i in range(len(bin_edges) - 1)
+                ]
+                # Second qcut with labels assigned
+                price_bins_labeled = pd.qcut(
+                    prices_3h, q=percentiles, labels=_bin_labels_with_edges
+                )
+                # Aggregate boosting energy by those labeled bins
+                boosting_by_label = (
+                    boosting_3h.groupby(price_bins_labeled, observed=True).sum()
+                    if boosting_3h is not None
+                    else None
+                )
+                # Align to current bin index order (to_plot index after transpose)
+                if boosting_by_label is not None:
+                    boosting_by_label = boosting_by_label.reindex(
+                        index=uch_de_t_gen.columns, fill_value=0.0
+                    )
+                    boosting_by_label_twh = boosting_by_label / 1e6
+        except Exception as e:
+            logger.warning(
+                f"Failed to compute boosting energy for scenario {scenario}: {e}"
+            )
+
+        # Use absolute energy per ventile in TWh (positive supply, negative loads)
+        to_plot_gen = (uch_de_t_gen / 1e6).T
+        to_plot_load = (uch_de_t_load / 1e6).T  # keep negative values for loads
         to_plot = pd.concat([to_plot_gen, to_plot_load], axis=1)
 
         # 1. Drop heat vents from the technologies
@@ -4981,6 +5253,7 @@ def plot_energy_balance_combined(
                     "geothermal heat pump",
                     "river_water heat pump",
                     "sea_water heat pump",
+                    "electrolysis excess heat pump",
                 ]
             )
             and "ptes" not in col.lower()
@@ -5007,55 +5280,329 @@ def plot_energy_balance_combined(
             to_plot["Heat demand"] = to_plot[heat_demand_cols].sum(axis=1)
             to_plot.drop(heat_demand_cols, axis=1, inplace=True)
 
-        # 5. Rescale load (demand) data to ensure it sums to -100% after removing heat vents
-        load_cols = [col for col in to_plot.columns if (to_plot[col] < 0).any()]
-        if load_cols:
-            load_sum = to_plot[load_cols].sum(axis=1)
-            # Only rescale where load_sum is not zero to avoid division by zero
-            non_zero_mask = load_sum != 0
-            scaling_factor = -100 / load_sum.where(non_zero_mask, -100)
-            to_plot.loc[non_zero_mask, load_cols] = to_plot.loc[
-                non_zero_mask, load_cols
-            ].multiply(scaling_factor[non_zero_mask], axis=0)
+        # 5. No rescaling for absolute values (keep TWh units)
 
-        # Group irrelevant columns as other technologies
+        # Group irrelevant columns into two buckets without mixing signs for area plots
         other_techs = to_plot.T.where(to_plot.abs().sum() < 5).dropna().index
-        to_plot["other technologies"] = to_plot[other_techs].sum(axis=1)
-        to_plot.drop(other_techs, inplace=True, axis=1)
+        if len(other_techs) > 0:
+            # Sum positive and negative parts separately to avoid cancellation
+            pos_sum = to_plot[other_techs].clip(lower=0).sum(axis=1)
+            neg_sum = to_plot[other_techs].clip(upper=0).sum(axis=1)
+            # Split into positive-only supply and negative-only loads
+            to_plot["other supply technologies"] = pos_sum
+            to_plot["other loads"] = neg_sum
+            # Drop the individual small columns
+            to_plot.drop(other_techs, inplace=True, axis=1)
+        # Ensure the two 'other' columns always exist (zero if empty)
+        if "other supply technologies" not in to_plot.columns:
+            to_plot["other supply technologies"] = 0.0
+        if "other loads" not in to_plot.columns:
+            to_plot["other loads"] = 0.0
+        # Drop zero-only 'other' columns to keep legend clean
+        for _col in ["other supply technologies", "other loads"]:
+            if to_plot[_col].abs().sum() == 0:
+                to_plot.drop(columns=[_col], inplace=True)
 
         to_plot = to_plot[to_plot.abs().sum().sort_values(ascending=False).index]
 
-        # Map colors from the provided color scheme
-        plot_colors = to_plot.columns.map(colors).fillna("black")
+        # Map colors from the provided color scheme (with sensible defaults for new buckets)
+        try:
+            colors_local = colors.copy()
+        except Exception:
+            colors_local = dict(colors)
+        colors_local.setdefault("other supply technologies", "#A9A9A9")  # darkgray
+        colors_local.setdefault("other loads", "#696969")  # dimgray
 
-        to_plot.plot.bar(ax=ax, stacked=True, color=plot_colors, width=1)
+        # Determine positive (supply) and negative (demand) columns
+        pos_cols = [c for c in to_plot.columns if (to_plot[c] > 0).any()]
+        neg_cols = [c for c in to_plot.columns if (to_plot[c] < 0).any()]
+
+        # Identify storage columns (PTES/TTES)
+        def is_storage(col: str) -> bool:
+            cl = col.lower()
+            return ("water pits" in cl) or ("water tanks" in cl)
+
+        # For supply: PTES/TTES should be on top (drawn last)
+        pos_storage = [c for c in pos_cols if is_storage(c)]
+        pos_others = [c for c in pos_cols if c not in pos_storage]
+        pos_order = pos_others + pos_storage
+
+        # For demand: PTES/TTES should be at the very bottom (farthest below zero)
+        # For negative stacks, the last drawn series ends up bottom-most -> draw storage last
+        neg_storage = [c for c in neg_cols if is_storage(c)]
+        neg_others = [c for c in neg_cols if c not in neg_storage]
+        neg_order = neg_others + neg_storage
+
+        # Build color lists aligned to the custom orders
+        pos_colors = [colors_local.get(c, "black") for c in pos_order]
+        neg_colors = [colors_local.get(c, "black") for c in neg_order]
+
+        # Build separated DataFrames for plotting
+        pos_df = to_plot[pos_order].clip(lower=0)
+        neg_df = to_plot[neg_order].clip(upper=0)
+
+        # Plot positive and negative stacks separately to control ordering
+        if not pos_df.empty:
+            pos_df.plot.area(
+                ax=ax,
+                stacked=True,
+                color=pos_colors,
+                linewidth=0.5,
+                alpha=0.8,
+            )
+        if not neg_df.empty:
+            neg_df.plot.area(
+                ax=ax,
+                stacked=True,
+                color=neg_colors,
+                linewidth=0.5,
+                alpha=0.8,
+            )
+        # Remove extra horizontal padding added by area plot
+        ax.margins(x=0)
+
+        # Ensure all x-ticks/labels for price quantiles are shown consistently
+        from matplotlib.ticker import FixedLocator
+
+        bin_labels = list(to_plot.index)
+        x_positions = np.arange(len(bin_labels))
+        ax.xaxis.set_major_locator(FixedLocator(x_positions))
+        ax.set_xticks(x_positions)
+        ax.set_xticklabels(bin_labels, rotation=90, ha="right")
+
+        # Light vertical grid at each price ventile to visualize quantiles
+        ax.set_axisbelow(True)
+        ax.grid(
+            True, axis="x", linestyle=":", linewidth=0.5, color="#CCCCCC", alpha=0.8
+        )
+
+        # Map scatter markers to numeric positions to align with fixed ticks
+        pos_map = {lbl: i for i, lbl in enumerate(bin_labels)}
 
         ax.axhline(0, color="black", linewidth=0.5)
         ax2 = ax.twinx()
-        ax2.scatter(
-            markers_to_plot.index,
-            markers_to_plot,
-            color="white",
-            s=50,
-            edgecolor="black",
-        )
+        # If boosting energy data is available, plot cumulative boosting energy; otherwise, fall back to previous markers
+        if boosting_by_label_twh is not None:
+            # Align boosting values to current bin label order and build cumulative sum
+            boosting_per_bin = [
+                boosting_by_label_twh.get(lbl, 0.0) for lbl in bin_labels
+            ]
+            boosting_vals = np.cumsum(boosting_per_bin)
+
+            # --- Optional temperature-based coloring ---
+            temp_colors = None
+            cmap = plt.get_cmap("viridis")
+            norm = None
+            temps_per_bin_aligned = None
+            try:
+                # Auto-load temperature file if not provided for this scenario
+                if (dh_supply_temperatures is None) or (
+                    scenario not in (dh_supply_temperatures or {})
+                ):
+                    try:
+                        # Attempt to access global snakemake (same pattern as seasonal plot)
+                        run_name_auto = snakemake.params.run  # type: ignore  # noqa: F821
+                        temp_path = (
+                            f"resources/{run_name_auto}/{scenario}/"
+                            "central_heating_forward_temperature_profiles_base_s_49_2045.nc"
+                        )
+                        if os.path.exists(temp_path):
+                            ff_temp_auto = xr.open_dataarray(temp_path)
+                            # Convert to pandas, filter DE0 buses, take min across columns (as in seasonal plot)
+                            temp_series_auto = (
+                                get_delta_ff_top(ff_temp_auto)
+                                .to_pandas()
+                                .filter(like="DE0")
+                                .mean(1)
+                            )
+                            # Initialize dict if needed
+                            if dh_supply_temperatures is None:
+                                dh_supply_temperatures = {}
+                            dh_supply_temperatures[scenario] = temp_series_auto
+                        else:
+                            logger.debug(
+                                f"Temperature file not found for scenario {scenario}: {temp_path}"
+                            )
+                    except Exception as auto_e:
+                        logger.debug(
+                            f"Automatic temperature loading failed for {scenario}: {auto_e}"
+                        )
+
+                if (
+                    dh_supply_temperatures is not None
+                    and scenario in dh_supply_temperatures
+                ):
+                    temp_series = dh_supply_temperatures[scenario]
+                    # Ensure datetime index & align
+                    if not isinstance(temp_series.index, pd.DatetimeIndex):
+                        temp_series.index = pd.to_datetime(temp_series.index)
+                    # 3h resample like price bins
+                    temps_3h = temp_series.resample("3h").mean()
+                    # Use same binning as prices (price_bins_labeled exists only inside try above, so recompute locally)
+                    # Reconstruct percentiles (same list)
+                    percentiles = [
+                        0,
+                        0.05,
+                        0.1,
+                        0.15,
+                        0.2,
+                        0.25,
+                        0.3,
+                        0.35,
+                        0.4,
+                        0.45,
+                        0.5,
+                        0.55,
+                        0.6,
+                        0.65,
+                        0.7,
+                        0.75,
+                        0.8,
+                        0.85,
+                        0.9,
+                        0.95,
+                        1,
+                    ]
+                    # Need prices again for consistent labeled bins
+                    if networks is not None and scenario in networks:
+                        n_obj_temp = networks[scenario]
+                        n_temp = (
+                            next(iter(n_obj_temp.values()))
+                            if isinstance(n_obj_temp, dict)
+                            else n_obj_temp
+                        )
+                        prices_3h_temp = (
+                            calc_average_electricity_price_t_ordered(n_temp)
+                            .resample("3h")
+                            .mean()
+                        )
+                        _tmp_bins, _edges = pd.qcut(
+                            prices_3h_temp, q=percentiles, labels=None, retbins=True
+                        )
+
+                        def _fmt_edge(v):
+                            if v < 1:
+                                return f"{v:.4f}"
+                            if v < 10:
+                                return f"{v:.2f}"
+                            if v < 100:
+                                return f"{v:.1f}"
+                            if v < 1000:
+                                return f"{v:.0f} "
+                            return f"{v:.0f}"
+
+                        _labels = [
+                            f"< {_fmt_edge(_edges[i+1])}"
+                            for i in range(len(_edges) - 1)
+                        ]
+                        price_bins_for_t = pd.qcut(
+                            prices_3h_temp, q=percentiles, labels=_labels
+                        )
+                        temps_grouped = temps_3h.groupby(
+                            price_bins_for_t, observed=True
+                        ).mean()
+                        temps_per_bin_aligned = temps_grouped.reindex(
+                            uch_de_t_gen.columns
+                        )
+                        if temps_per_bin_aligned.notna().any():
+                            temps_arr = (
+                                temps_per_bin_aligned.fillna(method="ffill")
+                                .fillna(method="bfill")
+                                .values
+                            )
+                            t_min = np.nanmin(temps_arr)
+                            t_max = np.nanmax(temps_arr)
+                            if np.isclose(t_min, t_max):
+                                t_max = t_min + 1e-6
+                            norm = plt.Normalize(vmin=t_min, vmax=t_max)
+                            temp_colors = [cmap(norm(t)) for t in temps_arr]
+            except Exception as _e:
+                logger.debug(f"Temperature coloring skipped for {scenario}: {_e}")
+
+            if temp_colors is None:
+                # Fallback: single-color line & white markers (original behavior adapted)
+                ax2.plot(
+                    x_positions,
+                    boosting_vals,
+                    marker="o",
+                    markersize=6,
+                    markerfacecolor="white",
+                    markeredgecolor="black",
+                    color="black",
+                    linewidth=1.0,
+                )
+            else:
+                # Plot colored line segment by segment for gradient effect
+                for i in range(1, len(x_positions)):
+                    ax2.plot(
+                        [x_positions[i - 1], x_positions[i]],
+                        [boosting_vals[i - 1], boosting_vals[i]],
+                        color=temp_colors[i],
+                        linewidth=1.2,
+                    )
+                # Colored markers
+                ax2.scatter(
+                    x_positions,
+                    boosting_vals,
+                    c=temp_colors,
+                    s=36,
+                    edgecolor="black",
+                    linewidth=0.6,
+                    zorder=3,
+                )
+                # Register colorbar mappable once (draw later horizontally)
+                if not temp_colorbar_added and norm is not None:
+                    sm_for_colorbar = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+                    sm_for_colorbar.set_array([])
+                    temp_colorbar_added = True
+        else:
+            # Fallback: scatter cumulative generation without storage (legacy)
+            storage_discharge_indices = uch_de_t_gen.filter(
+                regex="discharge", axis=0
+            ).index
+            markers_to_plot = (
+                uch_de_t_gen.drop(storage_discharge_indices).sum().div(1e6).cumsum()
+            )
+            marker_x, marker_y = [], []
+            for lbl, val in markers_to_plot.items():
+                if lbl in pos_map:
+                    marker_x.append(pos_map[lbl])
+                    marker_y.append(val)
+            ax2.scatter(marker_x, marker_y, color="white", s=50, edgecolor="black")
 
         # Set labels and titles based on scenario position
         if ax == axes[0]:
-            ax.set_ylabel("District heating share [%]", fontsize=14)
+            ax.set_ylabel("District heating energy [TWh]", fontsize=14)
             ax2.set_yticks([])
         else:
             ax2.set_ylabel(
-                "Cumulative heat generation\nwithout storage [TWh]", fontsize=14
+                (
+                    "Cumulative boosting energy [TWh]"
+                    if boosting_by_label_twh is not None
+                    else "Cumulative heat generation\nwithout storage [TWh]"
+                ),
+                fontsize=14,
             )
 
         # Use the provided scenario name or clean up the key
         scenario_title = scenario_names.get(scenario, scenario)
         ax.set_title(scenario_title, fontsize=16)
         ax.set_xlabel("Electricity price ventiles [€/MWh]", fontsize=14)
-        ax.set_xlim(-0.5, len(to_plot) - 0.5)
-        ax.set_ylim(-100, 100)
-        ax2.set_ylim(0, 220)
+        ax.set_xlim(-0.5, len(bin_labels) - 0.5)
+        # Dynamic symmetric y-limits based on stacked totals
+        pos_tot = to_plot.clip(lower=0).sum(axis=1).max() if not to_plot.empty else 0
+        neg_tot = to_plot.clip(upper=0).sum(axis=1).min() if not to_plot.empty else 0
+        y_max = max(pos_tot, abs(neg_tot)) if (pos_tot or neg_tot) else 1
+        ax.set_ylim(-1.1 * y_max, 1.1 * y_max)
+        # Dynamic secondary axis based on boosting markers (or fallback)
+        if boosting_by_label_twh is not None:
+            max_val = max(1e-9, np.nanmax(boosting_vals) if len(boosting_vals) else 0.0)
+            ax2.set_ylim(0, 1.1 * max_val if max_val > 0 else 1)
+        else:
+            if marker_y:
+                ax2.set_ylim(0, 1.1 * max(marker_y))
+            else:
+                ax2.set_ylim(0, 1)
 
         if handles is None and labels is None:
             handles, labels = ax.get_legend_handles_labels()
@@ -5116,18 +5663,37 @@ def plot_energy_balance_combined(
     unique_labels = list(dict.fromkeys(labels))
     unique_handles = [handles[labels.index(label)] for label in unique_labels]
 
+    # Reserve space at bottom for legend and (optional) horizontal colorbar
+    if temp_colorbar_added:
+        fig.subplots_adjust(bottom=0.3)
+        legend_y = 0.27
+    else:
+        fig.subplots_adjust(bottom=0.18)
+        legend_y = 0.1
+
     fig.legend(
         unique_handles,
         unique_labels,
-        loc="lower center",
-        bbox_to_anchor=(0.5, -0.2),
+        loc="upper center",
+        bbox_to_anchor=(0.5, legend_y),
         ncol=4,
         frameon=False,
         title="Technology",
         fontsize=10,
     )
+
+    # Draw horizontal colorbar under legend if temperature data used
+    if temp_colorbar_added and sm_for_colorbar is not None:
+        cbar_ax = fig.add_axes([0.2, 0.08, 0.6, 0.025])  # left, bottom, width, height
+        cbar = fig.colorbar(sm_for_colorbar, cax=cbar_ax, orientation="horizontal")
+        cbar.set_label("Avg DH supply temperature [°C]", fontsize=10)
+        cbar.ax.tick_params(labelsize=9)
+
     fig.tight_layout()
     fig.savefig(output_file, bbox_inches="tight", pad_inches=0.2)
+    logger.info(
+        f"Energy balance with price ventiles comparison plot saved to {output_file}"
+    )
     plt.close(fig)
 
     logger.info(f"Energy balance comparison plot saved to {output_file}")
@@ -5229,6 +5795,7 @@ def main(snakemake):
     if available_tuples:
         # Split available tuples by supply temperature scenarios
         high_temp_tuples = []
+        mid_temp_tuples = []
         low_temp_tuples = []
 
         for ref_scenario, comp_scenario in available_tuples:
@@ -5238,6 +5805,10 @@ def main(snakemake):
                 or "HighSupplyTemperature" in comp_scenario
             ):
                 high_temp_tuples.append((ref_scenario, comp_scenario))
+            elif (
+                "MidSupplyTemperature" in ref_scenario and "MidDH" in ref_scenario
+            ) or ("MidSupplyTemperature" in comp_scenario and "MidDH" in comp_scenario):
+                mid_temp_tuples.append((ref_scenario, comp_scenario))
             elif (
                 "LowSupplyTemperature" in ref_scenario
                 or "LowSupplyTemperature" in comp_scenario
@@ -5276,6 +5847,32 @@ def main(snakemake):
                 )
         else:
             logger.info("No HighSupplyTemperature scenario tuples found")
+
+        if mid_temp_tuples:
+            logger.info(
+                f"Plotting PTES savings comparison for MidSupplyTemperature scenarios: {mid_temp_tuples}"
+            )
+            for year in planning_horizons:
+                plot_ptes_savings_comparison(
+                    mid_temp_tuples,
+                    costs_agg,
+                    colors,
+                    year,
+                    subdirs["costs"],
+                    figsize=(6, 8),
+                    output_suffix="MidSupplyTemperature",
+                )
+                # Call the neighbour countries cost comparison function
+                plot_neighbour_countries_cost_comparison(
+                    networks=networks,  # Your networks dictionary
+                    scenario_tuples=mid_temp_tuples,
+                    colors=colors,  # Same colors dictionary you use for other plots
+                    year=year,  # Or whatever year you're analyzing
+                    output_path=subdirs["costs"],
+                    output_suffix="MidSupplyTemperature",  # Optional, same as for regular function
+                )
+        else:
+            logger.info("No MidSupplyTemperature scenario tuples found")
 
         # Plot PTES savings comparison for LowSupplyTemperature scenarios
         if low_temp_tuples:
@@ -5393,6 +5990,41 @@ def main(snakemake):
                             scenario_B: scenario_B.replace("_", " "),
                         }
 
+                        # Resolve boosting ratio files for each scenario-year (if available)
+                        boosting_ratio_files = {}
+                        try:
+                            # Determine years used for A and B from the selected network objects
+
+                            for scen in [scenario_A, scenario_B]:
+                                resources_path = os.path.join(
+                                    "resources", run_name, scen
+                                )
+                                if os.path.exists(resources_path):
+                                    try:
+                                        candidates = [
+                                            f
+                                            for f in os.listdir(resources_path)
+                                            if f.startswith(
+                                                "ptes_discharger_temperature_boosting_ratio_profiles"
+                                            )
+                                        ]
+                                        if candidates:
+                                            boosting_ratio_files[scen] = os.path.join(
+                                                resources_path, candidates[0]
+                                            )
+                                    except Exception as e:
+                                        logger.warning(
+                                            f"Failed to scan boosting ratio files in {resources_path}: {e}"
+                                        )
+                                else:
+                                    logger.debug(
+                                        f"Resources path {resources_path} not found for scenario {scen}"
+                                    )
+                        except Exception as e:
+                            logger.debug(
+                                f"Could not resolve boosting ratio files for ventiles plot: {e}"
+                            )
+
                         plot_energy_balance_combined(
                             uch_de_t_gen_dict,
                             uch_de_t_load_dict,
@@ -5403,6 +6035,10 @@ def main(snakemake):
                             ),
                             scenario_names,
                             colors,
+                            networks=networks,
+                            boosting_ratio_files=(
+                                boosting_ratio_files if boosting_ratio_files else None
+                            ),
                         )
                     except Exception as e:
                         logger.warning(

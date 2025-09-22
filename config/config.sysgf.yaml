@@ -3,24 +3,42 @@
 # SPDX-License-Identifier: CC0-1.0
 
 run:
-  prefix: 20250821_new_boost
+  prefix: 20250922_new_boosting
   name:
-  - LowSupplyTemperature_rhboost
-  - LowSupplyTemperature_hpboost
-  - LowSupplyTemperature_noboost
-  - NoPTES_LowSupplyTemperature
-  - HighSupplyTemperature_rhboost
-  - HighSupplyTemperature_hpboost
-  - HighSupplyTemperature_noboost
-  - NoPTES_HighSupplyTemperature
-  - 0.75PTESCAPEX
-  - 0.5PTESCAPEX
-  - 0.25PTESCAPEX
-  - 0PTESCAPEX
-  - 1.25PTESCAPEX
-  - 1.5PTESCAPEX
-  - 1.75PTESCAPEX
-  - 2PTESCAPEX
+
+  # New Mid Supply Temperature scenarios
+  - NoPTES_MidSupplyTemperature_MidDH
+  - MidSupplyTemperature_MidDH_hpboost
+  - MidSupplyTemperature_MidDH_rhboost
+  - MidSupplyTemperature_MidDH_hpboost_10Cbottom
+  - MidSupplyTemperature_MidDH_noboost
+  - NoPTES_LowSupplyTemperature_MidDH
+  - LowSupplyTemperature_MidDH_hpboost
+  - LowSupplyTemperature_MidDH_rhboost
+  - LowSupplyTemperature_MidDH_hpboost_10Cbottom
+  - LowSupplyTemperature_MidDH_noboost
+  - NoPTES_HighSupplyTemperature_MidDH
+  - HighSupplyTemperature_MidDH_hpboost
+  - HighSupplyTemperature_MidDH_rhboost
+  - HighSupplyTemperature_MidDH_hpboost_10Cbottom
+  - HighSupplyTemperature_MidDH_noboost
+  # # DH sensitivity scenarios with Mid Supply Temperature
+  - NoPTES_MidSupplyTemperature_LowDH
+  - MidSupplyTemperature_LowDH_rhboost
+  - NoPTES_MidSupplyTemperature_HighDH
+  - MidSupplyTemperature_HighDH_rhboost
+  # CAPEX sensitivity scenarios
+  - MidSupplyTemperature_MidDH_rhboost_0.01CAPEX
+  - MidSupplyTemperature_MidDH_rhboost_0.25CAPEX
+  - MidSupplyTemperature_MidDH_rhboost_0.5CAPEX
+  - MidSupplyTemperature_MidDH_rhboost_0.75CAPEX
+  - MidSupplyTemperature_MidDH_rhboost_1.25CAPEX
+  - MidSupplyTemperature_MidDH_rhboost_1.5CAPEX
+  - MidSupplyTemperature_MidDH_rhboost_1.75CAPEX
+  - MidSupplyTemperature_MidDH_rhboost_2CAPEX
+  # H2 scenarios
+  - NoPTES_MidSupplyTemperature_MidDH_H2
+  - MidSupplyTemperature_MidDH_H2_rhboost
   scenarios:
     enable: true
     manual_file: config/scenarios.sysgf.yaml
@@ -41,7 +59,7 @@ scenario:
   ll:
   - vopt
   clusters:
-  - 27 #current options: 27, 49
+  - 49 #current options: 27, 49
   opts:
   - ''
   sector_opts:
@@ -56,14 +74,34 @@ scenario:
 
 fix_foreign_investments:
   enable: true
-  reference_scenario: NoPTES_LowSupplyTemperature
+  reference_scenario: NoPTES_MidSupplyTemperature_MidDH
   nom_min: true
-  nom_max: false
-  slack: 1.e-4
+  nom_max: true
+  unfix_virtual_components: true
+  slack: 0
 
 clustering:
+  focus_weights:
+    'DE': 0.6124
+    'AT': 0.0204
+    'BE': 0.0204
+    'CH': 0.0204
+    'CZ': 0.0204
+    'DK': 0.0408
+    'FR': 0.0204
+    'GB': 0.0408
+    'LU': 0.0204
+    'NL': 0.0204
+    'NO': 0.0204
+    'PL': 0.0204
+    'SE': 0.0204
+    'ES': 0.0408
+    'IT': 0.0612
   temporal:
     resolution_sector: 3H
+
+co2_budget:
+  2045: 0.00
 
 adjustments:
   electricity: false
@@ -82,8 +120,10 @@ sector:
     enable: true
   district_heating:
     potential:
-      DE: 0.5
-      default: 0.5
+      DE: 0.4
+      default: 0.4
+    progress:
+      2045: 1.0
     supply_temperature_approximation:
       max_forward_temperature_baseyear:
         FR: 110
@@ -97,7 +137,7 @@ sector:
       min_forward_temperature_baseyear:
         DE: 82
       return_temperature_baseyear:
-        DE: 58
+        DE: 60
       lower_threshold_ambient_temperature: 0
       upper_threshold_ambient_temperature: 10
       rolling_window_ambient_temperature: 72
@@ -115,6 +155,7 @@ sector:
       limit_ptes_potential:
         enable: true
         limit_mother_nodes: true
+        limit_foreign_nodes: true
         excluder_resolution: 10
         osm_landcover_codes: [21, 23, 32, 33]
         max_groundwater_depth: -10
@@ -162,10 +203,10 @@ sector:
     rural:
     - air
     - ground
-  electrobiofuels: false
+  electrobiofuels: true
 
 solving:
-  mem_mb: 140000
+  mem_mb: 180000
   constraints:
     CCL: false
     EQ: false
@@ -173,11 +214,11 @@ solving:
     SAFE: false
     efuel_export_ban: false
     limits_capacity_max:
-      Generator: {}
+      Generator: null
     limits_capacity_min:
-      Generator: {}
+      Generator: null
   options:
-    noisy_costs: true
+    noisy_costs: false
     skip_iterations: false
     min_iterations: 1
     max_iterations: 1
@@ -185,32 +226,61 @@ solving:
     gurobi-default:
       Seed: 123
       BarConvTol: 1.e-6
-      FeasibilityTol: 1.e-6
+      FeasibilityTol: 1.e-8
       # Crossover: 1
       # NumericFocus: 3
 
 
 plotting:
+  balance_map:
+    bus_carriers: null
   dual_comparison:
     enable: true
-    scenario_A: NoPTES
-    scenario_B: LowSupplyTemperature_hpboost
+    scenario_A: NoPTES_LowSupplyTemperature_MidDH
+    scenario_B: MidSupplyTemperature_MidDH_rhboost
   sensitivities:
     enable: false
-    reference: LowSupplyTemperature_hpboost
+    reference: MidSupplyTemperature_MidDH_rhboost
     runs: [
-      0PTESCAPEX, 0.25PTESCAPEX, 0.5PTESCAPEX, 0.75PTESCAPEX, 1.25PTESCAPEX, 1.5PTESCAPEX, 1.75PTESCAPEX, 2PTESCAPEX
+      MidSupplyTemperature_MidDH_rhboost_0.01CAPEX, 
+      MidSupplyTemperature_MidDH_rhboost_0.25CAPEX, 
+      MidSupplyTemperature_MidDH_rhboost_0.5CAPEX, 
+      MidSupplyTemperature_MidDH_rhboost_0.75CAPEX, 
+      MidSupplyTemperature_MidDH_rhboost_1.25CAPEX, 
+      MidSupplyTemperature_MidDH_rhboost_1.5CAPEX, 
+      MidSupplyTemperature_MidDH_rhboost_1.75CAPEX, 
+      MidSupplyTemperature_MidDH_rhboost_2CAPEX
     ]
   scenario_tuples:
-    - ["NoPTES", "LowSupplyTemperature_hpboost"]
-    - ["NoPTES", "LowSupplyTemperature_rhboost"]
-    - ["NoPTES", "LowSupplyTemperature_noboost"]
-    - ["LowSupplyTemperature_rhboost", "LowSupplyTemperature_hpboost"]
-    - ["NoPTES", "HighSupplyTemperature_hpboost"]
-    - ["NoPTES", "HighSupplyTemperature_rhboost"]
-    - ["NoPTES", "HighSupplyTemperature_noboost"]
-    - ["HighSupplyTemperature_rhboost", "HighSupplyTemperature_hpboost"]
-
+    # Original scenarios
+    - ["NoPTES_LowSupplyTemperature", "LowSupplyTemperature_hpboost"]
+    - ["NoPTES_LowSupplyTemperature", "LowSupplyTemperature_rhboost"]
+    - ["NoPTES_LowSupplyTemperature", "LowSupplyTemperature_hpboost_10Cbottom"]
+    - ["NoPTES_LowSupplyTemperature", "LowSupplyTemperature_noboost"]
+    - ["NoPTES_HighSupplyTemperature", "HighSupplyTemperature_hpboost"]
+    - ["NoPTES_HighSupplyTemperature", "HighSupplyTemperature_rhboost"]
+    - ["NoPTES_HighSupplyTemperature", "HighSupplyTemperature_hpboost_10Cbottom"]
+    - ["NoPTES_HighSupplyTemperature", "HighSupplyTemperature_noboost"]
+    - ["NoPTES_LowDH_LowSupplyTemperature", "LowDH_LowSupplyTemperature_rhboost"]
+    - ["NoPTES_HighDH_LowSupplyTemperature", "HighDH_LowSupplyTemperature_rhboost"]
+    # Mid Supply Temperature scenarios with Mid DH
+    - ["NoPTES_MidSupplyTemperature_MidDH", "MidSupplyTemperature_MidDH_hpboost"]
+    - ["NoPTES_MidSupplyTemperature_MidDH", "MidSupplyTemperature_MidDH_rhboost"]
+    - ["NoPTES_MidSupplyTemperature_MidDH", "MidSupplyTemperature_MidDH_hpboost_10Cbottom"]
+    - ["NoPTES_MidSupplyTemperature_MidDH", "MidSupplyTemperature_MidDH_noboost"]
+    # Low Supply Temperature scenarios with Mid DH
+    - ["NoPTES_LowSupplyTemperature_MidDH", "LowSupplyTemperature_MidDH_hpboost"]
+    - ["NoPTES_LowSupplyTemperature_MidDH", "LowSupplyTemperature_MidDH_rhboost"]
+    - ["NoPTES_LowSupplyTemperature_MidDH", "LowSupplyTemperature_MidDH_hpboost_10Cbottom"]
+    - ["NoPTES_LowSupplyTemperature_MidDH", "LowSupplyTemperature_MidDH_noboost"]
+    # High Supply Temperature scenarios with Mid DH
+    - ["NoPTES_HighSupplyTemperature_MidDH", "HighSupplyTemperature_MidDH_hpboost"]
+    - ["NoPTES_HighSupplyTemperature_MidDH", "HighSupplyTemperature_MidDH_rhboost"]
+    - ["NoPTES_HighSupplyTemperature_MidDH", "HighSupplyTemperature_MidDH_hpboost_10Cbottom"]
+    - ["NoPTES_HighSupplyTemperature_MidDH", "HighSupplyTemperature_MidDH_noboost"]
+    # Mid Supply Temperature with different DH potentials
+    - ["NoPTES_MidSupplyTemperature_LowDH", "MidSupplyTemperature_LowDH_rhboost"]
+    - ["NoPTES_MidSupplyTemperature_HighDH", "MidSupplyTemperature_HighDH_rhboost"]
   save_png: true
   save_pdf: true
   override_tech_colors:
@@ -253,4 +323,11 @@ plotting:
     decentral biomass boiler: "#007910"
     urban central heat: "#CCCCCC"
     biomass to liquid CC: "#B0FF90"
+    Heat demand: "lightgrey"
+    Heat pumps: "#FFC13C"
+    urban central electrolysis excess heat pump: "magenta"
+    electrolysis excess heat pump: "magenta"
+    other supply technologies: "dimgrey"
+    other loads: "lightgrey"
+
 

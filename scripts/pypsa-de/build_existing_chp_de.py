@@ -251,9 +251,22 @@ def assign_subnode(
     CHP_de = CHP_de.sjoin(subnodes, how="left", predicate="within").drop(
         "yearly_heat_demand_MWh", axis=1
     )
-    # Insert leading whitespace for citynames where not nan
-    CHP_de["city"] = CHP_de["city"].apply(lambda x: " " + x if pd.notna(x) else "")
-    CHP_de["bus"] = CHP_de["bus"] + CHP_de["city"]
+
+    # For entries with a cityname (notna), override bus with the corresponding subnodes bus value
+    city_mask = CHP_de["city"].notna()
+    if city_mask.any():
+        # Map city names to their corresponding bus values from subnodes
+        CHP_de.loc[city_mask, "bus"] = CHP_de.loc[city_mask, "cluster"]
+
+    # Replace nan values in city column with whitespace
+    CHP_de["city"] = CHP_de["city"].fillna("")
+
+    # Concatenate bus and city columns
+    CHP_de.loc[city_mask, "bus"] = (
+        CHP_de.loc[city_mask, "bus"].astype(str) + " " + CHP_de["city"]
+    )
+
+    # Drop the city column
     CHP_de.drop("city", axis=1, inplace=True)
 
     return CHP_de
@@ -301,7 +314,7 @@ if __name__ == "__main__":
     if snakemake.params.district_heating_subnodes["enable"]:
         subnodes = gpd.read_file(
             snakemake.input.district_heating_subnodes,
-            columns=["Stadt", "yearly_heat_demand_MWh", "lau_shape"],
+            columns=["Stadt", "yearly_heat_demand_MWh", "lau_shape", "cluster"],
         ).set_index("Stadt")
         CHP_de = assign_subnode(
             CHP_de,

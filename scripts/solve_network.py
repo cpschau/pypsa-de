@@ -1091,21 +1091,35 @@ def add_discharger_temperature_boosting_constraints(
             .rename(columns=booster_node_to_link)
             .reindex(columns=booster_technologies_links)
         )
-        # per‑tech expression
-        expr = -(
-            p.loc[:, booster_technologies_links]
-            * ptes_discharger_temperature_boosting_ratio
-        )
 
-        # accumulate
-        lhs = expr if lhs is None else lhs + expr
-
-    if "ptes" in ptes_booster_technologies:
-        # Avoid booster heat pump operation when storage is not discharged
-        n.model.add_constraints(lhs == rhs, name="ptes_discharger_temperature_boosting")
-    else:
-        # Add the constraint to the model
-        n.model.add_constraints(lhs >= rhs, name="ptes_discharger_temperature_boosting")
+        if "ptes" in ptes_booster_technologies:
+            cop_booster = (
+                cop.sel(heat_system="urban central", heat_source="ptes")
+                .to_pandas()
+                .loc[n.snapshots, booster_nodes]
+                .dropna(axis=1, how="all")
+                .rename(columns=booster_node_to_link)
+                .reindex(columns=booster_technologies_links)
+            )
+            lhs = (
+                (cop_booster - 1)
+                * (p.loc[:, booster_technologies_links])
+                / (1 - ptes_discharger_temperature_boosting_ratio)
+            )
+            n.model.add_constraints(
+                lhs == rhs, name="ptes_discharger_temperature_boosting"
+            )
+        else:
+            # efficiency = n.links.efficiency[booster_technologies_links]
+            lhs = -(
+                p.loc[:, booster_technologies_links]
+                * ptes_discharger_temperature_boosting_ratio
+                # * efficiency
+            )
+            # Add the constraint to the model
+            n.model.add_constraints(
+                lhs >= rhs, name="ptes_discharger_temperature_boosting"
+            )
 
 
 def add_charger_temperature_boosting_constraints(
@@ -1242,6 +1256,7 @@ def add_lossy_bidirectional_link_constraints(n):
         "carrier in @carriers and p_nom_extendable and reversed"
     ).index
     forwards = backwards.str.replace("-reversed", "")
+
     lhs = n.model["Link-p_nom"].loc[backwards]
     rhs = n.model["Link-p_nom"].loc[forwards]
     n.model.add_constraints(lhs == rhs, name="Link-bidirectional_sync")

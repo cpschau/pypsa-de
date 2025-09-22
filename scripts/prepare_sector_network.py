@@ -2177,8 +2177,8 @@ def add_storage_and_grids(
                     capital_cost=new_gas_pipes.length
                     * costs.at["CH4 (g) pipeline", "capital_cost"],
                     overnight_cost=new_gas_pipes.length
-                * costs.at["CH4 (g) pipeline", "investment"],
-                carrier="gas pipeline new",
+                    * costs.at["CH4 (g) pipeline", "investment"],
+                    carrier="gas pipeline new",
                     lifetime=costs.at["CH4 (g) pipeline", "lifetime"],
                 )
 
@@ -3197,9 +3197,10 @@ def add_heat(
                     ],
                 )
 
-            n.links.loc[
-                nodes + f" {heat_system} water tanks charger", "energy to power ratio"
-            ] = energy_to_power_ratio_water_tanks
+                n.links.loc[
+                    nodes + f" {heat_system} water tanks charger",
+                    "energy to power ratio",
+                ] = energy_to_power_ratio_water_tanks
 
                 n.add(
                     "Store",
@@ -3210,8 +3211,8 @@ def add_heat(
                     e_nom_extendable=True,
                     carrier=f"{heat_system} water tanks",
                     standing_loss=costs.at[
-                    heat_system.central_or_decentral + " water tank storage",
-                    "standing_losses",
+                        heat_system.central_or_decentral + " water tank storage",
+                        "standing_losses",
                     ]
                     / 100,  # convert %/hour into unit/hour
                     capital_cost=costs.at[
@@ -3286,9 +3287,7 @@ def add_heat(
                 # Load pre-calculated e_max_pu profiles
                 e_max_pu_data = xr.open_dataarray(ptes_e_max_pu_file)
                 e_max_pu = (
-                    e_max_pu_data.sel(name=nodes)
-                    .to_pandas()
-                    .reindex(index=n.snapshots)
+                    e_max_pu_data.sel(name=nodes).to_pandas().reindex(index=n.snapshots)
                 )
 
                 n.add(
@@ -3404,6 +3403,7 @@ def add_heat(
                     p_max_source = pd.read_csv(
                         heat_source_profile_files[heat_source],
                         index_col=0,
+                        parse_dates=True,
                     ).squeeze()[nodes]
                     # if only dimension is nodes, convert series to dataframe with columns as nodes and index as snapshots
                     if p_max_source.ndim == 1:
@@ -3416,7 +3416,6 @@ def add_heat(
                     else:
                         p_max_pu = p_max_source / p_max_source.max()
                         p_max_source = p_max_source.max()
-                        
 
                     if heat_source in params.direct_utilisation_heat_sources:
                         capital_cost = (
@@ -3427,12 +3426,12 @@ def add_heat(
                             * overdim_factor
                         )
                         overnight_cost = (
-                        costs.at[
-                            heat_system.heat_source_costs_name(heat_source),
-                            "investment",
-                        ]
-                        * overdim_factor
-                    )
+                            costs.at[
+                                heat_system.heat_source_costs_name(heat_source),
+                                "investment",
+                            ]
+                            * overdim_factor
+                        )
                         lifetime = costs.at[
                             heat_system.heat_source_costs_name(heat_source), "lifetime"
                         ]

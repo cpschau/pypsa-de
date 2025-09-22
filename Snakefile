@@ -1051,7 +1051,7 @@ rule plot_sysgf_summary:
     output:
         sysgf_summary="results/" + config["run"]["prefix"] + "/sysgf/summary_metrics.csv",
     resources:
-        mem_mb=10000,
+        mem_mb=70000,
     log:
         "results/" + config["run"]["prefix"] + "/sysgf/logs/plot_sysgf_summary.log",
     script:

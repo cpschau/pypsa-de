@@ -3,7 +3,16 @@
 #
 # SPDX-License-Identifier: MIT
 
-NoPTES_LowSupplyTemperature:
+# Mid Supply Temperature scenarios with Mid DH (0.4)
+NoPTES_MidSupplyTemperature_MidDH:
+  fix_foreign_investments:
+    enable: false
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
   adjustments:
     electricity: false
     sector:
@@ -11,27 +20,137 @@ NoPTES_LowSupplyTemperature:
         Store:
           urban central water pits:
             e_nom_max: 0
+  solving:
+    options:
+      skip_iterations: true
 
-LowSupplyTemperature_hpboost:
-
-LowSupplyTemperature_rhboost:
-  sector:
-    district_heating:
-      ptes:
-        boosting_technologies: ["resistive heater"]
-
-LowSupplyTemperature_noboost:
+MidSupplyTemperature_MidDH_hpboost:
   fix_foreign_investments:
-    reference_scenario: NoPTES_LowSupplyTemperature
+    reference_scenario: NoPTES_MidSupplyTemperature_MidDH
   sector:
     district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        booster_technologies: ["ptes"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+
+MidSupplyTemperature_MidDH_rhboost:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_MidSupplyTemperature_MidDH
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+
+MidSupplyTemperature_MidDH_hpboost_10Cbottom:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_MidSupplyTemperature_MidDH
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        booster_technologies: ["ptes"]
+        min_bottom_temperature: 10
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+
+MidSupplyTemperature_MidDH_noboost:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_MidSupplyTemperature_MidDH
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
       ptes:
         discharger_temperature_boosting_required: false
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
 
-# Same for HighSupplyTemperature scenarios
-NoPTES_HighSupplyTemperature:
+# Low Supply Temperature scenarios with Mid DH (0.4)
+NoPTES_LowSupplyTemperature_MidDH:
+  fix_foreign_investments:
+    enable: false
   sector:
     district_heating:
+      potential:
+        DE: 0.4
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.01
+  adjustments:
+    electricity: false
+    sector:
+      absolute:
+        Store:
+          urban central water pits:
+            e_nom_max: 0
+  solving:
+    options:
+      skip_iterations: true
+
+LowSupplyTemperature_MidDH_hpboost:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_LowSupplyTemperature_MidDH
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        booster_technologies: ["ptes"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.01
+
+LowSupplyTemperature_MidDH_rhboost:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_LowSupplyTemperature_MidDH
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.01
+
+LowSupplyTemperature_MidDH_hpboost_10Cbottom:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_LowSupplyTemperature_MidDH
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        booster_technologies: ["ptes"]
+        min_bottom_temperature: 10
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.01
+
+LowSupplyTemperature_MidDH_noboost:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_LowSupplyTemperature_MidDH
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        discharger_temperature_boosting_required: false
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.01
+
+# High Supply Temperature scenarios with Mid DH (0.4)
+NoPTES_HighSupplyTemperature_MidDH:
+  fix_foreign_investments:
+    enable: false
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
       supply_temperature_approximation:
         relative_annual_temperature_reduction: 0.0
   adjustments:
@@ -41,53 +160,156 @@ NoPTES_HighSupplyTemperature:
         Store:
           urban central water pits:
             e_nom_max: 0
+  solving:
+    options:
+      skip_iterations: true
 
-HighSupplyTemperature_hpboost:
+HighSupplyTemperature_MidDH_hpboost:
   fix_foreign_investments:
-    reference_scenario: NoPTES_HighSupplyTemperature
-
-HighSupplyTemperature_rhboost:
-  fix_foreign_investments:
-    reference_scenario: NoPTES_HighSupplyTemperature
+    reference_scenario: NoPTES_HighSupplyTemperature_MidDH
   sector:
     district_heating:
+      potential:
+        DE: 0.4
       ptes:
-        boosting_technologies: ["resistive heater"]
+        booster_technologies: ["ptes"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.0
 
-HighSupplyTemperature_noboost:
+HighSupplyTemperature_MidDH_rhboost:
   fix_foreign_investments:
-    reference_scenario: NoPTES_HighSupplyTemperature
+    reference_scenario: NoPTES_HighSupplyTemperature_MidDH
   sector:
     district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.0
+
+HighSupplyTemperature_MidDH_hpboost_10Cbottom:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_HighSupplyTemperature_MidDH
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        booster_technologies: ["ptes"]
+        min_bottom_temperature: 10
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.0
+
+HighSupplyTemperature_MidDH_noboost:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_HighSupplyTemperature_MidDH
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
       ptes:
         discharger_temperature_boosting_required: false
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.0
 
-
-0.75PTESCAPEX:
+# Mid Supply Temperature with Low DH (0.3)
+NoPTES_MidSupplyTemperature_LowDH:
   fix_foreign_investments:
-    reference_scenario: NoPTES_LowSupplyTemperature
+    enable: false
+  sector:
+    district_heating:
+      potential:
+        DE: 0.3
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+  adjustments:
+    electricity: false
+    sector:
+      absolute:
+        Store:
+          urban central water pits:
+            e_nom_max: 0
+  solving:
+    options:
+      skip_iterations: true
+
+MidSupplyTemperature_LowDH_rhboost:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_MidSupplyTemperature_LowDH
+  sector:
+    district_heating:
+      potential:
+        DE: 0.3
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+
+# Mid Supply Temperature with High DH (0.5)
+NoPTES_MidSupplyTemperature_HighDH:
+  fix_foreign_investments:
+    enable: false
+  sector:
+    district_heating:
+      potential:
+        DE: 0.5
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+  adjustments:
+    electricity: false
+    sector:
+      absolute:
+        Store:
+          urban central water pits:
+            e_nom_max: 0
+  solving:
+    options:
+      skip_iterations: true
+
+MidSupplyTemperature_HighDH_rhboost:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_MidSupplyTemperature_HighDH
+  sector:
+    district_heating:
+      potential:
+        DE: 0.5
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+
+# CAPEX sensitivity scenarios (Mid Supply Temperature, Mid DH, rhboost)
+MidSupplyTemperature_MidDH_rhboost_0.01CAPEX:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_MidSupplyTemperature_MidDH
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
   adjustments:
     electricity: false
     sector:
       factor:
         Store:
           urban central water pits:
-            capital_cost: 0.75
+            capital_cost: 0.01
 
-0.5PTESCAPEX:
+MidSupplyTemperature_MidDH_rhboost_0.25CAPEX:
   fix_foreign_investments:
-    reference_scenario: NoPTES_LowSupplyTemperature
-  adjustments:
-    electricity: false
-    sector:
-      factor:
-        Store:
-          urban central water pits:
-            capital_cost: 0.5
-
-0.25PTESCAPEX:
-  fix_foreign_investments:
-    reference_scenario: NoPTES_LowSupplyTemperature
+    reference_scenario: NoPTES_MidSupplyTemperature_MidDH
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
   adjustments:
     electricity: false
     sector:
@@ -96,20 +318,55 @@ HighSupplyTemperature_noboost:
           urban central water pits:
             capital_cost: 0.25
 
-0PTESCAPEX:
+MidSupplyTemperature_MidDH_rhboost_0.5CAPEX:
   fix_foreign_investments:
-    reference_scenario: NoPTES_LowSupplyTemperature
+    reference_scenario: NoPTES_MidSupplyTemperature_MidDH
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
   adjustments:
     electricity: false
     sector:
       factor:
         Store:
           urban central water pits:
-            capital_cost: 0
+            capital_cost: 0.5
 
-1.25PTESCAPEX:
+MidSupplyTemperature_MidDH_rhboost_0.75CAPEX:
   fix_foreign_investments:
-    reference_scenario: NoPTES_LowSupplyTemperature
+    reference_scenario: NoPTES_MidSupplyTemperature_MidDH
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 0.75
+
+MidSupplyTemperature_MidDH_rhboost_1.25CAPEX:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_MidSupplyTemperature_MidDH
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
   adjustments:
     electricity: false
     sector:
@@ -118,9 +375,17 @@ HighSupplyTemperature_noboost:
           urban central water pits:
             capital_cost: 1.25
 
-1.5PTESCAPEX:
+MidSupplyTemperature_MidDH_rhboost_1.5CAPEX:
   fix_foreign_investments:
-    reference_scenario: NoPTES_LowSupplyTemperature
+    reference_scenario: NoPTES_MidSupplyTemperature_MidDH
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
   adjustments:
     electricity: false
     sector:
@@ -129,9 +394,17 @@ HighSupplyTemperature_noboost:
           urban central water pits:
             capital_cost: 1.5
 
-1.75PTESCAPEX:
+MidSupplyTemperature_MidDH_rhboost_1.75CAPEX:
   fix_foreign_investments:
-    reference_scenario: NoPTES_LowSupplyTemperature
+    reference_scenario: NoPTES_MidSupplyTemperature_MidDH
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
   adjustments:
     electricity: false
     sector:
@@ -140,13 +413,180 @@ HighSupplyTemperature_noboost:
           urban central water pits:
             capital_cost: 1.75
 
-2PTESCAPEX:
+MidSupplyTemperature_MidDH_rhboost_2CAPEX:
   fix_foreign_investments:
-    reference_scenario: NoPTES_LowSupplyTemperature
+    reference_scenario: NoPTES_MidSupplyTemperature_MidDH
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
   adjustments:
     electricity: false
     sector:
       factor:
         Store:
           urban central water pits:
-            capital_cost: 2
+            capital_cost: 2.0
+
+NoPTES_MidSupplyTemperature_MidDH_H2:
+# Fokus stärker auf dem Hochlauf von Technologien zur indirekten Elektrifizierung der Sektoren
+# Verstärkter Einsatz von Wasserstoff und synthetischen Kraftstoffen - erneuerbar erzeugt und auch importiert
+# Direkte Elektrifizierung spielt dennoch wesentliche Rolle bei der Dekarbonisierung der Endenergie
+# Ausbau der erneuerbaren Stromerzeugung erreicht politisch gesetzte Ziele
+  fix_foreign_investments:
+    enable: false
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+  adjustments:
+    electricity: false
+    sector:
+      absolute:
+        Store:
+          urban central water pits:
+            e_nom_max: 0
+    iiasa_database:
+    reference_scenario: KN2045_H2
+  solving:
+    options:
+      skip_iterations: true
+
+    constraints:
+      limits_volume_max:
+        # constrain electricity import in TWh
+        electricity_import:
+          DE:
+            2020: -20
+            2025: 0
+            2030: 0
+            2035: 30
+            2040: 70
+            2045: 100 # scenario guidelines
+            2050: 100
+
+        # constrain hydrogen import in TWh
+        h2_import:
+          DE:
+            2020: 0
+            2025: 5
+            2030: 45 # scenario guidelines
+            2035: 155
+            2040: 265
+            2045: 400 # scenario guidelines
+            2050: 400
+        # import of h2 derivatives in TWh
+        h2_derivate_import:
+          DE:
+            2020: 0
+            2025: 0
+            2030: 10 # scenario guidelines
+            2035: 140
+            2040: 270
+            2045: 400 # scenario guidelines
+            2050: 400
+        electrolysis:
+          DE:
+            2020: 0
+            2025: 5
+            2030: 45 # scenario guidelines
+            2035: 160
+            2040: 275
+            2045: 400 # scenario guidelines
+            2050: 400
+
+      limits_volume_min:
+        electrolysis:
+          DE:
+            2025: 0
+            2030: 0
+            2035: 0
+            2040: 0
+            2045: 200
+            2050: 200
+
+  industry:
+    steam_biomass_fraction: 0.4
+    steam_hydrogen_fraction: 0.5
+    steam_electricity_fraction: 0.1
+
+
+MidSupplyTemperature_MidDH_H2_rhboost:
+# Fokus stärker auf dem Hochlauf von Technologien zur indirekten Elektrifizierung der Sektoren
+# Verstärkter Einsatz von Wasserstoff und synthetischen Kraftstoffen - erneuerbar erzeugt und auch importiert
+# Direkte Elektrifizierung spielt dennoch wesentliche Rolle bei der Dekarbonisierung der Endenergie
+# Ausbau der erneuerbaren Stromerzeugung erreicht politisch gesetzte Ziele
+  fix_foreign_investments:
+    reference_scenario: NoPTES_MidSupplyTemperature_MidDH_H2
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+  solving:
+    constraints:
+      limits_volume_max:
+        # constrain electricity import in TWh
+        electricity_import:
+          DE:
+            2020: -20
+            2025: 0
+            2030: 0
+            2035: 30
+            2040: 70
+            2045: 100 # scenario guidelines
+            2050: 100
+
+        # constrain hydrogen import in TWh
+        h2_import:
+          DE:
+            2020: 0
+            2025: 5
+            2030: 45 # scenario guidelines
+            2035: 155
+            2040: 265
+            2045: 400 # scenario guidelines
+            2050: 400
+        # import of h2 derivatives in TWh
+        h2_derivate_import:
+          DE:
+            2020: 0
+            2025: 0
+            2030: 10 # scenario guidelines
+            2035: 140
+            2040: 270
+            2045: 400 # scenario guidelines
+            2050: 400
+        electrolysis:
+          DE:
+            2020: 0
+            2025: 5
+            2030: 45 # scenario guidelines
+            2035: 160
+            2040: 275
+            2045: 400 # scenario guidelines
+            2050: 400
+
+      limits_volume_min:
+        electrolysis:
+          DE:
+            2025: 0
+            2030: 0
+            2035: 0
+            2040: 0
+            2045: 200
+            2050: 200
+
+  industry:
+    steam_biomass_fraction: 0.4
+    steam_hydrogen_fraction: 0.5
+    steam_electricity_fraction: 0.1
