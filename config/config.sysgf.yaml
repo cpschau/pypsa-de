@@ -3,42 +3,49 @@
 # SPDX-License-Identifier: CC0-1.0
 
 run:
-  prefix: 20250922_new_boosting
+  prefix: 20250923_intermediate_line_fixing
   name:
-
-  # New Mid Supply Temperature scenarios
-  - NoPTES_MidSupplyTemperature_MidDH
-  - MidSupplyTemperature_MidDH_hpboost
-  - MidSupplyTemperature_MidDH_rhboost
-  - MidSupplyTemperature_MidDH_hpboost_10Cbottom
-  - MidSupplyTemperature_MidDH_noboost
-  - NoPTES_LowSupplyTemperature_MidDH
-  - LowSupplyTemperature_MidDH_hpboost
-  - LowSupplyTemperature_MidDH_rhboost
-  - LowSupplyTemperature_MidDH_hpboost_10Cbottom
-  - LowSupplyTemperature_MidDH_noboost
-  - NoPTES_HighSupplyTemperature_MidDH
-  - HighSupplyTemperature_MidDH_hpboost
-  - HighSupplyTemperature_MidDH_rhboost
-  - HighSupplyTemperature_MidDH_hpboost_10Cbottom
-  - HighSupplyTemperature_MidDH_noboost
-  # # DH sensitivity scenarios with Mid Supply Temperature
-  - NoPTES_MidSupplyTemperature_LowDH
-  - MidSupplyTemperature_LowDH_rhboost
-  - NoPTES_MidSupplyTemperature_HighDH
-  - MidSupplyTemperature_HighDH_rhboost
-  # CAPEX sensitivity scenarios
-  - MidSupplyTemperature_MidDH_rhboost_0.01CAPEX
-  - MidSupplyTemperature_MidDH_rhboost_0.25CAPEX
-  - MidSupplyTemperature_MidDH_rhboost_0.5CAPEX
-  - MidSupplyTemperature_MidDH_rhboost_0.75CAPEX
-  - MidSupplyTemperature_MidDH_rhboost_1.25CAPEX
-  - MidSupplyTemperature_MidDH_rhboost_1.5CAPEX
-  - MidSupplyTemperature_MidDH_rhboost_1.75CAPEX
-  - MidSupplyTemperature_MidDH_rhboost_2CAPEX
-  # H2 scenarios
-  - NoPTES_MidSupplyTemperature_MidDH_H2
-  - MidSupplyTemperature_MidDH_H2_rhboost
+    # Mid DH – Mid Supply
+    - NoPTES_MidSupplyTemperature_MidDH_init
+    - NoPTES_MidSupplyTemperature_MidDH
+    - MidSupplyTemperature_MidDH_hpboost
+    - MidSupplyTemperature_MidDH_rhboost
+    - MidSupplyTemperature_MidDH_hpboost_10Cbottom
+    - MidSupplyTemperature_MidDH_noboost
+    # Low Supply
+    - NoPTES_LowSupplyTemperature_MidDH_init
+    - NoPTES_LowSupplyTemperature_MidDH
+    - LowSupplyTemperature_MidDH_hpboost
+    - LowSupplyTemperature_MidDH_rhboost
+    - LowSupplyTemperature_MidDH_hpboost_10Cbottom
+    - LowSupplyTemperature_MidDH_noboost
+    # High Supply
+    - NoPTES_HighSupplyTemperature_MidDH_init
+    - NoPTES_HighSupplyTemperature_MidDH
+    - HighSupplyTemperature_MidDH_hpboost
+    - HighSupplyTemperature_MidDH_rhboost
+    - HighSupplyTemperature_MidDH_hpboost_10Cbottom
+    - HighSupplyTemperature_MidDH_noboost
+    # DH potential sensitivities
+    - NoPTES_MidSupplyTemperature_LowDH_init
+    - NoPTES_MidSupplyTemperature_LowDH
+    - MidSupplyTemperature_LowDH_rhboost
+    - NoPTES_MidSupplyTemperature_HighDH_init
+    - NoPTES_MidSupplyTemperature_HighDH
+    - MidSupplyTemperature_HighDH_rhboost
+    # CAPEX sensitivities
+    - MidSupplyTemperature_MidDH_rhboost_0.01CAPEX
+    - MidSupplyTemperature_MidDH_rhboost_0.25CAPEX
+    - MidSupplyTemperature_MidDH_rhboost_0.5CAPEX
+    - MidSupplyTemperature_MidDH_rhboost_0.75CAPEX
+    - MidSupplyTemperature_MidDH_rhboost_1.25CAPEX
+    - MidSupplyTemperature_MidDH_rhboost_1.5CAPEX
+    - MidSupplyTemperature_MidDH_rhboost_1.75CAPEX
+    - MidSupplyTemperature_MidDH_rhboost_2CAPEX
+    # H2 variant
+    - NoPTES_MidSupplyTemperature_MidDH_H2_init
+    - NoPTES_MidSupplyTemperature_MidDH_H2
+    - MidSupplyTemperature_MidDH_H2_rhboost
   scenarios:
     enable: true
     manual_file: config/scenarios.sysgf.yaml
@@ -77,6 +84,7 @@ fix_foreign_investments:
   reference_scenario: NoPTES_MidSupplyTemperature_MidDH
   nom_min: true
   nom_max: true
+  lines_only: false
   unfix_virtual_components: true
   slack: 0
 
@@ -115,6 +123,9 @@ adjustments:
 wasserstoff_kernnetz:
   enable: false
 
+electricity:
+  renewable_carriers: [solar, solar-hsat, onwind, offwind-ac, offwind-dc, hydro]
+  
 sector:
   chp:
     enable: true
@@ -215,19 +226,26 @@ solving:
     efuel_export_ban: false
     limits_capacity_max:
       Generator: null
+      Link: null
     limits_capacity_min:
       Generator: null
+      Link: null
+    limits_volume_max:
+      electrolysis: null
+      h2_derivate_import: null
+      h2_import: null      
   options:
     noisy_costs: false
-    skip_iterations: false
+    skip_iterations: true
     min_iterations: 1
     max_iterations: 1
+    transmission_losses: 0
   solver_options:
     gurobi-default:
       Seed: 123
-      BarConvTol: 1.e-6
-      FeasibilityTol: 1.e-8
-      # Crossover: 1
+      BarConvTol: 1.e-8
+      FeasibilityTol: 1.e-6
+      Crossover: 0
       # NumericFocus: 3
 
 
@@ -329,5 +347,4 @@ plotting:
     electrolysis excess heat pump: "magenta"
     other supply technologies: "dimgrey"
     other loads: "lightgrey"
-
 

@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: MIT
 
 # Mid Supply Temperature scenarios with Mid DH (0.4)
-NoPTES_MidSupplyTemperature_MidDH:
+NoPTES_MidSupplyTemperature_MidDH_init:
   fix_foreign_investments:
     enable: false
   sector:
@@ -22,7 +22,31 @@ NoPTES_MidSupplyTemperature_MidDH:
             e_nom_max: 0
   solving:
     options:
+      skip_iterations: false
+
+# Mid Supply Temperature scenarios with Mid DH (0.4)
+NoPTES_MidSupplyTemperature_MidDH:
+  fix_foreign_investments:
+    enable: true
+    lines_only: true
+    reference_scenario: NoPTES_MidSupplyTemperature_MidDH_init
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+  adjustments:
+    electricity: false
+    sector:
+      absolute:
+        Store:
+          urban central water pits:
+            e_nom_max: 0
+  solving:
+    options:
       skip_iterations: true
+
 
 MidSupplyTemperature_MidDH_hpboost:
   fix_foreign_investments:
@@ -74,9 +98,31 @@ MidSupplyTemperature_MidDH_noboost:
         relative_annual_temperature_reduction: 0.005
 
 # Low Supply Temperature scenarios with Mid DH (0.4)
-NoPTES_LowSupplyTemperature_MidDH:
+NoPTES_LowSupplyTemperature_MidDH_init:
   fix_foreign_investments:
     enable: false
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.01
+  adjustments:
+    electricity: false
+    sector:
+      absolute:
+        Store:
+          urban central water pits:
+            e_nom_max: 0
+  solving:
+    options:
+      skip_iterations: false
+
+NoPTES_LowSupplyTemperature_MidDH:
+  fix_foreign_investments:
+    enable: true
+    lines_only: true
+    reference_scenario: NoPTES_LowSupplyTemperature_MidDH_init
   sector:
     district_heating:
       potential:
@@ -144,9 +190,31 @@ LowSupplyTemperature_MidDH_noboost:
         relative_annual_temperature_reduction: 0.01
 
 # High Supply Temperature scenarios with Mid DH (0.4)
-NoPTES_HighSupplyTemperature_MidDH:
+NoPTES_HighSupplyTemperature_MidDH_init:
   fix_foreign_investments:
     enable: false
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.0
+  adjustments:
+    electricity: false
+    sector:
+      absolute:
+        Store:
+          urban central water pits:
+            e_nom_max: 0
+  solving:
+    options:
+      skip_iterations: false
+
+NoPTES_HighSupplyTemperature_MidDH:
+  fix_foreign_investments:
+    enable: true
+    lines_only: true
+    reference_scenario: NoPTES_HighSupplyTemperature_MidDH_init
   sector:
     district_heating:
       potential:
@@ -214,9 +282,31 @@ HighSupplyTemperature_MidDH_noboost:
         relative_annual_temperature_reduction: 0.0
 
 # Mid Supply Temperature with Low DH (0.3)
-NoPTES_MidSupplyTemperature_LowDH:
+NoPTES_MidSupplyTemperature_LowDH_init:
   fix_foreign_investments:
     enable: false
+  sector:
+    district_heating:
+      potential:
+        DE: 0.3
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+  adjustments:
+    electricity: false
+    sector:
+      absolute:
+        Store:
+          urban central water pits:
+            e_nom_max: 0
+  solving:
+    options:
+      skip_iterations: false
+
+NoPTES_MidSupplyTemperature_LowDH:
+  fix_foreign_investments:
+    enable: true
+    lines_only: true
+    reference_scenario: NoPTES_MidSupplyTemperature_LowDH_init
   sector:
     district_heating:
       potential:
@@ -247,7 +337,7 @@ MidSupplyTemperature_LowDH_rhboost:
         relative_annual_temperature_reduction: 0.005
 
 # Mid Supply Temperature with High DH (0.5)
-NoPTES_MidSupplyTemperature_HighDH:
+NoPTES_MidSupplyTemperature_HighDH_init:
   fix_foreign_investments:
     enable: false
   sector:
@@ -256,6 +346,28 @@ NoPTES_MidSupplyTemperature_HighDH:
         DE: 0.5
       supply_temperature_approximation:
         relative_annual_temperature_reduction: 0.005
+  adjustments:
+    electricity: false
+    sector:
+      absolute:
+        Store:
+          urban central water pits:
+            e_nom_max: 0
+  solving:
+    options:
+      skip_iterations: false
+
+NoPTES_MidSupplyTemperature_HighDH:
+  fix_foreign_investments:
+    enable: true
+    lines_only: true
+    reference_scenario: NoPTES_MidSupplyTemperature_HighDH_init
+  sector:
+    district_heating:
+      potential:
+        DE: 0.5
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005 
   adjustments:
     electricity: false
     sector:
@@ -432,7 +544,7 @@ MidSupplyTemperature_MidDH_rhboost_2CAPEX:
           urban central water pits:
             capital_cost: 2.0
 
-NoPTES_MidSupplyTemperature_MidDH_H2:
+NoPTES_MidSupplyTemperature_MidDH_H2_init:
 # Fokus stärker auf dem Hochlauf von Technologien zur indirekten Elektrifizierung der Sektoren
 # Verstärkter Einsatz von Wasserstoff und synthetischen Kraftstoffen - erneuerbar erzeugt und auch importiert
 # Direkte Elektrifizierung spielt dennoch wesentliche Rolle bei der Dekarbonisierung der Endenergie
@@ -452,70 +564,35 @@ NoPTES_MidSupplyTemperature_MidDH_H2:
         Store:
           urban central water pits:
             e_nom_max: 0
-    iiasa_database:
+  iiasa_database:
+    reference_scenario: KN2045_H2
+  solving:
+    options:
+      skip_iterations: false
+
+NoPTES_MidSupplyTemperature_MidDH_H2:
+  fix_foreign_investments:
+    enable: true
+    lines_only: true
+    reference_scenario: NoPTES_MidSupplyTemperature_MidDH_H2_init
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+  adjustments:
+    electricity: false
+    sector:
+      absolute:
+        Store:
+          urban central water pits:
+            e_nom_max: 0
+  iiasa_database:
     reference_scenario: KN2045_H2
   solving:
     options:
       skip_iterations: true
-
-    constraints:
-      limits_volume_max:
-        # constrain electricity import in TWh
-        electricity_import:
-          DE:
-            2020: -20
-            2025: 0
-            2030: 0
-            2035: 30
-            2040: 70
-            2045: 100 # scenario guidelines
-            2050: 100
-
-        # constrain hydrogen import in TWh
-        h2_import:
-          DE:
-            2020: 0
-            2025: 5
-            2030: 45 # scenario guidelines
-            2035: 155
-            2040: 265
-            2045: 400 # scenario guidelines
-            2050: 400
-        # import of h2 derivatives in TWh
-        h2_derivate_import:
-          DE:
-            2020: 0
-            2025: 0
-            2030: 10 # scenario guidelines
-            2035: 140
-            2040: 270
-            2045: 400 # scenario guidelines
-            2050: 400
-        electrolysis:
-          DE:
-            2020: 0
-            2025: 5
-            2030: 45 # scenario guidelines
-            2035: 160
-            2040: 275
-            2045: 400 # scenario guidelines
-            2050: 400
-
-      limits_volume_min:
-        electrolysis:
-          DE:
-            2025: 0
-            2030: 0
-            2035: 0
-            2040: 0
-            2045: 200
-            2050: 200
-
-  industry:
-    steam_biomass_fraction: 0.4
-    steam_hydrogen_fraction: 0.5
-    steam_electricity_fraction: 0.1
-
 
 MidSupplyTemperature_MidDH_H2_rhboost:
 # Fokus stärker auf dem Hochlauf von Technologien zur indirekten Elektrifizierung der Sektoren
@@ -532,61 +609,5 @@ MidSupplyTemperature_MidDH_H2_rhboost:
         booster_technologies: ["resistive heater"]
       supply_temperature_approximation:
         relative_annual_temperature_reduction: 0.005
-  solving:
-    constraints:
-      limits_volume_max:
-        # constrain electricity import in TWh
-        electricity_import:
-          DE:
-            2020: -20
-            2025: 0
-            2030: 0
-            2035: 30
-            2040: 70
-            2045: 100 # scenario guidelines
-            2050: 100
-
-        # constrain hydrogen import in TWh
-        h2_import:
-          DE:
-            2020: 0
-            2025: 5
-            2030: 45 # scenario guidelines
-            2035: 155
-            2040: 265
-            2045: 400 # scenario guidelines
-            2050: 400
-        # import of h2 derivatives in TWh
-        h2_derivate_import:
-          DE:
-            2020: 0
-            2025: 0
-            2030: 10 # scenario guidelines
-            2035: 140
-            2040: 270
-            2045: 400 # scenario guidelines
-            2050: 400
-        electrolysis:
-          DE:
-            2020: 0
-            2025: 5
-            2030: 45 # scenario guidelines
-            2035: 160
-            2040: 275
-            2045: 400 # scenario guidelines
-            2050: 400
-
-      limits_volume_min:
-        electrolysis:
-          DE:
-            2025: 0
-            2030: 0
-            2035: 0
-            2040: 0
-            2045: 200
-            2050: 200
-
-  industry:
-    steam_biomass_fraction: 0.4
-    steam_hydrogen_fraction: 0.5
-    steam_electricity_fraction: 0.1
+  iiasa_database:
+    reference_scenario: KN2045_H2
