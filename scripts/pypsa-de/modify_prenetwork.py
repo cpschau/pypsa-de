@@ -1351,7 +1351,7 @@ def _identify_non_german_extendable(component, component_type, countries):
             else component.p_nom_extendable
         )
     )
-    return non_german & extendable
+    return extendable & non_german
 
 
 def _unfix_bottlenecks(component_df, baseline_component, component_type, indices):
@@ -1434,18 +1434,6 @@ def _unfix_bottlenecks(component_df, baseline_component, component_type, indices
         )
         component_df.loc[_idx, "e_nom_extendable"] = True
 
-    if component_type == "Line":
-        component_df.loc[indices, "s_nom_extendable"] = baseline_component.loc[
-            indices, "s_nom_extendable"
-        ]
-        component_df.loc[indices, "s_nom_min"] = np.minimum(
-            baseline_component.loc[indices, "s_nom_opt"] * (1 - 0.01),
-            baseline_component.loc[indices, "s_nom"],
-        )
-        component_df.loc[indices, "s_nom_max"] = baseline_component.loc[
-            indices, "s_nom_opt"
-        ] * (1 + 0.01)
-        component_df.loc[indices, "s_nom"] = baseline_component.loc[indices, "s_nom"]
     return
 
 
@@ -1509,15 +1497,16 @@ def _apply_capacity_limits(
         component_df = n.df(component_type)
 
     if nom_min and nom_max and slack == 0:
-        # If both min and max are set, use optimized value directly
-        component_df.loc[indices, nom_attr] = baseline_component.loc[
-            indices, nom_opt_attr
-        ]
-        component_df.loc[indices, extendable_attr] = False
-        if unfix_bottlenecks:
-            _unfix_bottlenecks(
-                component_df, baseline_component, component_type, indices
-            )
+        if component_type == "Line":
+            component_df.loc[indices] = baseline_component.loc[indices]
+            component_df.loc[indices, extendable_attr] = False
+        else:
+            # If both min and max are set, use optimized value directly
+            component_df.loc[indices, nom_attr] = baseline_component.loc[
+                indices, nom_opt_attr
+            ]
+            component_df.loc[indices, extendable_attr] = False
+
     else:
         if nom_min:
             component_df.loc[indices, nom_min_attr] = baseline_component.loc[
@@ -1543,10 +1532,20 @@ def _apply_capacity_limits(
             component_df.loc[indices, nom_max_attr] = baseline_component.loc[
                 indices, nom_max_attr
             ]
+        if unfix_bottlenecks:
+            _unfix_bottlenecks(
+                component_df, baseline_component, component_type, indices
+            )
 
 
 def fix_foreign_investments(
-    n, n_ref, slack=0, nom_min=True, nom_max=False, unfix_bottlenecks=False
+    n,
+    n_ref,
+    slack=0,
+    nom_min=True,
+    nom_max=False,
+    unfix_bottlenecks=False,
+    lines_only=False,
 ):
     """
     For all extendable components located outside Germany, this function sets their
@@ -1575,14 +1574,23 @@ def fix_foreign_investments(
         Whether to set the minimum capacity limit. Default is True.
     nom_max : bool, optional
         Whether to set the maximum capacity limit. Default is False.
+    lines_only : bool, optional
+        Whether to only fix line components. Default is False.
+    unfix_bottlenecks : bool, optional
+        Whether to unfix certain bottleneck components to allow flexibility.
 
     Returns
     -------
     None
         Network is modified in-place with updated capacity limits.
     """
-    # List of component types that can have investment decisions
-    investment_components = ["Generator", "StorageUnit", "Store", "Link", "Line"]
+    if lines_only:
+        logger.info("Only fixing line components outside Germany.")
+        investment_components = ["Line"]
+    else:
+        logger.info("Fixing all investment components outside Germany.")
+        # List of component types that can have investment decisions
+        investment_components = ["Generator", "StorageUnit", "Store", "Link", "Line"]
 
     # Get list of countries (excluding Germany and empty strings)
     countries = n.buses.country.unique()
@@ -1592,7 +1600,12 @@ def fix_foreign_investments(
     for component_type in investment_components:
         component, baseline_component = _get_component_pair(n, n_ref, component_type)
 
-        to_fix = _identify_non_german_extendable(component, component_type, countries)
+        if lines_only:
+            to_fix = component.s_nom_extendable
+        else:
+            to_fix = _identify_non_german_extendable(
+                component, component_type, countries
+            )
 
         if not any(to_fix):
             continue
@@ -1611,6 +1624,7 @@ def fix_foreign_investments(
             nom_min,
             nom_max,
             unfix_bottlenecks,
+            lines_only,
         )
 
         logger.info(f"Fixed {sum(to_fix)} {component_type} components outside Germany")
@@ -1716,6 +1730,7 @@ if __name__ == "__main__":
             snakemake.params["fix_foreign_investments"]["nom_min"],
             snakemake.params["fix_foreign_investments"]["nom_max"],
             snakemake.params["fix_foreign_investments"]["unfix_virtual_components"],
+            snakemake.params["fix_foreign_investments"]["lines_only"],
         )
 
     n.export_to_netcdf(snakemake.output.network)
