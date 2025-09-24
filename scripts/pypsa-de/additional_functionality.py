@@ -15,7 +15,8 @@ def add_capacity_limits(n, investment_year, limits_capacity, sense="maximum"):
 
         attr = "e" if c.name == "Store" else "p"
         units = "MWh or tCO2" if c.name == "Store" else "MW"
-
+        if limits_capacity[c.name] is None:
+            continue
         for carrier in limits_capacity[c.name]:
             for ct in limits_capacity[c.name][carrier]:
                 if investment_year not in limits_capacity[c.name][carrier][ct].keys():
@@ -159,6 +160,8 @@ def add_power_limits(n, investment_year, limits_power_max):
 
 
 def h2_import_limits(n, investment_year, limits_volume_max):
+    if limits_volume_max["h2_import"] is None:
+        return
     for ct in limits_volume_max["h2_import"]:
         limit = limits_volume_max["h2_import"][ct][investment_year] * 1e6
 
@@ -230,6 +233,8 @@ def h2_import_limits(n, investment_year, limits_volume_max):
 
 
 def h2_production_limits(n, investment_year, limits_volume_min, limits_volume_max):
+    if limits_volume_max["electrolysis"] is None:
+        return
     for ct in limits_volume_max["electrolysis"]:
         if ct not in limits_volume_min["electrolysis"]:
             logger.warning(
@@ -288,6 +293,8 @@ def h2_production_limits(n, investment_year, limits_volume_min, limits_volume_ma
 
 
 def electricity_import_limits(n, investment_year, limits_volume_max):
+    if limits_volume_max["electricity_import"] is None:
+        return
     for ct in limits_volume_max["electricity_import"]:
         limit = limits_volume_max["electricity_import"][ct][investment_year] * 1e6
 
@@ -631,6 +638,8 @@ def force_boiler_profiles_existing_per_boiler(n):
 
 
 def add_h2_derivate_limit(n, investment_year, limits_volume_max):
+    if limits_volume_max["h2_derivate_import"] is None:
+        return
     for ct in limits_volume_max["h2_derivate_import"]:
         limit = limits_volume_max["h2_derivate_import"][ct][investment_year] * 1e6
 
