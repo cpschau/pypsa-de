@@ -172,10 +172,13 @@ if __name__ == "__main__":
                 sink_inlet_temperature = source_temperature_celsius
                 source_inlet_temperature_celsius = central_heating_return_temperature
             else:
-                source_outlet_temperature_celsius = (
-                    source_temperature_celsius
-                    - snakemake.params.heat_source_cooling_central_heating
-                )
+                if heat_source == "river_water":
+                    source_outlet_temperature_celsius = source_temperature_celsius - 1
+                else:
+                    source_outlet_temperature_celsius = (
+                        source_temperature_celsius
+                        - snakemake.params.heat_source_cooling_central_heating
+                    )
                 sink_inlet_temperature_celsius = central_heating_return_temperature
                 source_inlet_temperature_celsius = source_temperature_celsius
 
