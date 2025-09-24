@@ -37,7 +37,8 @@ def add_buses(n: pypsa.Network, subnode: pd.Series, name: str) -> None:
     None
     """
     buses = (
-        n.buses.filter(like=f"{subnode['cluster']} urban central", axis=0)
+        n.buses.loc[~n.buses.carrier.str.contains("excess heat")]
+        .filter(like=f"{subnode['cluster']} urban central", axis=0)
         .reset_index()
         .replace(
             {
@@ -200,6 +201,7 @@ def add_stores(
     subnodes_rest: gpd.GeoDataFrame,
     limit_ptes_potential_subnodes: bool = False,
     limit_ptes_potential_mother_nodes: bool = False,
+    limit_foreign_ptes_potential: bool = False,
 ) -> None:
     """
     Add stores for a district heating subnode.
@@ -218,6 +220,10 @@ def add_stores(
         Whether to use dynamic PTES capacity, by default False
     limit_ptes_potential_mother_nodes : bool, optional
         Whether to limit PTES potential in mother nodes, by default False
+    limit_ptes_potential_subnodes : bool, optional
+        Whether to limit PTES potential in subnodes, by default False
+    limit_foreign_ptes_potential : bool, optional
+        Whether to limit PTES potential in foreign nodes, by default False
 
     Returns
     -------
@@ -267,6 +273,12 @@ def add_stores(
             mother_nodes_ptes_pot.index + " urban central water pits"
         )
         n.stores.loc[mother_nodes_ptes_pot.index, "e_nom_max"] = mother_nodes_ptes_pot
+
+    if limit_foreign_ptes_potential:
+        foreign_pits = n.stores.query(
+            "carrier == 'urban central water pits' and not index.str.contains('DE')"
+        ).index
+        n.stores.loc[foreign_pits, "e_nom_max"] = 0
 
 
 def add_storage_units(n: pypsa.Network, subnode: pd.Series, name: str) -> None:
@@ -416,7 +428,10 @@ def add_links(
     # Replicate district heating links of mother node for subnodes with separate treatment for links with dynamic efficiencies
     links = (
         n.links.loc[~n.links.carrier.str.contains("heat pump|direct", regex=True)]
-        .filter(regex=f"{subnode['cluster']} (urban central|waste CHP)", axis=0)
+        .filter(
+            regex=f"{subnode['cluster']} (urban central|waste CHP)",
+            axis=0,
+        )
         .reset_index()
         .replace(
             {
@@ -445,19 +460,19 @@ def add_links(
             else n.links.filter(like=heat_source, axis=0).efficiency.mode()
         )
 
-        heat_pump = (
-            n.links.filter(
-                regex=f"{subnode['cluster']} urban central.*{heat_source}.*heat pump",
-                axis=0,
-            )
-            .reset_index()
-            .replace(
-                {f"{subnode['cluster']} urban central": name},
-                regex=True,
-            )
-            .drop(["efficiency", "efficiency2", "p_min_pu"], axis=1)
-            .set_index("Link")
+        heat_pump = n.links.filter(
+            regex=f"{subnode['cluster']} urban central.*{heat_source}.*heat pump",
+            axis=0,
+        ).reset_index()
+
+        heat_pump.Link = heat_pump.Link.str.replace(
+            rf"{subnode['cluster']} urban central", name, regex=True
         )
+        heat_pump.set_index("Link", inplace=True)
+        heat_pump = heat_pump.replace(
+            {rf"{subnode['cluster']} urban central(?! electrolysis)": name},
+            regex=True,
+        ).drop(["efficiency", "efficiency2", "p_min_pu"], axis=1)
 
         if heat_pump.empty:
             logger.warning(f"No heat pump found for {heat_source} in {name}")
@@ -500,19 +515,20 @@ def add_links(
                 "mean",
             ).to_frame(name=f"{name} {heat_source} heat direct utilisation")
 
-            direct_utilization = (
-                n.links.filter(
-                    regex=f"{subnode['cluster']} urban central.*{heat_source}.*direct",
-                    axis=0,
-                )
-                .reset_index()
-                .replace(
-                    {f"{subnode['cluster']} urban central": name},
-                    regex=True,
-                )
-                .set_index("Link")
-                .drop("efficiency", axis=1)
+            direct_utilization = n.links.filter(
+                regex=f"{subnode['cluster']} urban central.*{heat_source}.*direct",
+                axis=0,
+            ).reset_index()
+
+            direct_utilization["Link"] = direct_utilization["Link"].replace(
+                {f"{subnode['cluster']} urban central": name},
+                regex=True,
             )
+            direct_utilization.set_index("Link", inplace=True)
+            direct_utilization = direct_utilization.replace(
+                {rf"{subnode['cluster']} urban central(?! electrolysis)": name},
+                regex=True,
+            ).drop("efficiency", axis=1)
 
             n.add(
                 "Link",
@@ -522,7 +538,10 @@ def add_links(
             )
 
         # Restrict heat source potential in subnodes
-        if heat_source in limited_heat_sources:
+        if (
+            heat_source in limited_heat_sources
+            and limited_heat_sources[heat_source]["requires_generator"]
+        ):
             # get potential
             p_max_source = pd.read_csv(
                 heat_source_potentials[heat_source],
@@ -560,6 +579,7 @@ def add_subnodes(
     dynamic_ptes_capacity: bool = False,
     limit_ptes_potential_subnodes: bool = True,
     limit_ptes_potential_mother_nodes: bool = True,
+    limit_foreign_ptes_potential: bool = True,
     heat_pump_sources: list[str] = None,
     direct_utilisation_heat_sources: list[str] = None,
     time_dep_hp_cop: bool = False,
@@ -596,6 +616,10 @@ def add_subnodes(
         Whether to use dynamic PTES capacity.
     limit_ptes_potential_mother_nodes : bool
         Whether to limit PTES potential in mother nodes.
+    limit_ptes_potential_subnodes : bool
+        Whether to limit PTES potential in subnodes.
+    limit_foreign_ptes_potential : bool
+        Whether to limit PTES potential in foreign nodes.
     heat_pump_sources : List[str]
         List of heat pump sources.
     direct_utilisation_heat_sources : List[str]
@@ -641,6 +665,7 @@ def add_subnodes(
             subnodes_rest,
             limit_ptes_potential_subnodes,
             limit_ptes_potential_mother_nodes,
+            limit_foreign_ptes_potential,
         )
         add_storage_units(n, subnode, name)
         add_generators(n, subnode, name)
@@ -731,14 +756,14 @@ if __name__ == "__main__":
 
         snakemake = mock_snakemake(
             "add_district_heating_subnodes",
-            configfiles="config/config.sysgf.yaml",
+            configfiles=["config/config.sysgf.yaml", "config/scenarios.sysgf.yaml"],
             simpl="",
             clusters=27,
             opts="",
             ll="vopt",
             sector_opts="none",
             planning_horizons="2045",
-            run="Baseline",
+            run="HighSupplyTemperature_MidDH_hpboost",
         )
 
     configure_logging(snakemake)
@@ -766,8 +791,12 @@ if __name__ == "__main__":
     # Create a dictionary of heat source potentials for the limited heat sources
     heat_pump_sources = snakemake.params.heat_pump_sources
     heat_source_potentials = {}
-    for source in snakemake.params.district_heating["limited_heat_sources"]:
-        if source in heat_pump_sources:
+    limited_heat_sources = snakemake.params.district_heating["limited_heat_sources"]
+    for source in limited_heat_sources:
+        if (
+            source in heat_pump_sources
+            and limited_heat_sources[source]["requires_generator"]
+        ):
             heat_source_potentials[source] = snakemake.input[source]
 
     add_subnodes(
@@ -787,6 +816,9 @@ if __name__ == "__main__":
         limit_ptes_potential_mother_nodes=snakemake.params.district_heating["subnodes"][
             "limit_ptes_potential"
         ]["limit_mother_nodes"],
+        limit_foreign_ptes_potential=snakemake.params.district_heating["subnodes"][
+            "limit_ptes_potential"
+        ]["limit_foreign_nodes"],
         heat_pump_sources=heat_pump_sources,
         direct_utilisation_heat_sources=snakemake.params.district_heating[
             "direct_utilisation_heat_sources"
