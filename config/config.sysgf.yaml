@@ -120,6 +120,18 @@ adjustments:
           standing_loss: 0.000078
         urban central water tanks:
           standing_loss: 0.000077
+    factor:
+      Link:
+        urban central geothermal heat pump:
+          capital_cost: 0.66
+        urban central river_water heat pump:
+          capital_cost: 0.86
+        urban central sea_water heat pump:
+          capital_cost: 0.86
+        urban central electrolysis excess heat pump:
+          capital_cost: 0.76
+        urban central ptes heat pump:
+          capital_cost: 0.66
 wasserstoff_kernnetz:
   enable: false
 
@@ -250,6 +262,12 @@ solving:
 
 
 plotting:
+  # Technology grouping options (all enabled by default in plot_dh_systems.py)
+  group_chp: true                   # Group all CHP technologies as "CHP"
+  group_heat_pumps: true           # Group all heat pumps as "Heat Pumps"  
+  group_demands: true              # Group demands as "District Heating Demand"
+  drop_losses: true                # Remove loss columns from plots
+  aggregate_threshold_pct: 0.025
   balance_map:
     bus_carriers: null
   dual_comparison:
@@ -331,13 +349,15 @@ plotting:
     urban central water tanks losses: "mediumspringgreen"
     urban central water pits losses: "mediumseagreen"
     other technologies: "dimgrey"
-    neighbour countries: "#D0C7FF"
+    neighbour countries: "gainsboro"
+    EU aggregated: "gainsboro"
     CHP: "brown"
     PV: "#FFC13C"
     wind power: "skyblue"
     H2 OCGT: "#8A2BE2"
     decentral heat pump: "#556B2F"
-    power grid: "#0026ffff"
+    power grid: "#228B22"
+    transmission grid: "#228B22"
     decentral biomass boiler: "#007910"
     urban central heat: "#CCCCCC"
     biomass to liquid CC: "#B0FF90"
@@ -347,4 +367,5 @@ plotting:
     electrolysis excess heat pump: "magenta"
     other supply technologies: "dimgrey"
     other loads: "lightgrey"
+    geothermal heat pump: "khaki"
 
