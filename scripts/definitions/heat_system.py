@@ -230,7 +230,7 @@ class HeatSystem(Enum):
             "sea_water",
             "river_water",
         ]:
-            return f"{self.central_or_decentral} excess-heat-sourced heat pump"
+            return f"{self.central_or_decentral} air-sourced heat pump"
         else:
             return f"{self.central_or_decentral} {heat_source}-sourced heat pump"
 
