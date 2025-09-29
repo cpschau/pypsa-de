@@ -114,6 +114,27 @@ def calc_average_dh_price_t_ordered(n):
     return weighted_average_price_t
 
 
+# def calc_average_dh_price(n):
+#     """Calculate average district heating price in EUR/MWh."""
+#     dh_mps = n.buses_t.marginal_price.filter(regex=r"DE0.*urban central heat")
+#     dh_loads = n.loads_t.p.filter(regex=r"DE\d.*(urban central|low-temperature) heat")
+
+#     if dh_mps.empty or dh_loads.empty:
+#         return 0
+
+#     dh_loads.columns = dh_loads.columns.str.replace(
+#         "low-temperature heat for industry", "urban central heat"
+#     )
+#     # Aggregate columns with same name
+#     dh_loads = dh_loads.T.groupby(level=0).sum().T
+#     dh_costs = (dh_mps * dh_loads).sum().sum()
+
+#     if dh_loads.sum().sum() == 0:
+#         return 0
+
+#     return dh_costs / dh_loads.sum().sum()
+
+
 def calc_average_electricity_price_t_ordered(n):
     """Calculate time-ordered average electricity price."""
     loads = n.buses_t.p.filter(regex=r"DE\d \d$").clip(upper=0).mul(-1)
@@ -495,12 +516,12 @@ def create_summary_df(networks):
                             .p_nom_opt.div(1e3)
                             .sum(),
                             "H2_store_TWh": calc_h2_store_capacity(n),
-                            "co2_price_EU_EUR_per_ton": -n.global_constraints.loc[
-                                "CO2Limit", "mu"
-                            ],
-                            "co2_price_DE_EUR_per_ton": -n.global_constraints.loc[
-                                "co2_limit-DE", "mu"
-                            ],
+                            # "co2_price_EU_EUR_per_ton": -n.global_constraints.loc[
+                            #     "CO2Limit", "mu"
+                            # ],
+                            # "co2_price_DE_EUR_per_ton": -n.global_constraints.loc[
+                            #     "co2_limit-DE", "mu"
+                            # ],
                             "dh_price_EUR_per_MWh": calc_average_dh_price(n),
                             "electricity_price_EUR_per_MWh": calc_average_elec_price(n),
                             "peak_electricity_price_EUR_per_MWh": n.buses_t.marginal_price.filter(
@@ -1997,7 +2018,22 @@ def plot_energy_balance_comparison(network1, network2, scenarios, output_path, c
             .mul(-100)
         )
 
-        return to_plot_rel_load + to_plot_rel_gen, dh_prices
+        to_plot_rel = to_plot_rel_load + to_plot_rel_gen
+
+        # Group geothermal technologies
+        geothermal_techs = [
+            tech
+            for tech in to_plot_rel.columns
+            if "urban central geothermal heat pump" in tech
+            or "urban central geothermal heat" in tech
+        ]
+        if len(geothermal_techs) > 0:
+            to_plot_rel["geothermal heat pump"] = to_plot_rel[geothermal_techs].sum(
+                axis=1
+            )
+            to_plot_rel = to_plot_rel.drop(columns=geothermal_techs)
+
+        return to_plot_rel, dh_prices
 
     # Prepare data for both networks
     to_plot_rel1, dh_prices1 = prepare_energy_balance_data(network1)
@@ -2027,8 +2063,7 @@ def plot_energy_balance_comparison(network1, network2, scenarios, output_path, c
         "urban central heat",
         "urban central heat vent",
         "urban central electrolysis excess heat pump",
-        "urban central geothermal heat pump",
-        "urban central geothermal heat direct utilisation",
+        "geothermal heat pump",
         "urban central river_water heat pump",
         "urban central sea_water heat pump",
         "urban central air heat pump",
@@ -2045,9 +2080,7 @@ def plot_energy_balance_comparison(network1, network2, scenarios, output_path, c
         "urban central water tanks discharger",
         "urban central water tanks charger",
         "urban central water tanks losses",
-    ]
-
-    # Filter to only include columns that exist in the data
+    ]  # Filter to only include columns that exist in the data
     col_order = [c for c in col_order if c in to_plot_rel1.columns]
     # concat col_order with elements from to_plot_rel1 that are not in col_order
     col_order += [c for c in to_plot_rel1.columns if c not in col_order]
@@ -2076,8 +2109,7 @@ def plot_energy_balance_comparison(network1, network2, scenarios, output_path, c
         "urban central heat",
         "urban central heat vent",
         "urban central electrolysis excess heat pump",
-        "urban central geothermal heat pump",
-        "urban central geothermal heat direct utilisation",
+        "geothermal heat pump",
         "urban central river_water heat pump",
         "urban central sea_water heat pump",
         "urban central air heat pump",
@@ -2086,6 +2118,7 @@ def plot_energy_balance_comparison(network1, network2, scenarios, output_path, c
         "H2 Electrolysis",
         "urban central solid biomass CHP",
         "urban central gas CHP",
+        "urban central oil CHP",
         "urban central coal CHP",
         "waste CHP",
         "urban central H2 CHP",
@@ -2096,9 +2129,7 @@ def plot_energy_balance_comparison(network1, network2, scenarios, output_path, c
         "urban central water tanks losses",
         "urban central water pits charger",
         "urban central water pits losses",
-    ]
-
-    # Filter to only include columns that exist in the data
+    ]  # Filter to only include columns that exist in the data
     col_order = [c for c in col_order if c in to_plot_rel2.columns]
     # concat col_order with elements from to_plot_rel2 that are not in col_order
     col_order += [c for c in to_plot_rel2.columns if c not in col_order]
@@ -2992,6 +3023,17 @@ def plot_ptes_savings_comparison(
         df_diff = costs_year.loc[comp_scenario].sub(costs_year.loc[ref_scenario])
         df_diff = df_diff[df_diff != 0]
 
+        # Group geothermal technologies
+        geothermal_techs = [
+            tech
+            for tech in df_diff.index
+            if "urban central geothermal heat pump" in tech
+            or "urban central geothermal heat" in tech
+        ]
+        if len(geothermal_techs) > 0:
+            df_diff["geothermal heat pump"] = df_diff[geothermal_techs].sum()
+            df_diff = df_diff.drop(geothermal_techs)
+
         # Group small contributors into "other technologies"
         small_indices = df_diff.index[df_diff.abs() < 0.02 * df_diff.abs().sum()]
         if len(small_indices) > 0:
@@ -3110,6 +3152,13 @@ def plot_ptes_savings_comparison(
 
     # Transpose so scenarios are rows and technologies are columns
     combined_plot_data = combined_plot_data.T
+
+    # Reorder technology (column) order by total absolute contribution (descending)
+    if not combined_plot_data.empty:
+        abs_order = (
+            combined_plot_data.abs().sum(axis=0).sort_values(ascending=False).index
+        )
+        combined_plot_data = combined_plot_data[abs_order]
 
     # Calculate savings markers from the combined plot data (AFTER sorting and combining)
     total_savings_list = []
@@ -3317,19 +3366,9 @@ def plot_ptes_savings_comparison(
 
     # Create a separate legend for technologies - ONLY for actually displayed technologies
     # Sort displayed technologies by their total importance across all comparisons
-    tech_importance = {}
-    for tech in all_displayed_techs:
-        importance = 0
-        for ref_scenario, comp_scenario in scenario_tuples:
-            if ref_scenario in costs_year.index and comp_scenario in costs_year.index:
-                diff = costs_year.loc[comp_scenario].sub(costs_year.loc[ref_scenario])
-                if tech in diff:
-                    importance += abs(diff[tech])
-        tech_importance[tech] = importance
-
-    sorted_displayed_techs = sorted(
-        all_displayed_techs, key=lambda x: tech_importance.get(x, 0), reverse=True
-    )
+    # Use the same absolute ordering for legend importance
+    tech_importance = combined_plot_data.abs().sum().to_dict()
+    sorted_displayed_techs = list(combined_plot_data.columns)
 
     # Create legend handles and labels for displayed technologies only
     tech_handles = []
@@ -4848,7 +4887,7 @@ def prepare_energy_data(network, exclude_water_pits=True):
 
 
 def process_generation_and_load(uch_de_t, network):
-    """Process generation and load data into price ventiles."""
+    """Process generation and load data into electricity price quartiles (previously ventiles)."""
     uch_de_t_gen = (
         uch_de_t.clip(lower=0)
         .T.resample("3h")
@@ -5087,7 +5126,6 @@ def get_boosting_energy(
 def plot_energy_balance_combined(
     uch_de_t_gen_dict,
     uch_de_t_load_dict,
-    bin_labels_with_edges,
     output_file,
     scenario_names,
     colors,
@@ -5095,7 +5133,14 @@ def plot_energy_balance_combined(
     boosting_ratio_files=None,
     dh_supply_temperatures=None,
 ):
-    """Plot energy balance comparison across scenarios and price ventiles."""
+    """Plot energy balance comparison across scenarios and price quartiles.
+
+    Notes
+    -----
+    The function now derives bin labels directly from the provided DataFrames' column
+    ordering (already aggregated to quartiles upstream). The former argument
+    `bin_labels_with_edges` (ventile-based) has been removed to avoid mismatches.
+    """
     fig, axes = plt.subplots(1, 2, figsize=(10, 5), sharey=True)
     handles, labels = None, None
 
@@ -5154,29 +5199,7 @@ def plot_energy_balance_combined(
                 )
 
                 # Use same percentiles and labeling approach as process_generation_and_load
-                percentiles = [
-                    0,
-                    0.05,
-                    0.1,
-                    0.15,
-                    0.2,
-                    0.25,
-                    0.3,
-                    0.35,
-                    0.4,
-                    0.45,
-                    0.5,
-                    0.55,
-                    0.6,
-                    0.65,
-                    0.7,
-                    0.75,
-                    0.8,
-                    0.85,
-                    0.9,
-                    0.95,
-                    1,
-                ]
+                percentiles = [0, 0.25, 0.5, 0.75, 1]
                 # First qcut to get bin edges (labels=None)
                 _price_bins_tmp, bin_edges = pd.qcut(
                     prices_3h, q=percentiles, labels=None, retbins=True
@@ -5220,10 +5243,59 @@ def plot_energy_balance_combined(
                 f"Failed to compute boosting energy for scenario {scenario}: {e}"
             )
 
-        # Use absolute energy per ventile in TWh (positive supply, negative loads)
+        # Use absolute energy per quartile in TWh (positive supply, negative loads)
         to_plot_gen = (uch_de_t_gen / 1e6).T
         to_plot_load = (uch_de_t_load / 1e6).T  # keep negative values for loads
         to_plot = pd.concat([to_plot_gen, to_plot_load], axis=1)
+
+        # (Directly creating quartile bins now; no post-hoc collapse needed.)
+        try:
+            original_bin_labels = list(uch_de_t_gen.columns)
+            if len(original_bin_labels) == 20:
+                # Build mapping index -> quartile label
+                quartile_map = {}
+                for i, lbl in enumerate(original_bin_labels):
+                    q_index = i // 5  # 0..3
+                    quartile_label = ["Q1", "Q2", "Q3", "Q4"][q_index]
+                    quartile_map.setdefault(quartile_label, []).append(lbl)
+
+                def _aggregate_quartiles(df: pd.DataFrame) -> pd.DataFrame:
+                    out_rows = []
+                    for qlbl in ["Q1", "Q2", "Q3", "Q4"]:
+                        cols = quartile_map.get(qlbl, [])
+                        if not cols:
+                            # create zeros if missing
+                            out_rows.append(pd.Series(0.0, index=df.index, name=qlbl))
+                        else:
+                            out_rows.append(df[cols].sum(axis=1).rename(qlbl))
+                    return pd.DataFrame(out_rows).set_index(
+                        pd.Index(["Q1", "Q2", "Q3", "Q4"], name=df.index.name)
+                    )
+
+                # Apply to positive and negative frames separately (already concatenated)
+                # Since current shape is (20 x techs) after T transpose, we aggregate along rows (index)
+                to_plot = _aggregate_quartiles(to_plot.T).T  # back to (4 x techs)
+
+                # Aggregate boosting energy per quartile if available
+                if boosting_by_label_twh is not None:
+                    boosting_q = []
+                    for qlbl in ["Q1", "Q2", "Q3", "Q4"]:
+                        cols = quartile_map.get(qlbl, [])
+                        boosting_q.append(
+                            (boosting_by_label_twh.reindex(cols, fill_value=0.0)).sum()
+                        )
+                    boosting_by_label_twh = pd.Series(
+                        boosting_q, index=["Q1", "Q2", "Q3", "Q4"]
+                    )
+
+                # Aggregate temperatures if they were already computed (later block will check shape)
+                # We'll store mapping for later use (re-coloring happens later after temps_per_bin_aligned creation)
+            else:
+                logger.debug(
+                    f"Expected 20 ventile bins before quartile aggregation, found {len(original_bin_labels)}; skipping quartile collapse."
+                )
+        except Exception as _quart_e:
+            logger.debug(f"Quartile aggregation failed: {_quart_e}")
 
         # 1. Drop heat vents from the technologies
         heat_vent_cols = [col for col in to_plot.columns if "heat vent" in col.lower()]
@@ -5364,13 +5436,13 @@ def plot_energy_balance_combined(
         # Ensure all x-ticks/labels for price quantiles are shown consistently
         from matplotlib.ticker import FixedLocator
 
-        bin_labels = list(to_plot.index)
+        bin_labels = list(to_plot.index)  # quartile labels inferred from qcut edges
         x_positions = np.arange(len(bin_labels))
         ax.xaxis.set_major_locator(FixedLocator(x_positions))
         ax.set_xticks(x_positions)
         ax.set_xticklabels(bin_labels, rotation=90, ha="right")
 
-        # Light vertical grid at each price ventile to visualize quantiles
+        # Light vertical grid at each price quartile to visualize distribution
         ax.set_axisbelow(True)
         ax.grid(
             True, axis="x", linestyle=":", linewidth=0.5, color="#CCCCCC", alpha=0.8
@@ -5439,30 +5511,8 @@ def plot_energy_balance_combined(
                     # 3h resample like price bins
                     temps_3h = temp_series.resample("3h").mean()
                     # Use same binning as prices (price_bins_labeled exists only inside try above, so recompute locally)
-                    # Reconstruct percentiles (same list)
-                    percentiles = [
-                        0,
-                        0.05,
-                        0.1,
-                        0.15,
-                        0.2,
-                        0.25,
-                        0.3,
-                        0.35,
-                        0.4,
-                        0.45,
-                        0.5,
-                        0.55,
-                        0.6,
-                        0.65,
-                        0.7,
-                        0.75,
-                        0.8,
-                        0.85,
-                        0.9,
-                        0.95,
-                        1,
-                    ]
+                    # Reconstruct quartile percentiles (aligned with earlier price binning)
+                    percentiles = [0, 0.25, 0.5, 0.75, 1]
                     # Need prices again for consistent labeled bins
                     if networks is not None and scenario in networks:
                         n_obj_temp = networks[scenario]
@@ -5481,12 +5531,8 @@ def plot_energy_balance_combined(
                         )
 
                         def _fmt_edge(v):
-                            if v < 1:
-                                return f"{v:.4f}"
                             if v < 10:
                                 return f"{v:.2f}"
-                            if v < 100:
-                                return f"{v:.1f}"
                             if v < 1000:
                                 return f"{v:.0f} "
                             return f"{v:.0f}"
@@ -5587,7 +5633,7 @@ def plot_energy_balance_combined(
         # Use the provided scenario name or clean up the key
         scenario_title = scenario_names.get(scenario, scenario)
         ax.set_title(scenario_title, fontsize=16)
-        ax.set_xlabel("Electricity price ventiles [€/MWh]", fontsize=14)
+        ax.set_xlabel("Electricity price quartiles [€/MWh]", fontsize=14)
         ax.set_xlim(-0.5, len(bin_labels) - 0.5)
         # Dynamic symmetric y-limits based on stacked totals
         pos_tot = to_plot.clip(lower=0).sum(axis=1).max() if not to_plot.empty else 0
@@ -5971,8 +6017,41 @@ def main(snakemake):
                             process_generation_and_load(uch_de_t_B, network_B_year)
                         )
 
-                        # Use consistent bin labels (from first scenario)
-                        bin_labels_with_edges = bin_labels_A
+                        # Defensive alignment: ensure both have identical quartile labels.
+                        # If a scenario produced fewer (e.g., due to duplicate edges), pad with synthetic labels.
+                        def _pad_bins(df_gen, df_load, labels):
+                            # Expect 4 quartiles; pad if shorter.
+                            expected = 4
+                            current = len(labels)
+                            if current == expected:
+                                return df_gen, df_load, labels
+                            # Create padded labels Q1..Q4
+                            full_labels = [f"Q{i}" for i in range(1, expected + 1)]
+                            # Map existing labels to their order; fill missing with zeros
+                            new_gen = pd.DataFrame(index=full_labels)
+                            new_load = pd.DataFrame(index=full_labels)
+                            for lbl in full_labels:
+                                if lbl in df_gen.columns:
+                                    new_gen[lbl] = df_gen[lbl]
+                                else:
+                                    new_gen[lbl] = 0.0
+                                if lbl in df_load.columns:
+                                    new_load[lbl] = df_load[lbl]
+                                else:
+                                    new_load[lbl] = 0.0
+                            return new_gen.T, new_load.T, full_labels
+
+                        uch_de_t_gen_A, uch_de_t_load_A, bin_labels_A = _pad_bins(
+                            uch_de_t_gen_A, uch_de_t_load_A, bin_labels_A
+                        )
+                        uch_de_t_gen_B, uch_de_t_load_B, bin_labels_B = _pad_bins(
+                            uch_de_t_gen_B, uch_de_t_load_B, bin_labels_B
+                        )
+                        # Final consistency check
+                        if bin_labels_A != bin_labels_B:
+                            logger.warning(
+                                f"Quartile label mismatch {bin_labels_A} vs {bin_labels_B}; using first set."
+                            )
 
                         # Create dictionaries for the plotting function
                         uch_de_t_gen_dict = {
@@ -6025,24 +6104,35 @@ def main(snakemake):
                                 f"Could not resolve boosting ratio files for ventiles plot: {e}"
                             )
 
-                        plot_energy_balance_combined(
-                            uch_de_t_gen_dict,
-                            uch_de_t_load_dict,
-                            bin_labels_with_edges,
-                            os.path.join(
-                                subdirs["energy_balances"],
-                                f"uch_balance_price_ventiles_{scenario_A}_{scenario_B}.pdf",
-                            ),
-                            scenario_names,
-                            colors,
-                            networks=networks,
-                            boosting_ratio_files=(
-                                boosting_ratio_files if boosting_ratio_files else None
-                            ),
+                        output_fname = os.path.join(
+                            subdirs["energy_balances"],
+                            f"uch_balance_price_quartiles_{scenario_A}_{scenario_B}.pdf",
                         )
+                        try:
+                            plot_energy_balance_combined(
+                                uch_de_t_gen_dict,
+                                uch_de_t_load_dict,
+                                output_fname,
+                                scenario_names,
+                                colors,
+                                networks=networks,
+                                boosting_ratio_files=(
+                                    boosting_ratio_files
+                                    if boosting_ratio_files
+                                    else None
+                                ),
+                            )
+                            logger.info(
+                                f"Energy balance with price quartiles comparison plot saved to {output_fname}"
+                            )
+                        except Exception as inner_e:
+                            logger.warning(
+                                "Detailed quartile comparison failure: "
+                                f"{inner_e} | binsA={bin_labels_A} binsB={bin_labels_B}"
+                            )
                     except Exception as e:
                         logger.warning(
-                            f"Failed to generate price ventiles comparison for {scenario_A} vs {scenario_B}: {e}"
+                            f"Failed to generate price quartiles comparison for {scenario_A} vs {scenario_B}: {e}"
                         )
 
     # 7. Plot storage power spectrum analysis for sensitivity runs
