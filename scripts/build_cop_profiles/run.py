@@ -150,13 +150,13 @@ if __name__ == "__main__":
 
             if heat_source == "ptes":
                 if "ptes" in snakemake.params.ptes["booster_technologies"]:
-                    source_outlet_temperature_celsius = xr.full_like(
-                        source_temperature_celsius,
-                        snakemake.params.ptes["min_bottom_temperature"],
+                    source_outlet_temperature_celsius = (
+                        central_heating_return_temperature
+                        - snakemake.params.heat_source_cooling_central_heating
                     )
                 else:
                     source_outlet_temperature_celsius = (
-                        central_heating_return_temperature
+                        central_heating_return_temperature - 1
                     )
                 # Throw warning if source_outlet_temperature is warmer then return temperature
                 if (
