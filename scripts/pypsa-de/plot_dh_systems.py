@@ -35,7 +35,7 @@ from scripts._helpers import configure_logging, mock_snakemake
 logger = logging.getLogger(__name__)
 
 
-def calc_dh_price_range_subnodes(n):
+def calc_dh_price_range_subnodes(n, subnodes_only=True):
     """
     Calculate demand-weighted district heating prices for each system.
 
@@ -43,21 +43,34 @@ def calc_dh_price_range_subnodes(n):
     -----------
     n : pypsa.Network
         PyPSA network
+    subnodes_only : bool, optional
+        If True, only include systems with city names (subnodes) (default: True)
 
     Returns:
     --------
     pd.Series
         Demand-weighted district heating prices indexed by system name
     """
-    loads = n.loads_t.p.filter(
-        regex=r"DE\d.*(urban central|low-temperature) heat"
-    ).clip(lower=0)
+    if subnodes_only:
+        # Only include subnodes with city names
+        loads = n.loads_t.p.filter(
+            regex=r"DE\d+ \d+ \w+.*(urban central|low-temperature) heat"
+        ).clip(lower=0)
+        prices = n.buses_t.marginal_price.filter(
+            regex=r"DE\d+ \d+ \w+.*urban central heat"
+        )
+    else:
+        # Include all district heating systems
+        loads = n.loads_t.p.filter(
+            regex=r"DE\d+ \d+.*(urban central|low-temperature) heat"
+        ).clip(lower=0)
+        prices = n.buses_t.marginal_price.filter(regex=r"DE\d+ \d+.*urban central heat")
+
     # Replace low-temperature heat for industry with urban central heat
     loads.columns = loads.columns.str.replace(
         "low-temperature heat for industry", "urban central heat"
     )
     loads = loads.T.groupby(loads.columns).sum().T
-    prices = n.buses_t.marginal_price.filter(regex=r"DE\d.*urban central heat")
 
     weighted_average_price_system = loads.mul(prices).sum().div(loads.sum())
     # Replace urban central heat with empty string
@@ -172,6 +185,7 @@ def plot_energy_balance_comparison(
     group_heat_pumps=False,
     group_demands=False,
     drop_losses=False,
+    subnodes_only=True,
 ):
     """
     Plot comparison of energy balance for district heating between two networks.
@@ -196,6 +210,8 @@ def plot_energy_balance_comparison(
         If True, group all demand technologies as "District Heating Demand" (default: False)
     drop_losses : bool, optional
         If True, drop loss columns from the plot (default: False)
+    subnodes_only : bool, optional
+        If True, only show district heating systems with city names (subnodes) (default: True)
 
     Returns:
     --------
@@ -211,6 +227,7 @@ def plot_energy_balance_comparison(
         group_heat_pumps=False,
         group_demands=False,
         drop_losses=False,
+        subnodes_only=True,
     ):
         """
         Prepare energy balance data for a single network.
@@ -227,6 +244,8 @@ def plot_energy_balance_comparison(
             Whether to group demand technologies
         drop_losses : bool
             Whether to drop loss columns
+        subnodes_only : bool
+            Whether to only show systems with city names (subnodes)
 
         Returns:
         --------
@@ -238,7 +257,13 @@ def plot_energy_balance_comparison(
             .xs("urban central heat", level=3)
             .reset_index()
         )
-        eb_uch = eb_uch.loc[eb_uch.bus.str.contains(r"DE\d \d+ .*urban"), :]
+        # Filter for district heating systems
+        if subnodes_only:
+            # Only show subnodes with city names (pattern: "DE0 1 Berlin urban central heat")
+            eb_uch = eb_uch.loc[eb_uch.bus.str.contains(r"DE\d+ \d+ \w+.*urban"), :]
+        else:
+            # Show all district heating systems (including main nodes without city names)
+            eb_uch = eb_uch.loc[eb_uch.bus.str.contains(r"DE\d+ \d+.*urban"), :]
 
         # Strip 'urban central heat' from the bus index
         eb_uch["bus"] = eb_uch["bus"].str.replace(" urban central heat", "")
@@ -262,7 +287,7 @@ def plot_energy_balance_comparison(
         ]
 
         # Sort columns by total energy
-        dh_prices = calc_dh_price_range_subnodes(network)
+        dh_prices = calc_dh_price_range_subnodes(network, subnodes_only)
         to_plot = to_plot.loc[dh_prices.sort_values().index]
 
         # Calculate relative values
@@ -353,10 +378,10 @@ def plot_energy_balance_comparison(
 
     # Prepare data for both networks
     to_plot_rel1, dh_prices1 = prepare_energy_balance_data(
-        network1, group_chp, group_heat_pumps, group_demands, drop_losses
+        network1, group_chp, group_heat_pumps, group_demands, drop_losses, subnodes_only
     )
     to_plot_rel2, dh_prices2 = prepare_energy_balance_data(
-        network2, group_chp, group_heat_pumps, group_demands, drop_losses
+        network2, group_chp, group_heat_pumps, group_demands, drop_losses, subnodes_only
     )
 
     # Calculate price savings (network1 - network2)
@@ -372,8 +397,8 @@ def plot_energy_balance_comparison(
 
     max_ylim = to_plot_rel2.clip(lower=0).sum(1).max() * 1.05
 
-    # Create subplots with side-by-side layout (further increased height to prevent overlap)
-    fig, axes = plt.subplots(1, 2, figsize=(10, 11), sharey=True)
+    # Create subplots with side-by-side layout (smaller width for better proportions)
+    fig, axes = plt.subplots(1, 2, figsize=(5.6, 8), sharey=True)
 
     # Plot for Network 1 (left subplot)
     ax1 = axes[0]
@@ -431,18 +456,57 @@ def plot_energy_balance_comparison(
         legend=False,
         width=0.9,  # Increase bar thickness to reduce white space
     )
-    # Create cleaner scenario title
-    title1 = scenarios[0].replace(
-        "MidSupplyTemperature_MidDH_", "Medium Supply Temperature\nMedium DH\n"
+
+    # Create cleaner scenario title with bold formatting and linebreaks
+    def format_scenario_title(scenario):
+        """Format scenario title with proper linebreaks (no asterisks)."""
+        title = scenario
+
+        # Handle supply temperature
+        if "HighSupplyTemperature" in title:
+            title = title.replace("HighSupplyTemperature_", "High Temperature\n")
+        elif "MidSupplyTemperature" in title:
+            title = title.replace("MidSupplyTemperature_", "Medium Temperature\n")
+        elif "LowSupplyTemperature" in title:
+            title = title.replace("LowSupplyTemperature_", "Low Temperature\n")
+
+        # Handle DH level
+        if "MidDH_" in title:
+            title = title.replace("MidDH_", "Medium DH\n")
+        elif "HighDH_" in title:
+            title = title.replace("HighDH_", "High DH\n")
+        elif "LowDH_" in title:
+            title = title.replace("LowDH_", "Low DH\n")
+
+        # Handle PTES scenarios
+        if "NoPTES" in title:
+            title = title.replace("NoPTES", "No PTES")
+        elif "hpboost" in title:
+            if "35Ctop" in title:
+                title = title.replace(
+                    "hpboost_35Ctop", "PTES with\nbooster heat pump\nto 35°C"
+                )
+            elif "10Cbottom" in title:
+                title = title.replace(
+                    "hpboost_10Cbottom", "PTES with\nbooster heat pump\nto 10°C"
+                )
+            else:
+                title = title.replace("hpboost", "PTES with\nbooster heat pump")
+        elif "rhboost" in title:
+            title = title.replace("rhboost", "PTES with\nresistive boosting")
+        elif "noboost" in title:
+            title = title.replace("noboost", "PTES with\nno boosting")
+
+        # Clean up any remaining underscores
+        title = title.replace("_", " ")
+
+        return title
+
+    title1 = format_scenario_title(scenarios[0])
+    ax1.set_title(title1, fontsize=11, pad=20, ha="center", weight="bold")
+    ax1.set_xlabel(
+        "Share of district heating\nconsumption and supply\n[%]", fontsize=12
     )
-    title1 = title1.replace("hpboost", "heat pump boosting").replace(
-        "rhboost", "resistive boosting"
-    )
-    title1 = title1.replace("noboost", "no boosting").replace(
-        "_10Cbottom", " 10°C bottom"
-    )
-    ax1.set_title(title1, fontsize=10, pad=20, ha="center")
-    ax1.set_xlabel("Share of district heating\nconsumption and supply\n[%]", fontsize=9)
 
     ax1.axvline(x=0, color="black", linestyle="-")
     ax1.set_xlim(-max_ylim, max_ylim)
@@ -510,8 +574,8 @@ def plot_energy_balance_comparison(
     )
 
     # Set labels for demand axis
-    ax1_demand.set_xlabel("DH Demand [TWh]", fontsize=9)
-    ax1_demand.tick_params(axis="x", labelsize=9)
+    ax1_demand.set_xlabel("DH Demand\n[TWh]", fontsize=12)
+    ax1_demand.tick_params(axis="x", labelsize=10)
 
     # Set x-limits for demand axis with some padding
     demand_min, demand_max = dh_demand.min(), dh_demand.max()
@@ -581,18 +645,11 @@ def plot_energy_balance_comparison(
         legend=False,
         width=0.9,  # Increase bar thickness to reduce white space
     )
-    # Create cleaner scenario title
-    title2 = scenarios[1].replace(
-        "MidSupplyTemperature_MidDH_", "Medium Supply Temperature\nMedium DH\n"
+    title2 = format_scenario_title(scenarios[1])
+    ax2.set_title(title2, fontsize=11, pad=20, ha="center", weight="bold")
+    ax2.set_xlabel(
+        "Share of district heating\nconsumption and supply\n[%]", fontsize=12
     )
-    title2 = title2.replace("hpboost", "heat pump boosting").replace(
-        "rhboost", "resistive boosting"
-    )
-    title2 = title2.replace("noboost", "no boosting").replace(
-        "_10Cbottom", " 10°C bottom"
-    )
-    ax2.set_title(title2, fontsize=10, pad=20, ha="center")
-    ax2.set_xlabel("Share of district heating\nconsumption and supply\n[%]", fontsize=9)
     ax2.axvline(x=0, color="black", linestyle="-")
     ax2.set_xlim(-max_ylim, max_ylim)
 
@@ -602,10 +659,10 @@ def plot_energy_balance_comparison(
     # Plot DH price savings for Network 2 with white circles and black borders
     y_positions2 = range(len(dh_price_savings))
     ax2_price.scatter(
-        dh_price_savings.values,
+        -dh_price_savings.values,
         y_positions2,
         s=40,
-        marker="o",
+        marker="^",
         facecolor="white",
         edgecolor="black",
         linewidth=0.2,
@@ -616,7 +673,7 @@ def plot_energy_balance_comparison(
     # Add mean DH price savings line (more pronounced, white dashed with black border)
     # First draw thick black dashed line as border
     ax2_price.axvline(
-        x=dh_price_savings.mean(),
+        x=-dh_price_savings.mean(),
         color="black",
         linestyle="--",
         linewidth=4,
@@ -625,7 +682,7 @@ def plot_energy_balance_comparison(
     )
     # Then draw thinner white dashed line on top
     ax2_price.axvline(
-        x=dh_price_savings.mean(),
+        x=-dh_price_savings.mean(),
         color="white",
         linestyle="--",
         linewidth=2,
@@ -634,8 +691,8 @@ def plot_energy_balance_comparison(
     )
 
     # Set labels and formatting for price savings axis
-    ax2_price.set_xlabel("DH Price Savings [€/MWh]", fontsize=9)
-    ax2_price.tick_params(axis="x", labelsize=9)
+    ax2_price.set_xlabel("ΔDH Price\n[EUR MWh$^{-1}$]", fontsize=12)
+    ax2_price.tick_params(axis="x", labelsize=10)
 
     # Set x-limits for price savings axis with some padding
     price_min, price_max = dh_price_savings.min(), dh_price_savings.max()
@@ -649,11 +706,11 @@ def plot_energy_balance_comparison(
 
     ax2_price.set_xlim(price_xlim)
 
-    # Decrease fontsize of yticks for both subplots (now that bars are horizontal)
+    # Update fontsize of yticks for both subplots (now that bars are horizontal)
     for tick in ax1.get_yticklabels():
-        tick.set_fontsize(9)
+        tick.set_fontsize(10)
     for tick in ax2.get_yticklabels():
-        tick.set_fontsize(9)
+        tick.set_fontsize(10)
 
     # Organize legend by categories
     legend_handles = []
@@ -685,7 +742,7 @@ def plot_energy_balance_comparison(
     added_techs = set()  # Track added technologies to avoid duplicates
 
     # Add Supply technologies
-    legend_labels.append("Supply Technologies:")
+    legend_labels.append(r"$\bf{Supply\ Technologies:}$")
     legend_handles.append(plt.Rectangle((0, 0), 0, 0, alpha=0))  # Invisible spacer
 
     for carrier, color in colors.items():
@@ -700,7 +757,7 @@ def plot_energy_balance_comparison(
                 added_techs.add(clean_name)
 
     # Add Demand technologies
-    legend_labels.append("Demand:")
+    legend_labels.append(r"$\bf{Demand:}$")
     legend_handles.append(plt.Rectangle((0, 0), 0, 0, alpha=0))  # Invisible spacer
 
     for carrier, color in colors.items():
@@ -715,7 +772,7 @@ def plot_energy_balance_comparison(
                 added_techs.add(clean_name)
 
     # Add Storage technologies
-    legend_labels.append("Storage:")
+    legend_labels.append(r"$\bf{Storage:}$")
     legend_handles.append(plt.Rectangle((0, 0), 0, 0, alpha=0))  # Invisible spacer
 
     for carrier, color in colors.items():
@@ -730,7 +787,7 @@ def plot_energy_balance_comparison(
                 added_techs.add(clean_name)
 
     # Add markers and indicators
-    legend_labels.append("Indicators:")
+    legend_labels.append(r"$\bf{Indicators:}$")
     legend_handles.append(plt.Rectangle((0, 0), 0, 0, alpha=0))  # Invisible spacer
 
     # DH Demand marker
@@ -738,10 +795,10 @@ def plot_energy_balance_comparison(
         Line2D(
             [0],
             [0],
-            marker="s",
-            color="white",
-            markeredgecolor="black",
-            markeredgewidth=0.2,
+            marker="o",
+            color="red",
+            markeredgecolor="white",
+            markeredgewidth=0.8,
             markersize=6,
             linestyle="None",
         )
@@ -769,7 +826,7 @@ def plot_energy_balance_comparison(
         Line2D(
             [0],
             [0],
-            marker="o",
+            marker="^",
             color="white",
             markeredgecolor="black",
             markeredgewidth=0.2,
@@ -777,7 +834,7 @@ def plot_energy_balance_comparison(
             linestyle="None",
         )
     )
-    legend_labels.append("  DH Price Savings [€/MWh]")
+    legend_labels.append("  ΔDH Price [EUR MWh$^{-1}$]")
 
     # Mean DH price savings line
     legend_handles.append(
@@ -793,17 +850,16 @@ def plot_energy_balance_comparison(
             ],
         )
     )
-    legend_labels.append("  Mean DH Price Savings")
+    legend_labels.append("  Mean ΔDH Price")
 
     fig.legend(
         legend_handles,
         legend_labels,
-        title="Technology Categories",
-        bbox_to_anchor=(0.5, 1.02),
-        loc="lower center",
+        bbox_to_anchor=(0.5, 0.05),
+        loc="upper center",
         frameon=False,
-        fontsize=9,
-        ncol=2,  # Reduced columns for better organization
+        fontsize=10,
+        ncol=3,  # Three columns for better organization
     )
 
     # Replace DE0 at start of yticks with empty string (now y-axis shows regions)
@@ -811,9 +867,10 @@ def plot_energy_balance_comparison(
     yticks = [label.get_text().replace("DE0 ", "") for label in ax1.get_yticklabels()]
     ax1.set_yticklabels(yticks)
 
-    # Only show y-tick labels on the left subplot
+    # Only show y-tick labels on the left subplot and add y-axis label
     ax1.tick_params(axis="y", labelleft=True)
     ax2.tick_params(axis="y", labelleft=False, labelright=False)
+    ax1.set_ylabel("District heating system", fontsize=14)
 
     # Add light horizontal grid lines for easier comparison (extended beyond borders)
     ax1.grid(True, axis="y", alpha=0.3, linestyle="-", linewidth=0.5)
@@ -833,11 +890,800 @@ def plot_energy_balance_comparison(
 
     # Adjust layout and save the plot
     plt.tight_layout()
-    # Add extra space at the top for the legend and adjust spacing for much taller figure
-    plt.subplots_adjust(top=0.88, wspace=0.2, left=0.18, right=0.95, bottom=0.08)
+    # Add space at the bottom for the legend (less space needed now)
+    plt.subplots_adjust(top=0.95, wspace=0.25, left=0.20, right=0.95, bottom=0.18)
     fig.savefig(output_path, bbox_inches="tight")
 
     logger.info(f"Energy balance comparison saved to {output_path}")
+    return fig, axes
+
+
+def plot_energy_balance_triple_comparison(
+    network1,
+    network2,
+    network3,
+    scenarios,
+    output_path,
+    colors,
+    group_chp=False,
+    group_heat_pumps=False,
+    group_demands=False,
+    drop_losses=False,
+    subnodes_only=True,
+):
+    """
+    Plot comparison of energy balance for district heating between three networks.
+
+    Parameters:
+    -----------
+    network1 : PyPSA Network
+        First network (typically No_PTES scenario)
+    network2 : PyPSA Network
+        Second network (typically PTES with boosting scenario)
+    network3 : PyPSA Network
+        Third network (typically PTES without boosting scenario)
+    scenarios : list
+        List of scenario names [scenario1, scenario2, scenario3]
+    output_path : str
+        Path to save the output figure
+    colors : dict
+        Color mapping for technologies
+    group_chp : bool, optional
+        If True, group all CHP technologies as "CHP" (default: False)
+    group_heat_pumps : bool, optional
+        If True, group all heat pump technologies as "Heat Pumps" (default: False)
+    group_demands : bool, optional
+        If True, group all demand technologies as "District Heating Demand" (default: False)
+    drop_losses : bool, optional
+        If True, drop loss columns from the plot (default: False)
+    subnodes_only : bool, optional
+        If True, only show district heating systems with city names (subnodes) (default: True)
+
+    Returns:
+    --------
+    tuple
+        (figure, axes) matplotlib objects
+    """
+    plt.rcParams.update({"font.size": 10})
+
+    def prepare_energy_balance_data(
+        network,
+        group_chp=False,
+        group_heat_pumps=False,
+        group_demands=False,
+        drop_losses=False,
+        subnodes_only=True,
+    ):
+        """Prepare energy balance data for a single network (same as in dual comparison)."""
+        eb_uch = (
+            network.statistics.energy_balance(groupby=["bus", "carrier", "bus_carrier"])
+            .xs("urban central heat", level=3)
+            .reset_index()
+        )
+        # Filter for district heating systems
+        if subnodes_only:
+            # Only show subnodes with city names (pattern: "DE0 1 Berlin urban central heat")
+            eb_uch = eb_uch.loc[eb_uch.bus.str.contains(r"DE\d+ \d+ \w+.*urban"), :]
+        else:
+            # Show all district heating systems (including main nodes without city names)
+            eb_uch = eb_uch.loc[eb_uch.bus.str.contains(r"DE\d+ \d+.*urban"), :]
+
+        # Strip 'urban central heat' from the bus index
+        eb_uch["bus"] = eb_uch["bus"].str.replace(" urban central heat", "")
+
+        eb_uch.drop("component", axis=1, inplace=True)
+
+        # Remove " CC" suffix and aggregate
+        eb_uch["carrier"] = eb_uch["carrier"].str.replace(" CC", "", regex=False)
+        eb_uch = eb_uch.groupby(["bus", "carrier"], as_index=False).sum()
+
+        # Set index and unstack the last level
+        to_plot = eb_uch.set_index(["bus", "carrier"]).unstack(-1)
+        to_plot.columns = to_plot.columns.droplevel(0)
+
+        # Remove carriers contributing less than 1% in either system
+        total_contribution = to_plot.abs().sum()
+        to_plot = to_plot[
+            total_contribution[
+                total_contribution > 0.0001 * to_plot.abs().sum().sum()
+            ].index
+        ]
+
+        # Sort columns by total energy
+        dh_prices = calc_dh_price_range_subnodes(network, subnodes_only)
+        to_plot = to_plot.loc[dh_prices.sort_values().index]
+
+        # Calculate relative values
+        discharge = to_plot.filter(like=" discharger")
+        discharge.columns = discharge.columns.str.replace(
+            " discharger", " losses", regex=False
+        )
+
+        charge = to_plot.filter(like=" charger")
+        charge.columns = charge.columns.str.replace(" charger", " losses", regex=False)
+
+        losses = charge + discharge
+
+        to_plot = pd.concat([to_plot, losses], axis=1)
+        ch_to_drop = to_plot.filter(regex=r" charger|losses")
+        disch_to_drop = to_plot.filter(regex=r"discharger")
+        to_plot_rel_gen = (
+            to_plot.clip(lower=0)
+            .div(-to_plot.clip(upper=0).drop(ch_to_drop, axis=1).sum(axis=1), axis=0)
+            .mul(100)
+        )
+        to_plot_rel_load = (
+            to_plot.clip(upper=0)
+            .div(to_plot.clip(upper=0).drop(ch_to_drop, axis=1).sum(axis=1), axis=0)
+            .mul(-100)
+        )
+
+        to_plot_rel = to_plot_rel_load + to_plot_rel_gen
+
+        # Apply groupings (same logic as dual comparison)
+        if not group_heat_pumps:
+            geothermal_techs = [
+                tech
+                for tech in to_plot_rel.columns
+                if "urban central geothermal heat pump" in tech
+                or "urban central geothermal heat" in tech
+            ]
+            if len(geothermal_techs) > 0:
+                to_plot_rel["geothermal heat pump"] = to_plot_rel[geothermal_techs].sum(
+                    axis=1
+                )
+                to_plot_rel = to_plot_rel.drop(columns=geothermal_techs)
+
+        if group_chp:
+            chp_techs = [
+                tech
+                for tech in to_plot_rel.columns
+                if "chp" in tech.lower() or "combined heat" in tech.lower()
+            ]
+            if len(chp_techs) > 0:
+                to_plot_rel["CHP"] = to_plot_rel[chp_techs].sum(axis=1)
+                to_plot_rel = to_plot_rel.drop(columns=chp_techs)
+
+        if group_heat_pumps:
+            heat_pump_techs = [
+                tech for tech in to_plot_rel.columns if "heat pump" in tech.lower()
+            ]
+            if len(heat_pump_techs) > 0:
+                to_plot_rel["Heat Pumps"] = to_plot_rel[heat_pump_techs].sum(axis=1)
+                to_plot_rel = to_plot_rel.drop(columns=heat_pump_techs)
+
+        if group_demands:
+            demand_techs = [
+                tech
+                for tech in to_plot_rel.columns
+                if "low-temperature heat for industry" in tech.lower()
+                or "urban central heat" in tech.lower()
+            ]
+            if len(demand_techs) > 0:
+                to_plot_rel["District Heating Demand"] = to_plot_rel[demand_techs].sum(
+                    axis=1
+                )
+                to_plot_rel = to_plot_rel.drop(columns=demand_techs)
+
+        if drop_losses:
+            loss_techs = [
+                tech for tech in to_plot_rel.columns if "losses" in tech.lower()
+            ]
+            if len(loss_techs) > 0:
+                to_plot_rel = to_plot_rel.drop(columns=loss_techs)
+
+        return to_plot_rel, dh_prices
+
+    # Prepare data for all three networks
+    to_plot_rel1, dh_prices1 = prepare_energy_balance_data(
+        network1, group_chp, group_heat_pumps, group_demands, drop_losses, subnodes_only
+    )
+    to_plot_rel2, dh_prices2 = prepare_energy_balance_data(
+        network2, group_chp, group_heat_pumps, group_demands, drop_losses, subnodes_only
+    )
+    to_plot_rel3, dh_prices3 = prepare_energy_balance_data(
+        network3, group_chp, group_heat_pumps, group_demands, drop_losses, subnodes_only
+    )
+
+    # Calculate price savings (network1 - network2, network1 - network3)
+    dh_price_savings_2 = dh_prices1 - dh_prices2
+    dh_price_savings_3 = dh_prices1 - dh_prices3
+
+    # Sort systems by average price savings
+    avg_price_savings = (dh_price_savings_2 + dh_price_savings_3) / 2
+    sorted_systems = avg_price_savings.sort_values(ascending=False).index
+
+    # Reorder all plotting data according to savings
+    to_plot_rel1 = to_plot_rel1.loc[sorted_systems]
+    to_plot_rel2 = to_plot_rel2.loc[sorted_systems]
+    to_plot_rel3 = to_plot_rel3.loc[sorted_systems]
+    dh_price_savings_2 = dh_price_savings_2.loc[sorted_systems]
+    dh_price_savings_3 = dh_price_savings_3.loc[sorted_systems]
+
+    max_ylim = (
+        max(
+            to_plot_rel1.clip(lower=0).sum(1).max(),
+            to_plot_rel2.clip(lower=0).sum(1).max(),
+            to_plot_rel3.clip(lower=0).sum(1).max(),
+        )
+        * 1.05
+    )
+
+    # Create subplots with three columns and sub-charts below each
+    fig = plt.figure(figsize=(8, 9))
+
+    # Main plots (top row) - make them take up most of the space
+    axes = []
+    for i in range(3):
+        ax = plt.subplot2grid(
+            (15, 3), (0, i), rowspan=10, sharey=axes[0] if axes else None
+        )
+        axes.append(ax)
+
+    # Sub-charts (bottom row) for aggregated DH mix with shared y-axis
+    sub_axes = []
+    for i in range(3):
+        sub_ax = plt.subplot2grid(
+            (15, 3), (13, i), rowspan=2, sharey=sub_axes[0] if sub_axes else None
+        )
+        sub_axes.append(sub_ax)
+
+    def format_scenario_title(scenario):
+        """Format scenario title with proper linebreaks and correct order for NoPTES."""
+        title = scenario
+
+        # Special handling for NoPTES scenarios - reorder components
+        if "NoPTES_" in title:
+            parts = title.split("_")
+            supply_temp = ""
+            dh_level = ""
+
+            for part in parts[1:]:  # Skip "NoPTES"
+                if "SupplyTemperature" in part:
+                    if "High" in part:
+                        supply_temp = "High Temperature"
+                    elif "Mid" in part:
+                        supply_temp = "Medium Temperature"
+                    elif "Low" in part:
+                        supply_temp = "Low Temperature"
+                elif "DH" in part:
+                    if "High" in part:
+                        dh_level = "High DH"
+                    elif "Mid" in part:
+                        dh_level = "Medium DH"
+                    elif "Low" in part:
+                        dh_level = "Low DH"
+
+            # Return in correct order: Temperature -> DH Level -> No PTES
+            return f"{supply_temp}\n{dh_level}\nNo PTES"
+
+        # Handle other scenarios (non-NoPTES)
+        # Handle supply temperature
+        if "HighSupplyTemperature" in title:
+            title = title.replace("HighSupplyTemperature_", "High Temperature\n")
+        elif "MidSupplyTemperature" in title:
+            title = title.replace("MidSupplyTemperature_", "Medium Temperature\n")
+        elif "LowSupplyTemperature" in title:
+            title = title.replace("LowSupplyTemperature_", "Low Temperature\n")
+
+        # Handle DH level - handle both with and without underscore
+        if "MidDH" in title:
+            title = title.replace("MidDH_", "Medium DH\n").replace("MidDH", "Medium DH")
+        elif "HighDH" in title:
+            title = title.replace("HighDH_", "High DH\n").replace("HighDH", "High DH")
+        elif "LowDH" in title:
+            title = title.replace("LowDH_", "Low DH\n").replace("LowDH", "Low DH")
+
+        # Handle PTES scenarios
+        if "hpboost" in title:
+            if "35Ctop" in title:
+                title = title.replace(
+                    "hpboost_35Ctop", "PTES with\nbooster heat pump\nto 35°C"
+                )
+            elif "10Cbottom" in title:
+                title = title.replace(
+                    "hpboost_10Cbottom", "PTES with\nbooster heat pump\nto 10°C"
+                )
+            else:
+                title = title.replace("hpboost", "PTES with\nbooster heat pump")
+        elif "rhboost" in title:
+            title = title.replace("rhboost", "PTES with\nresistive boosting")
+        elif "noboost" in title:
+            title = title.replace("noboost", "PTES with\nno boosting")
+
+        # Clean up any remaining underscores - convert to linebreaks for proper order
+        title = title.replace("_", "\n")
+
+        return title
+
+    # Technology order (same as dual comparison)
+    col_order = [
+        "District Heating Demand",
+        "low-temperature heat for industry",
+        "urban central heat",
+        "urban central heat vent",
+        "urban central water tanks",
+        "urban central water tanks charger",
+        "urban central water tanks losses",
+        "urban central water pits",
+        "urban central water pits charger",
+        "urban central water pits losses",
+        "Heat Pumps",
+        "urban central electrolysis excess heat pump",
+        "geothermal heat pump",
+        "urban central river_water heat pump",
+        "urban central sea_water heat pump",
+        "urban central air heat pump",
+        "urban central ptes heat pump",
+        "urban central resistive heater",
+        "CHP",
+        "urban central gas CHP",
+        "urban central solid biomass CHP",
+        "urban central lignite CHP",
+        "urban central coal CHP",
+        "urban central oil CHP",
+        "urban central H2 CHP",
+        "H2 Electrolysis",
+        "waste CHP",
+        "urban central gas boiler",
+        "Fischer-Tropsch",
+        "urban central water tanks discharger",
+        "urban central water pits discharger",
+    ]
+
+    # Plot all three scenarios
+    plot_data = [to_plot_rel1, to_plot_rel2, to_plot_rel3]
+    price_data = [None, dh_price_savings_2, dh_price_savings_3]
+    price_axes = []  # Store price axes for standardization
+
+    for i, (ax, data, prices, scenario) in enumerate(
+        zip(axes, plot_data, price_data, scenarios)
+    ):
+        # Filter and order columns
+        available_cols = [c for c in col_order if c in data.columns]
+        available_cols += [c for c in data.columns if c not in available_cols]
+        data = data[available_cols]
+
+        # Create horizontal bar plot
+        data.plot.barh(stacked=True, ax=ax, color=colors, legend=False, width=0.9)
+
+        # Format title and labels
+        title = format_scenario_title(scenario)
+        ax.set_title(title, fontsize=11, pad=20, ha="center", weight="bold")
+        ax.set_xlabel(
+            "Share of district heating\nconsumption and supply\n[%]", fontsize=12
+        )
+        ax.axvline(x=0, color="black", linestyle="-")
+        ax.set_xlim(-max_ylim, max_ylim)
+
+        # Add grid lines
+        ax.grid(True, axis="y", alpha=0.3, linestyle="-", linewidth=0.5)
+        ax.axvline(x=-100, color="black", linestyle="--", alpha=0.7, linewidth=1)
+        ax.axvline(x=100, color="black", linestyle="--", alpha=0.7, linewidth=1)
+        ax.set_axisbelow(True)
+
+        # Add secondary axis for price data or demand
+        if i == 0:  # First plot: show DH demand
+            ax_secondary = ax.twiny()
+            # Calculate DH demand
+            dh_demand = []
+            for system in data.index:
+                system_name = system.replace(" urban central heat", "")
+                uch_load = (
+                    network1.loads_t.p.filter(
+                        regex=f"{system_name}.*urban central heat"
+                    )
+                    .sum()
+                    .sum()
+                )
+                industry_load = (
+                    network1.loads_t.p.filter(
+                        regex=f"{system_name}.*low-temperature heat for industry"
+                    )
+                    .sum()
+                    .sum()
+                )
+                total_demand_twh = abs(uch_load + industry_load) / 1e6
+                dh_demand.append(total_demand_twh)
+
+            dh_demand = pd.Series(dh_demand, index=data.index)
+            y_positions = range(len(dh_demand))
+            ax_secondary.scatter(
+                dh_demand.values,
+                y_positions,
+                s=40,
+                marker="o",
+                facecolor="red",
+                edgecolor="white",
+                linewidth=0.8,
+                zorder=20,
+                clip_on=False,
+            )
+            ax_secondary.axvline(
+                x=dh_demand.mean(),
+                color="red",
+                linestyle=":",
+                linewidth=4,
+                alpha=1,
+                zorder=5,
+            )
+            ax_secondary.axvline(
+                x=dh_demand.mean(),
+                color="white",
+                linestyle=":",
+                linewidth=2,
+                alpha=1,
+                zorder=6,
+            )
+            ax_secondary.set_xlabel("DH Demand\n[TWh]", fontsize=12, color="red")
+            ax_secondary.tick_params(axis="x", labelsize=10, colors="red")
+
+            demand_min, demand_max = dh_demand.min(), dh_demand.max()
+            demand_range = demand_max - demand_min
+            if demand_range > 0:
+                padding = demand_range * 0.1
+                demand_xlim = (demand_min - padding, demand_max + padding)
+            else:
+                demand_xlim = (demand_min * 0.95, demand_max * 1.05)
+            ax_secondary.set_xlim(demand_xlim)
+
+        elif prices is not None:  # Other plots: show price savings
+            ax_secondary = ax.twiny()
+            y_positions = range(len(prices))
+            ax_secondary.scatter(
+                prices.values,
+                y_positions,
+                s=40,
+                marker="^",
+                facecolor="red",
+                edgecolor="white",
+                linewidth=0.8,
+                zorder=20,
+                clip_on=False,
+            )
+            ax_secondary.axvline(
+                x=prices.mean(),
+                color="red",
+                linestyle="--",
+                linewidth=4,
+                alpha=1,
+                zorder=5,
+            )
+            ax_secondary.axvline(
+                x=prices.mean(),
+                color="white",
+                linestyle="--",
+                linewidth=2,
+                alpha=1,
+                zorder=6,
+            )
+            ax_secondary.set_xlabel(
+                "ΔDH Price\n[EUR MWh$^{-1}$]", fontsize=12, color="red"
+            )
+            ax_secondary.tick_params(axis="x", labelsize=10, colors="red")
+            # Add zero line with red interior and white border
+            ax_secondary.axvline(
+                x=0, color="white", linestyle=":", linewidth=3, alpha=0.8, zorder=1
+            )
+            ax_secondary.axvline(
+                x=0, color="red", linestyle=":", linewidth=1.5, alpha=0.9, zorder=2
+            )
+
+            # Store price axis for later standardization
+            price_axes.append((ax_secondary, prices))
+
+        # Y-axis formatting
+        for tick in ax.get_yticklabels():
+            tick.set_fontsize(10)
+
+        if i == 0:  # Only show y-labels on leftmost plot
+            ax.tick_params(axis="y", labelleft=True)
+            ax.set_ylabel("District heating system", fontsize=14, weight="bold")
+            # Clean y-tick labels
+            yticks = [
+                label.get_text().replace("DE0 ", "") for label in ax.get_yticklabels()
+            ]
+            ax.set_yticklabels(yticks)
+        else:
+            ax.tick_params(axis="y", labelleft=False, labelright=False)
+
+    # Standardize price axis limits across both price plots with symmetric range to align 0 values
+    if "price_axes" in locals() and price_axes:
+        # Calculate combined range from both price datasets
+        all_price_values = []
+        for _, prices in price_axes:
+            all_price_values.extend(prices.values)
+
+        combined_min, combined_max = min(all_price_values), max(all_price_values)
+        # Use symmetric limits to ensure 0 aligns vertically across all plots
+        max_abs_value = max(abs(combined_min), abs(combined_max))
+        padding = max_abs_value * 0.1
+        symmetric_limit = max_abs_value + padding
+        shared_xlim = (-symmetric_limit, symmetric_limit)
+
+        # Apply the same symmetric limits to both price axes
+        for ax_secondary, _ in price_axes:
+            ax_secondary.set_xlim(shared_xlim)
+
+    # Create aggregated DH mix sub-charts (without storage technologies)
+    # For aggregated charts, always include both subnodes and mother nodes
+    storage_techs = [
+        "urban central water tanks",
+        "urban central water tanks charger",
+        "urban central water tanks losses",
+        "urban central water pits",
+        "urban central water pits charger",
+        "urban central water pits losses",
+        "TTES",
+        "PTES",
+    ]
+
+    # Helper function to get absolute energy values in TWh for aggregation
+    def get_absolute_energy_balance(network, subnodes_only=False):
+        """Get absolute energy balance data in TWh for aggregation."""
+        eb_uch = (
+            network.statistics.energy_balance(groupby=["bus", "carrier", "bus_carrier"])
+            .xs("urban central heat", level=3)
+            .reset_index()
+        )
+        
+        # Filter for district heating systems
+        if subnodes_only:
+            eb_uch = eb_uch.loc[eb_uch.bus.str.contains(r"DE\d+ \d+ \w+.*urban"), :]
+        else:
+            eb_uch = eb_uch.loc[eb_uch.bus.str.contains(r"DE\d+ \d+.*urban"), :]
+
+        # Strip 'urban central heat' from the bus index
+        eb_uch["bus"] = eb_uch["bus"].str.replace(" urban central heat", "")
+        eb_uch.drop("component", axis=1, inplace=True)
+
+        # Remove " CC" suffix and aggregate
+        eb_uch["carrier"] = eb_uch["carrier"].str.replace(" CC", "", regex=False)
+        eb_uch = eb_uch.groupby(["bus", "carrier"], as_index=False).sum()
+
+        # Set index and unstack
+        to_plot = eb_uch.set_index(["bus", "carrier"]).unstack(-1)
+        to_plot.columns = to_plot.columns.droplevel(0)
+        
+        # Convert from MWh to TWh and return only positive (supply) values
+        to_plot_twh = to_plot / 1e6
+        return to_plot_twh.clip(lower=0)
+
+    # Get absolute energy data for aggregation (in TWh)
+    networks = [network1, network2, network3]
+    for i, (network, sub_ax) in enumerate(zip(networks, sub_axes)):
+        # Get absolute energy balance in TWh for all systems (both subnodes and mother nodes)
+        abs_data = get_absolute_energy_balance(network, subnodes_only=False)
+        
+        # Remove storage technologies and group by technology type
+        grouped_supply = {
+            "Heat Pumps": 0,
+            "Resistive Heater": 0, 
+            "CHP": 0,
+            "Other": 0
+        }
+        
+        for col in abs_data.columns:
+            if not any(storage_tech in col for storage_tech in storage_techs):
+                total_value = abs_data[col].sum()  # Sum across all systems in TWh
+                if total_value > 0:
+                    # Group technologies by type
+                    if "heat pump" in col.lower():
+                        grouped_supply["Heat Pumps"] += total_value
+                    elif "resistive" in col.lower():
+                        grouped_supply["Resistive Heater"] += total_value
+                    elif "chp" in col.lower() or "combined heat" in col.lower():
+                        grouped_supply["CHP"] += total_value
+                    else:
+                        grouped_supply["Other"] += total_value
+
+        # Create stacked bar with proper ordering and colors
+        tech_order = ["Heat Pumps", "Resistive Heater", "CHP", "Other"]
+        tech_colors_map = {
+            "Heat Pumps": "#FF8C00",      # Orange
+            "Resistive Heater": "#40E0D0", # Cyan
+            "CHP": "#8B0000",              # Dark red
+            "Other": "#808080"             # Gray
+        }
+        
+        techs = [tech for tech in tech_order if grouped_supply[tech] > 0]
+        values = [grouped_supply[tech] for tech in techs]
+        tech_colors = [tech_colors_map[tech] for tech in techs]
+        
+        if techs:  # Only create bars if we have data
+            bottom = 0
+            for tech, value, color in zip(techs, values, tech_colors):
+                sub_ax.bar(0, value, bottom=bottom, color=color, width=1.0, alpha=0.8)
+                bottom += value
+
+        # Format sub-chart
+        sub_ax.set_xlim(-0.5, 0.5)
+        sub_ax.set_xticks([])
+        if i == 0:  # Only show y-label on leftmost chart
+            sub_ax.set_ylabel("TWh", fontsize=12)
+        sub_ax.tick_params(axis="y", labelsize=10)
+
+        # Remove spines except left
+        for spine in sub_ax.spines.values():
+            spine.set_visible(False)
+        sub_ax.spines["left"].set_visible(True)
+        sub_ax.grid(True, alpha=0.3, axis="y")
+
+    # Add single centered title for sub-charts (positioned above the bars)
+    fig.text(
+        0.5,
+        0.35,
+        "Aggregated DH Supply",
+        ha="center",
+        va="center",
+        fontsize=12,
+        weight="bold",
+        transform=fig.transFigure,
+    )
+
+    # Create comprehensive legend with all technologies and categorization
+    legend_handles = []
+    legend_labels = []
+
+    # Define technology categories
+    supply_techs = [
+        "Heat Pumps",
+        "CHP",
+        "resistive heater",
+        "gas boiler",
+        "Fischer-Tropsch",
+    ]
+    demand_techs = ["District Heating Demand", "heat"]
+    storage_techs = ["PTES", "TTES"]
+
+    # Helper function to clean labels
+    def clean_label(label):
+        label = re.sub(
+            "urban central heat$", "heat for residential and services", label
+        )
+        label = label.replace("urban central ", "")
+        label = label.replace("water pits", "PTES")
+        label = label.replace("water tanks", "TTES")
+        label = label.replace(" charger", "").replace(" discharger", "")
+        return label
+
+    # Collect unique technologies with deduplication
+    added_techs = set()  # Track added technologies to avoid duplicates
+
+    # Get all columns from all three scenarios
+    all_columns = set()
+    for data in [to_plot_rel1, to_plot_rel2, to_plot_rel3]:
+        all_columns.update(data.columns)
+
+    # Add Supply technologies
+    legend_labels.append(r"$\bf{Supply\ Technologies:}$")
+    legend_handles.append(plt.Rectangle((0, 0), 0, 0, alpha=0))  # Invisible spacer
+
+    for carrier, color in colors.items():
+        if carrier in all_columns:
+            clean_name = clean_label(carrier)
+            if (
+                any(tech.lower() in clean_name.lower() for tech in supply_techs)
+                and clean_name not in added_techs
+            ):
+                legend_handles.append(plt.Rectangle((0, 0), 1, 1, color=color))
+                legend_labels.append("  " + clean_name)
+                added_techs.add(clean_name)
+
+    # Add Demand technologies
+    legend_labels.append(r"$\bf{Demand:}$")
+    legend_handles.append(plt.Rectangle((0, 0), 0, 0, alpha=0))  # Invisible spacer
+
+    for carrier, color in colors.items():
+        if carrier in all_columns:
+            clean_name = clean_label(carrier)
+            if (
+                any(tech.lower() in clean_name.lower() for tech in demand_techs)
+                and clean_name not in added_techs
+            ):
+                legend_handles.append(plt.Rectangle((0, 0), 1, 1, color=color))
+                legend_labels.append("  " + clean_name)
+                added_techs.add(clean_name)
+
+    # Add Storage technologies
+    legend_labels.append(r"$\bf{Storage:}$")
+    legend_handles.append(plt.Rectangle((0, 0), 0, 0, alpha=0))  # Invisible spacer
+
+    for carrier, color in colors.items():
+        if carrier in all_columns:
+            clean_name = clean_label(carrier)
+            if (
+                any(tech.lower() in clean_name.lower() for tech in storage_techs)
+                and clean_name not in added_techs
+            ):
+                legend_handles.append(plt.Rectangle((0, 0), 1, 1, color=color))
+                legend_labels.append("  " + clean_name)
+                added_techs.add(clean_name)
+
+    # Add markers and indicators
+    legend_labels.append(r"$\bf{Indicators:}$")
+    legend_handles.append(plt.Rectangle((0, 0), 0, 0, alpha=0))  # Invisible spacer
+
+    # DH Demand marker (red circle with white border)
+    legend_handles.append(
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="red",
+            markeredgecolor="white",
+            markeredgewidth=0.8,
+            markersize=6,
+            linestyle="None",
+        )
+    )
+    legend_labels.append("  DH Demand [TWh]")
+
+    # Mean DH demand line (red with white border)
+    legend_handles.append(
+        Line2D(
+            [0],
+            [0],
+            color="red",
+            linestyle=":",
+            linewidth=2,
+            path_effects=[
+                matplotlib.patheffects.Stroke(linewidth=4, foreground="white"),
+                matplotlib.patheffects.Normal(),
+            ],
+        )
+    )
+    legend_labels.append("  Mean DH Demand")
+
+    # DH price savings marker
+    legend_handles.append(
+        Line2D(
+            [0],
+            [0],
+            marker="^",
+            color="red",
+            markeredgecolor="white",
+            markeredgewidth=0.8,
+            markersize=6,
+            linestyle="None",
+        )
+    )
+    legend_labels.append("  ΔDH Price [EUR MWh$^{-1}$]")
+
+    # Mean DH price savings line (red with white border to match plot)
+    legend_handles.append(
+        Line2D(
+            [0],
+            [0],
+            color="red",
+            linestyle="--",
+            linewidth=2,
+            path_effects=[
+                matplotlib.patheffects.Stroke(linewidth=4, foreground="white"),
+                matplotlib.patheffects.Normal(),
+            ],
+        )
+    )
+    legend_labels.append("  Mean ΔDH Price")
+
+    fig.legend(
+        legend_handles,
+        legend_labels,
+        bbox_to_anchor=(0.5, 0.17),
+        loc="upper center",
+        frameon=False,
+        fontsize=10,
+        ncol=3,
+    )
+
+    # Adjust layout for narrower plots, sub-charts, and comprehensive legend
+    plt.tight_layout()
+    plt.subplots_adjust(
+        top=0.95, wspace=0.12, left=0.12, right=0.95, bottom=0.23, hspace=0.18
+    )
+    fig.savefig(output_path, bbox_inches="tight")
+
+    logger.info(f"Triple energy balance comparison saved to {output_path}")
     return fig, axes
 
 
@@ -870,11 +1716,13 @@ def main(snakemake):
         group_heat_pumps = snakemake.params.plotting.get("group_heat_pumps", True)
         group_demands = snakemake.params.plotting.get("group_demands", True)
         drop_losses = snakemake.params.plotting.get("drop_losses", True)
+        subnodes_only = snakemake.params.plotting.get("subnodes_only", True)
     except:
         group_chp = True
         group_heat_pumps = True
         group_demands = True
         drop_losses = True
+        subnodes_only = True
 
     # Create output directory
     output_path = snakemake.output[0]  # This is a directory
@@ -903,58 +1751,92 @@ def main(snakemake):
         if group not in colors:
             colors[group] = color
 
-    # Generate energy balance comparison plots for each year and scenario pair
+    # Generate energy balance comparison plots for each year
     year = planning_horizons[0]  # Use first available year
 
-    # Find scenario pairs (assuming we want to compare scenarios)
-    scenario_pairs = []
-    for i, scenario_a in enumerate(scenarios):
-        for j, scenario_b in enumerate(scenarios):
-            if i < j and scenario_a in networks and scenario_b in networks:
-                if year in networks[scenario_a] and year in networks[scenario_b]:
-                    scenario_pairs.append((scenario_a, scenario_b))
+    # Get scenario triples from config
+    try:
+        scenario_triples = snakemake.params.plotting["scenario_triples"]
+    except:
+        scenario_triples = []
 
-    if not scenario_pairs:
-        logger.warning("No valid scenario pairs found for comparison")
-        # If no pairs, create individual plots for each scenario (if possible)
-        for scenario in scenarios:
-            if scenario in networks and year in networks[scenario]:
-                # Create a dummy comparison with itself (not very useful, but maintains structure)
-                output_file = os.path.join(
-                    output_path, f"dh_energy_balance_{scenario}_{year}.pdf"
+    if scenario_triples:
+        # Generate triple comparison plots
+        for triple in scenario_triples:
+            scenario_a, scenario_b, scenario_c = triple
+
+            # Check if all three scenarios are available
+            if (
+                scenario_a in networks
+                and scenario_b in networks
+                and scenario_c in networks
+                and year in networks[scenario_a]
+                and year in networks[scenario_b]
+                and year in networks[scenario_c]
+            ):
+
+                logger.info(
+                    f"Creating triple energy balance comparison: {scenario_a} vs {scenario_b} vs {scenario_c}"
                 )
-                plot_energy_balance_comparison(
-                    networks[scenario][year],
-                    networks[scenario][year],
-                    [scenario, scenario],
+
+                output_file = os.path.join(
+                    output_path,
+                    f"dh_energy_balance_triple_{scenario_a}_vs_{scenario_b}_vs_{scenario_c}_{year}.pdf",
+                )
+
+                plot_energy_balance_triple_comparison(
+                    networks[scenario_a][year],
+                    networks[scenario_b][year],
+                    networks[scenario_c][year],
+                    [scenario_a, scenario_b, scenario_c],
                     output_file,
                     colors,
                     group_chp=group_chp,
                     group_heat_pumps=group_heat_pumps,
                     group_demands=group_demands,
                     drop_losses=drop_losses,
+                    subnodes_only=subnodes_only,
                 )
-        return
+            else:
+                logger.warning(f"Not all scenarios available for triple: {triple}")
 
-    # Generate comparison plots for each scenario pair
-    for scenario_a, scenario_b in scenario_pairs:
-        logger.info(f"Creating energy balance comparison: {scenario_a} vs {scenario_b}")
+    else:
+        # Fall back to dual comparison if no triples defined
+        # Find scenario pairs
+        scenario_pairs = []
+        for i, scenario_a in enumerate(scenarios):
+            for j, scenario_b in enumerate(scenarios):
+                if i < j and scenario_a in networks and scenario_b in networks:
+                    if year in networks[scenario_a] and year in networks[scenario_b]:
+                        scenario_pairs.append((scenario_a, scenario_b))
 
-        output_file = os.path.join(
-            output_path, f"dh_energy_balance_{scenario_a}_vs_{scenario_b}_{year}.pdf"
-        )
+        if not scenario_pairs:
+            logger.warning("No valid scenario pairs found for comparison")
+            return
 
-        plot_energy_balance_comparison(
-            networks[scenario_a][year],
-            networks[scenario_b][year],
-            [scenario_a, scenario_b],
-            output_file,
-            colors,
-            group_chp=group_chp,
-            group_heat_pumps=group_heat_pumps,
-            group_demands=group_demands,
-            drop_losses=drop_losses,
-        )
+        # Generate comparison plots for each scenario pair
+        for scenario_a, scenario_b in scenario_pairs:
+            logger.info(
+                f"Creating energy balance comparison: {scenario_a} vs {scenario_b}"
+            )
+
+            output_file = os.path.join(
+                output_path,
+                f"dh_energy_balance_{scenario_a}_vs_{scenario_b}_{year}.pdf",
+            )
+
+            plot_energy_balance_comparison(
+                networks[scenario_a][year],
+                networks[scenario_b][year],
+                [scenario_a, scenario_b],
+                output_file,
+                colors,
+                group_chp=group_chp,
+                group_heat_pumps=group_heat_pumps,
+                group_demands=group_demands,
+                drop_losses=drop_losses,
+                subnodes_only=subnodes_only,
+            )
 
     logger.info("District heating system plot generation completed")
 

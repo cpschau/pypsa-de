@@ -317,6 +317,10 @@ plotting:
     # Mid Supply Temperature with different DH potentials
     - ["NoPTES_MidSupplyTemperature_LowDH", "MidSupplyTemperature_LowDH_rhboost"]
     - ["NoPTES_MidSupplyTemperature_HighDH", "MidSupplyTemperature_HighDH_rhboost"]
+  scenario_triples:
+    - ["NoPTES_LowSupplyTemperature_MidDH", "LowSupplyTemperature_MidDH_hpboost", "LowSupplyTemperature_MidDH_noboost"]
+    - ["NoPTES_MidSupplyTemperature_MidDH", "MidSupplyTemperature_MidDH_hpboost", "MidSupplyTemperature_MidDH_noboost"]
+    - ["NoPTES_HighSupplyTemperature_MidDH", "HighSupplyTemperature_MidDH_hpboost", "HighSupplyTemperature_MidDH_noboost"]
   save_png: true
   save_pdf: true
   override_tech_colors:
