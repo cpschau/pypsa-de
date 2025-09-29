@@ -1102,7 +1102,7 @@ def add_discharger_temperature_boosting_constraints(
                 .reindex(columns=booster_technologies_links)
             )
             lhs = (
-                (cop_booster - 1)
+                -(cop_booster - 1)
                 * (p.loc[:, booster_technologies_links])
                 / (1 - ptes_discharger_temperature_boosting_ratio)
             )
