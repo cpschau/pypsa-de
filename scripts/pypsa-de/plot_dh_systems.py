@@ -183,6 +183,7 @@ def plot_energy_balance_comparison(
     colors,
     group_chp=False,
     group_heat_pumps=False,
+    group_ashp_wshp=False,
     group_demands=False,
     drop_losses=False,
     subnodes_only=True,
@@ -225,6 +226,7 @@ def plot_energy_balance_comparison(
         network,
         group_chp=False,
         group_heat_pumps=False,
+        group_ashp_wshp=False,
         group_demands=False,
         drop_losses=False,
         subnodes_only=True,
@@ -317,6 +319,26 @@ def plot_energy_balance_comparison(
 
         to_plot_rel = to_plot_rel_load + to_plot_rel_gen
 
+        # Group PTES heat pump with PTES discharger
+        ptes_techs = [
+            tech
+            for tech in to_plot_rel.columns
+            if "urban central ptes heat pump" in tech
+        ]
+        ptes_discharge_techs = [
+            tech
+            for tech in to_plot_rel.columns
+            if "urban central water pits discharger" in tech
+        ]
+
+        if len(ptes_techs) > 0 and len(ptes_discharge_techs) > 0:
+            # Combine PTES heat pump with PTES discharger
+            for ptes_tech in ptes_techs:
+                for ptes_discharge_tech in ptes_discharge_techs:
+                    to_plot_rel[ptes_discharge_tech] += to_plot_rel[ptes_tech]
+            # Remove the separate PTES heat pump column
+            to_plot_rel = to_plot_rel.drop(columns=ptes_techs)
+
         # Note: Geothermal heat pumps are now grouped with other heat pumps when group_heat_pumps=True
         if not group_heat_pumps:
             # Only group geothermal separately if not grouping all heat pumps
@@ -378,10 +400,22 @@ def plot_energy_balance_comparison(
 
     # Prepare data for both networks
     to_plot_rel1, dh_prices1 = prepare_energy_balance_data(
-        network1, group_chp, group_heat_pumps, group_demands, drop_losses, subnodes_only
+        network1,
+        group_chp,
+        group_heat_pumps,
+        group_ashp_wshp,
+        group_demands,
+        drop_losses,
+        subnodes_only,
     )
     to_plot_rel2, dh_prices2 = prepare_energy_balance_data(
-        network2, group_chp, group_heat_pumps, group_demands, drop_losses, subnodes_only
+        network2,
+        group_chp,
+        group_heat_pumps,
+        group_ashp_wshp,
+        group_demands,
+        drop_losses,
+        subnodes_only,
     )
 
     # Calculate price savings (network1 - network2)
@@ -416,15 +450,16 @@ def plot_energy_balance_comparison(
         "urban central water pits",  # PTES
         "urban central water pits charger",
         "urban central water pits losses",
-        # Center right (regular supply) - ordered from center outward
+        # Center right (regular supply) - ordered: geothermal -> electrolysis -> A/WSHP -> resistive -> CHP -> boilers -> storage
         "Heat Pumps",  # Grouped heat pumps (including geothermal)
-        "urban central electrolysis excess heat pump",
-        "geothermal heat pump",
+        "geothermal heat pump",  # First: geothermal
+        "urban central electrolysis excess heat pump",  # Second: electrolysis
+        "A/WSHP",  # Third: A/WSHP (grouped)
         "urban central river_water heat pump",
         "urban central sea_water heat pump",
         "urban central air heat pump",
         "urban central ptes heat pump",
-        "urban central resistive heater",
+        "urban central resistive heater",  # Fourth: Resistive heaters
         "CHP",  # Grouped CHP
         "urban central gas CHP",
         "urban central solid biomass CHP",
@@ -455,6 +490,7 @@ def plot_energy_balance_comparison(
         color=colors,
         legend=False,
         width=0.9,  # Increase bar thickness to reduce white space
+        alpha=0.8,  # Match transparency of lower aggregated charts
     )
 
     # Create cleaner scenario title with bold formatting and linebreaks
@@ -555,23 +591,23 @@ def plot_energy_balance_comparison(
 
     # Add mean DH demand line (dotted, white with black border like price savings)
     # First draw thick black dotted line as border
-    ax1_demand.axvline(
-        x=dh_demand.mean(),
-        color="black",
-        linestyle=":",
-        linewidth=4,
-        alpha=1,
-        zorder=5,
-    )
+    # ax1_demand.axvline(
+    #     x=dh_demand.mean(),
+    #     color="black",
+    #     linestyle=":",
+    #     linewidth=4,
+    #     alpha=1,
+    #     zorder=5,
+    # )
     # Then draw thinner white dotted line on top
-    ax1_demand.axvline(
-        x=dh_demand.mean(),
-        color="white",
-        linestyle=":",
-        linewidth=2,
-        alpha=1,
-        zorder=6,
-    )
+    # ax1_demand.axvline(
+    #     x=dh_demand.mean(),
+    #     color="white",
+    #     linestyle=":",
+    #     linewidth=2,
+    #     alpha=1,
+    #     zorder=6,
+    # )
 
     # Set labels for demand axis
     ax1_demand.set_xlabel("DH Demand\n[TWh]", fontsize=12)
@@ -605,15 +641,16 @@ def plot_energy_balance_comparison(
         "urban central water pits",  # PTES
         "urban central water pits charger",
         "urban central water pits losses",
-        # Center right (regular supply) - ordered from center outward
+        # Center right (regular supply) - ordered: geothermal -> electrolysis -> A/WSHP -> resistive -> CHP -> boilers -> storage
         "Heat Pumps",  # Grouped heat pumps (including geothermal)
-        "urban central electrolysis excess heat pump",
-        "geothermal heat pump",
+        "geothermal heat pump",  # First: geothermal
+        "urban central electrolysis excess heat pump",  # Second: electrolysis
+        "A/WSHP",  # Third: A/WSHP (grouped)
         "urban central river_water heat pump",
         "urban central sea_water heat pump",
         "urban central air heat pump",
         "urban central ptes heat pump",
-        "urban central resistive heater",
+        "urban central resistive heater",  # Fourth: Resistive heaters
         "CHP",  # Grouped CHP
         "urban central gas CHP",
         "urban central solid biomass CHP",
@@ -644,6 +681,7 @@ def plot_energy_balance_comparison(
         color=colors,
         legend=False,
         width=0.9,  # Increase bar thickness to reduce white space
+        alpha=0.8,  # Match transparency of lower aggregated charts
     )
     title2 = format_scenario_title(scenarios[1])
     ax2.set_title(title2, fontsize=11, pad=20, ha="center", weight="bold")
@@ -674,21 +712,21 @@ def plot_energy_balance_comparison(
     # First draw thick black dashed line as border
     ax2_price.axvline(
         x=-dh_price_savings.mean(),
-        color="black",
+        color="red",
         linestyle="--",
-        linewidth=4,
+        linewidth=2,
         alpha=1,
         zorder=5,
     )
     # Then draw thinner white dashed line on top
-    ax2_price.axvline(
-        x=-dh_price_savings.mean(),
-        color="white",
-        linestyle="--",
-        linewidth=2,
-        alpha=1,
-        zorder=6,
-    )
+    # ax2_price.axvline(
+    #     x=-dh_price_savings.mean(),
+    #     color="white",
+    #     linestyle="--",
+    #     linewidth=2,
+    #     alpha=1,
+    #     zorder=6,
+    # )
 
     # Set labels and formatting for price savings axis
     ax2_price.set_xlabel("ΔDH Price\n[EUR MWh$^{-1}$]", fontsize=12)
@@ -719,6 +757,8 @@ def plot_energy_balance_comparison(
     # Define technology categories
     supply_techs = [
         "Heat Pumps",
+        "geothermal heat pump",
+        "electrolysis excess heat pump",
         "CHP",
         "resistive heater",
         "gas boiler",
@@ -736,6 +776,17 @@ def plot_energy_balance_comparison(
         label = label.replace("water pits", "PTES")
         label = label.replace("water tanks", "TTES")
         label = label.replace(" charger", "").replace(" discharger", "")
+        label = label.replace("A/WSHP", "Air and water sourced heat pumps")
+
+        # Capitalize first letter of first word while preserving abbreviations
+        words = label.split()
+        if words:
+            first_word = words[0]
+            # Keep abbreviations in all caps
+            if first_word.upper() not in ["CHP", "PTES", "TTES", "H2"]:
+                words[0] = first_word.capitalize()
+            label = " ".join(words)
+
         return label
 
     # Collect unique technologies with deduplication
@@ -907,6 +958,7 @@ def plot_energy_balance_triple_comparison(
     colors,
     group_chp=False,
     group_heat_pumps=False,
+    group_ashp_wshp=False,
     group_demands=False,
     drop_losses=False,
     subnodes_only=True,
@@ -950,6 +1002,7 @@ def plot_energy_balance_triple_comparison(
         network,
         group_chp=False,
         group_heat_pumps=False,
+        group_ashp_wshp=False,
         group_demands=False,
         drop_losses=False,
         subnodes_only=True,
@@ -1020,6 +1073,26 @@ def plot_energy_balance_triple_comparison(
 
         to_plot_rel = to_plot_rel_load + to_plot_rel_gen
 
+        # Group PTES heat pump with PTES discharger
+        ptes_techs = [
+            tech
+            for tech in to_plot_rel.columns
+            if "urban central ptes heat pump" in tech
+        ]
+        ptes_discharge_techs = [
+            tech
+            for tech in to_plot_rel.columns
+            if "urban central water pits discharger" in tech
+        ]
+
+        if len(ptes_techs) > 0 and len(ptes_discharge_techs) > 0:
+            # Combine PTES heat pump with PTES discharger
+            for ptes_tech in ptes_techs:
+                for ptes_discharge_tech in ptes_discharge_techs:
+                    to_plot_rel[ptes_discharge_tech] += to_plot_rel[ptes_tech]
+            # Remove the separate PTES heat pump column
+            to_plot_rel = to_plot_rel.drop(columns=ptes_techs)
+
         # Apply groupings (same logic as dual comparison)
         if not group_heat_pumps:
             geothermal_techs = [
@@ -1051,6 +1124,17 @@ def plot_energy_balance_triple_comparison(
             if len(heat_pump_techs) > 0:
                 to_plot_rel["Heat Pumps"] = to_plot_rel[heat_pump_techs].sum(axis=1)
                 to_plot_rel = to_plot_rel.drop(columns=heat_pump_techs)
+        if group_ashp_wshp:
+            ashp_wshp_techs = [
+                tech
+                for tech in to_plot_rel.columns
+                if "urban central air heat pump" in tech
+                or "urban central river_water heat pump" in tech
+                or "urban central sea_water heat pump" in tech
+            ]
+            if len(ashp_wshp_techs) > 0:
+                to_plot_rel["A/WSHP"] = to_plot_rel[ashp_wshp_techs].sum(axis=1)
+                to_plot_rel = to_plot_rel.drop(columns=ashp_wshp_techs)
 
         if group_demands:
             demand_techs = [
@@ -1076,13 +1160,31 @@ def plot_energy_balance_triple_comparison(
 
     # Prepare data for all three networks
     to_plot_rel1, dh_prices1 = prepare_energy_balance_data(
-        network1, group_chp, group_heat_pumps, group_demands, drop_losses, subnodes_only
+        network1,
+        group_chp,
+        group_heat_pumps,
+        group_ashp_wshp,
+        group_demands,
+        drop_losses,
+        subnodes_only,
     )
     to_plot_rel2, dh_prices2 = prepare_energy_balance_data(
-        network2, group_chp, group_heat_pumps, group_demands, drop_losses, subnodes_only
+        network2,
+        group_chp,
+        group_heat_pumps,
+        group_ashp_wshp,
+        group_demands,
+        drop_losses,
+        subnodes_only,
     )
     to_plot_rel3, dh_prices3 = prepare_energy_balance_data(
-        network3, group_chp, group_heat_pumps, group_demands, drop_losses, subnodes_only
+        network3,
+        group_chp,
+        group_heat_pumps,
+        group_ashp_wshp,
+        group_demands,
+        drop_losses,
+        subnodes_only,
     )
 
     # Calculate price savings (network1 - network2, network1 - network3)
@@ -1196,7 +1298,7 @@ def plot_energy_balance_triple_comparison(
 
         return title
 
-    # Technology order (same as dual comparison)
+    # Technology order: geothermal -> electrolysis -> A/WSHP -> Resistive heaters -> CHP -> boilers -> storage
     col_order = [
         "District Heating Demand",
         "low-temperature heat for industry",
@@ -1209,25 +1311,26 @@ def plot_energy_balance_triple_comparison(
         "urban central water pits charger",
         "urban central water pits losses",
         "Heat Pumps",
-        "urban central electrolysis excess heat pump",
-        "geothermal heat pump",
+        "geothermal heat pump",  # First: geothermal
+        "urban central electrolysis excess heat pump",  # Second: electrolysis
+        "A/WSHP",  # Third: A/WSHP (grouped)
         "urban central river_water heat pump",
         "urban central sea_water heat pump",
         "urban central air heat pump",
         "urban central ptes heat pump",
-        "urban central resistive heater",
-        "CHP",
+        "urban central resistive heater",  # Fourth: Resistive heaters
+        "CHP",  # Fifth: CHP (grouped)
         "urban central gas CHP",
         "urban central solid biomass CHP",
         "urban central lignite CHP",
         "urban central coal CHP",
         "urban central oil CHP",
         "urban central H2 CHP",
-        "H2 Electrolysis",
         "waste CHP",
-        "urban central gas boiler",
+        "urban central gas boiler",  # Sixth: boilers
+        "H2 Electrolysis",
         "Fischer-Tropsch",
-        "urban central water tanks discharger",
+        "urban central water tanks discharger",  # Seventh: storage
         "urban central water pits discharger",
     ]
 
@@ -1245,7 +1348,9 @@ def plot_energy_balance_triple_comparison(
         data = data[available_cols]
 
         # Create horizontal bar plot
-        data.plot.barh(stacked=True, ax=ax, color=colors, legend=False, width=0.9)
+        data.plot.barh(
+            stacked=True, ax=ax, color=colors, legend=False, width=0.9, alpha=0.8
+        )
 
         # Format title and labels
         title = format_scenario_title(scenario)
@@ -1302,19 +1407,19 @@ def plot_energy_balance_triple_comparison(
             ax_secondary.axvline(
                 x=dh_demand.mean(),
                 color="red",
-                linestyle=":",
-                linewidth=4,
+                linestyle="--",
+                linewidth=2,
                 alpha=1,
                 zorder=5,
             )
-            ax_secondary.axvline(
-                x=dh_demand.mean(),
-                color="white",
-                linestyle=":",
-                linewidth=2,
-                alpha=1,
-                zorder=6,
-            )
+            # ax_secondary.axvline(
+            #     x=dh_demand.mean(),
+            #     color="white",
+            #     linestyle=":",
+            #     linewidth=2,
+            #     alpha=1,
+            #     zorder=6,
+            # )
             ax_secondary.set_xlabel("DH Demand\n[TWh]", fontsize=12, color="red")
             ax_secondary.tick_params(axis="x", labelsize=10, colors="red")
 
@@ -1345,29 +1450,22 @@ def plot_energy_balance_triple_comparison(
                 x=prices.mean(),
                 color="red",
                 linestyle="--",
-                linewidth=4,
+                linewidth=2,
                 alpha=1,
                 zorder=5,
             )
-            ax_secondary.axvline(
-                x=prices.mean(),
-                color="white",
-                linestyle="--",
-                linewidth=2,
-                alpha=1,
-                zorder=6,
-            )
+            # ax_secondary.axvline(
+            #     x=prices.mean(),
+            #     color="white",
+            #     linestyle="--",
+            #     linewidth=2,
+            #     alpha=1,
+            #     zorder=6,
+            # )
             ax_secondary.set_xlabel(
                 "ΔDH Price\n[EUR MWh$^{-1}$]", fontsize=12, color="red"
             )
             ax_secondary.tick_params(axis="x", labelsize=10, colors="red")
-            # Add zero line with red interior and white border
-            ax_secondary.axvline(
-                x=0, color="white", linestyle=":", linewidth=3, alpha=0.8, zorder=1
-            )
-            ax_secondary.axvline(
-                x=0, color="red", linestyle=":", linewidth=1.5, alpha=0.9, zorder=2
-            )
 
             # Store price axis for later standardization
             price_axes.append((ax_secondary, prices))
@@ -1426,7 +1524,7 @@ def plot_energy_balance_triple_comparison(
             .xs("urban central heat", level=3)
             .reset_index()
         )
-        
+
         # Filter for district heating systems
         if subnodes_only:
             eb_uch = eb_uch.loc[eb_uch.bus.str.contains(r"DE\d+ \d+ \w+.*urban"), :]
@@ -1444,7 +1542,7 @@ def plot_energy_balance_triple_comparison(
         # Set index and unstack
         to_plot = eb_uch.set_index(["bus", "carrier"]).unstack(-1)
         to_plot.columns = to_plot.columns.droplevel(0)
-        
+
         # Convert from MWh to TWh and return only positive (supply) values
         to_plot_twh = to_plot / 1e6
         return to_plot_twh.clip(lower=0)
@@ -1454,45 +1552,126 @@ def plot_energy_balance_triple_comparison(
     for i, (network, sub_ax) in enumerate(zip(networks, sub_axes)):
         # Get absolute energy balance in TWh for all systems (both subnodes and mother nodes)
         abs_data = get_absolute_energy_balance(network, subnodes_only=False)
-        
-        # Remove storage technologies and group by technology type
-        grouped_supply = {
-            "Heat Pumps": 0,
-            "Resistive Heater": 0, 
-            "CHP": 0,
-            "Other": 0
-        }
-        
+
+        # Remove storage technologies and group by technology type according to configuration
+        grouped_supply = {}
+
         for col in abs_data.columns:
             if not any(storage_tech in col for storage_tech in storage_techs):
                 total_value = abs_data[col].sum()  # Sum across all systems in TWh
                 if total_value > 0:
-                    # Group technologies by type
-                    if "heat pump" in col.lower():
-                        grouped_supply["Heat Pumps"] += total_value
+                    # Apply same grouping logic as main plots
+                    tech_name = col
+
+                    # Group heat pumps if enabled
+                    if group_heat_pumps and "heat pump" in col.lower():
+                        tech_name = "Heat Pumps"
+                    # Group A/WSHP if enabled (and not already grouped with all heat pumps)
+                    elif (
+                        group_ashp_wshp
+                        and not group_heat_pumps
+                        and (
+                            "urban central air heat pump" in col.lower()
+                            or "urban central river_water heat pump" in col.lower()
+                            or "urban central sea_water heat pump" in col.lower()
+                        )
+                    ):
+                        tech_name = "A/WSHP"
+                    # Group CHP if enabled
+                    elif group_chp and (
+                        "chp" in col.lower() or "combined heat" in col.lower()
+                    ):
+                        tech_name = "CHP"
+                    # Group resistive heaters
                     elif "resistive" in col.lower():
-                        grouped_supply["Resistive Heater"] += total_value
-                    elif "chp" in col.lower() or "combined heat" in col.lower():
-                        grouped_supply["CHP"] += total_value
+                        tech_name = "Resistive Heater"
+                    # Clean up other technology names
                     else:
-                        grouped_supply["Other"] += total_value
+                        tech_name = (
+                            col.replace("urban central ", "")
+                            .replace("water pits", "PTES")
+                            .replace("water tanks", "TTES")
+                        )
+
+                    # Add to grouped supply
+                    if tech_name not in grouped_supply:
+                        grouped_supply[tech_name] = 0
+                    grouped_supply[tech_name] += total_value
 
         # Create stacked bar with proper ordering and colors
-        tech_order = ["Heat Pumps", "Resistive Heater", "CHP", "Other"]
-        tech_colors_map = {
-            "Heat Pumps": "#FF8C00",      # Orange
-            "Resistive Heater": "#40E0D0", # Cyan
-            "CHP": "#8B0000",              # Dark red
-            "Other": "#808080"             # Gray
-        }
-        
-        techs = [tech for tech in tech_order if grouped_supply[tech] > 0]
+        # Define technology order to match main plots: geothermal -> electrolysis -> A/WSHP -> Resistive heaters -> CHP -> boilers -> storage
+        # Note: for stacked bars, order from top to bottom (reverse of desired visual order)
+        tech_order = [
+            # Other supply (top of stack)
+            "H2 Electrolysis",
+            "Fischer-Tropsch",
+            # Boilers
+            "gas boiler",
+            # CHP technologies (grouped or individual)
+            "waste CHP",
+            "H2 CHP",
+            "oil CHP",
+            "coal CHP",
+            "lignite CHP",
+            "solid biomass CHP",
+            "gas CHP",
+            "CHP",
+            # Resistive heaters
+            "Resistive Heater",
+            # A/WSHP (grouped or individual)
+            "A/WSHP",
+            "sea_water heat pump",
+            "river_water heat pump",
+            "air heat pump",
+            "ptes heat pump",
+            # Electrolysis excess
+            "electrolysis excess heat pump",
+            # Heat pumps (grouped)
+            "Heat Pumps",
+            # Geothermal at the bottom of stack (last, so it appears at bottom visually)
+            "geothermal heat pump",
+        ]
+
+        # Use colors from the main color scheme, with fallbacks for grouped categories
+        tech_colors_map = colors.copy()
+        tech_colors_map.update(
+            {
+                "Heat Pumps": "#FF8C00",  # Orange
+                "A/WSHP": "#FFA600",  # Orange variant
+                "Resistive Heater": "#40E0D0",  # Cyan
+                "CHP": colors.get("CHP", "#8B4513"),  # Use same color as main plots
+            }
+        )
+
+        # Filter to only include technologies that exist and have positive values
+        techs = [
+            tech
+            for tech in tech_order
+            if tech in grouped_supply and grouped_supply[tech] > 0
+        ]
+        # Add any remaining technologies not in the predefined order
+        remaining_techs = [
+            tech
+            for tech in grouped_supply.keys()
+            if tech not in techs and grouped_supply[tech] > 0
+        ]
+        techs.extend(sorted(remaining_techs))
+
         values = [grouped_supply[tech] for tech in techs]
-        tech_colors = [tech_colors_map[tech] for tech in techs]
-        
+        tech_colors = [
+            tech_colors_map.get(tech, "#808080") for tech in techs
+        ]  # Gray fallback
+
         if techs:  # Only create bars if we have data
+            # Reverse the order to flip the stacking (geothermal will now be at top)
+            techs_reversed = list(reversed(techs))
+            values_reversed = list(reversed(values))
+            tech_colors_reversed = list(reversed(tech_colors))
+
             bottom = 0
-            for tech, value, color in zip(techs, values, tech_colors):
+            for tech, value, color in zip(
+                techs_reversed, values_reversed, tech_colors_reversed
+            ):
                 sub_ax.bar(0, value, bottom=bottom, color=color, width=1.0, alpha=0.8)
                 bottom += value
 
@@ -1528,6 +1707,8 @@ def plot_energy_balance_triple_comparison(
     # Define technology categories
     supply_techs = [
         "Heat Pumps",
+        "geothermal heat pump",
+        "electrolysis excess heat pump",
         "CHP",
         "resistive heater",
         "gas boiler",
@@ -1545,6 +1726,17 @@ def plot_energy_balance_triple_comparison(
         label = label.replace("water pits", "PTES")
         label = label.replace("water tanks", "TTES")
         label = label.replace(" charger", "").replace(" discharger", "")
+        label = label.replace("A/WSHP", "Air and water sourced heat pumps")
+
+        # Capitalize first letter of first word while preserving abbreviations
+        words = label.split()
+        if words:
+            first_word = words[0]
+            # Keep abbreviations in all caps
+            if first_word.upper() not in ["CHP", "PTES", "TTES", "H2"]:
+                words[0] = first_word.capitalize()
+            label = " ".join(words)
+
         return label
 
     # Collect unique technologies with deduplication
@@ -1625,7 +1817,7 @@ def plot_energy_balance_triple_comparison(
             [0],
             [0],
             color="red",
-            linestyle=":",
+            linestyle="--",
             linewidth=2,
             path_effects=[
                 matplotlib.patheffects.Stroke(linewidth=4, foreground="white"),
@@ -1714,12 +1906,14 @@ def main(snakemake):
     try:
         group_chp = snakemake.params.plotting.get("group_chp", True)
         group_heat_pumps = snakemake.params.plotting.get("group_heat_pumps", True)
+        group_ashp_wshp = snakemake.params.plotting.get("group_ashp_wshp", True)
         group_demands = snakemake.params.plotting.get("group_demands", True)
         drop_losses = snakemake.params.plotting.get("drop_losses", True)
         subnodes_only = snakemake.params.plotting.get("subnodes_only", True)
     except:
         group_chp = True
-        group_heat_pumps = True
+        group_heat_pumps = False
+        group_ashp_wshp = True
         group_demands = True
         drop_losses = True
         subnodes_only = True
@@ -1744,6 +1938,7 @@ def main(snakemake):
     default_group_colors = {
         "CHP": "#8B4513",  # saddle brown
         "Heat Pumps": "#FF8C00",  # dark orange
+        "A/WSHP": "#FFA600",  # orange
         "District Heating Demand": "#CCCCCC",  # lighter grey (same as urban central heat in config)
     }
 
@@ -1793,6 +1988,7 @@ def main(snakemake):
                     colors,
                     group_chp=group_chp,
                     group_heat_pumps=group_heat_pumps,
+                    group_ashp_wshp=group_ashp_wshp,
                     group_demands=group_demands,
                     drop_losses=drop_losses,
                     subnodes_only=subnodes_only,
@@ -1833,6 +2029,7 @@ def main(snakemake):
                 colors,
                 group_chp=group_chp,
                 group_heat_pumps=group_heat_pumps,
+                group_ashp_wshp=group_ashp_wshp,
                 group_demands=group_demands,
                 drop_losses=drop_losses,
                 subnodes_only=subnodes_only,
