@@ -319,25 +319,7 @@ def plot_energy_balance_comparison(
 
         to_plot_rel = to_plot_rel_load + to_plot_rel_gen
 
-        # Group PTES heat pump with PTES discharger
-        ptes_techs = [
-            tech
-            for tech in to_plot_rel.columns
-            if "urban central ptes heat pump" in tech
-        ]
-        ptes_discharge_techs = [
-            tech
-            for tech in to_plot_rel.columns
-            if "urban central water pits discharger" in tech
-        ]
-
-        if len(ptes_techs) > 0 and len(ptes_discharge_techs) > 0:
-            # Combine PTES heat pump with PTES discharger
-            for ptes_tech in ptes_techs:
-                for ptes_discharge_tech in ptes_discharge_techs:
-                    to_plot_rel[ptes_discharge_tech] += to_plot_rel[ptes_tech]
-            # Remove the separate PTES heat pump column
-            to_plot_rel = to_plot_rel.drop(columns=ptes_techs)
+        # Note: PTES heat pump is kept separate from PTES storage and treated as a supply technology
 
         # Note: Geothermal heat pumps are now grouped with other heat pumps when group_heat_pumps=True
         if not group_heat_pumps:
@@ -421,10 +403,33 @@ def plot_energy_balance_comparison(
     # Calculate price savings (network1 - network2)
     dh_price_savings = dh_prices1 - dh_prices2
 
-    # Sort systems by price savings (highest savings first)
-    sorted_systems = dh_price_savings.sort_values(ascending=False).index
+    # Calculate district heating demand for sorting
+    dh_demand_sort = []
+    for system in to_plot_rel1.index:
+        system_name = system.replace(" urban central heat", "")  # Clean system name
+        # Get urban central heat and low-temperature heat for industry loads
+        uch_load = (
+            network1.loads_t.p.filter(regex=f"{system_name}.*urban central heat")
+            .sum()
+            .sum()
+        )
+        industry_load = (
+            network1.loads_t.p.filter(
+                regex=f"{system_name}.*low-temperature heat for industry"
+            )
+            .sum()
+            .sum()
+        )
+        # Convert from MWh to TWh and get absolute value
+        total_demand_twh = abs(uch_load + industry_load) / 1e6
+        dh_demand_sort.append(total_demand_twh)
+    
+    dh_demand_series = pd.Series(dh_demand_sort, index=to_plot_rel1.index)
+    
+    # Sort systems by demand (highest demand first)
+    sorted_systems = dh_demand_series.sort_values(ascending=False).index
 
-    # Reorder both plotting data and price data according to savings
+    # Reorder both plotting data and price data according to demand
     to_plot_rel1 = to_plot_rel1.loc[sorted_systems]
     to_plot_rel2 = to_plot_rel2.loc[sorted_systems]
     dh_price_savings = dh_price_savings.loc[sorted_systems]
@@ -432,7 +437,7 @@ def plot_energy_balance_comparison(
     max_ylim = to_plot_rel2.clip(lower=0).sum(1).max() * 1.05
 
     # Create subplots with side-by-side layout (smaller width for better proportions)
-    fig, axes = plt.subplots(1, 2, figsize=(5.6, 8), sharey=True)
+    fig, axes = plt.subplots(1, 2, figsize=(5, 20), sharey=True)
 
     # Plot for Network 1 (left subplot)
     ax1 = axes[0]
@@ -508,7 +513,7 @@ def plot_energy_balance_comparison(
 
         # Handle DH level
         if "MidDH_" in title:
-            title = title.replace("MidDH_", "Medium DH\n")
+            title = title.replace("MidDH_", "")
         elif "HighDH_" in title:
             title = title.replace("HighDH_", "High DH\n")
         elif "LowDH_" in title:
@@ -575,14 +580,14 @@ def plot_energy_balance_comparison(
 
     dh_demand = pd.Series(dh_demand, index=to_plot_rel1.index)
 
-    # Plot DH demand with squares (white with black border like price savings)
+    # Plot DH demand with squares (black without border)
     y_positions1 = range(len(dh_demand))
     ax1_demand.scatter(
         dh_demand.values,
         y_positions1,
-        s=40,
+        s=30,
         marker="s",  # Square marker
-        facecolor="white",
+        facecolor="black",
         edgecolor="black",
         linewidth=0.2,
         zorder=20,
@@ -694,25 +699,24 @@ def plot_energy_balance_comparison(
     # Add secondary x-axis for district heating price savings on second subplot only
     ax2_price = ax2.twiny()
 
-    # Plot DH price savings for Network 2 with white circles and black borders
+    # Plot DH price savings for Network 2 with black triangles
     y_positions2 = range(len(dh_price_savings))
     ax2_price.scatter(
         -dh_price_savings.values,
         y_positions2,
-        s=40,
+        s=30,
         marker="^",
-        facecolor="white",
+        facecolor="black",
         edgecolor="black",
         linewidth=0.2,
         zorder=20,
         clip_on=False,
     )
 
-    # Add mean DH price savings line (more pronounced, white dashed with black border)
-    # First draw thick black dashed line as border
+    # Add mean DH price savings line (black dashed)
     ax2_price.axvline(
         x=-dh_price_savings.mean(),
-        color="red",
+        color="black",
         linestyle="--",
         linewidth=2,
         alpha=1,
@@ -729,8 +733,8 @@ def plot_energy_balance_comparison(
     # )
 
     # Set labels and formatting for price savings axis
-    ax2_price.set_xlabel("ΔDH Price\n[EUR MWh$^{-1}$]", fontsize=12)
-    ax2_price.tick_params(axis="x", labelsize=10)
+    ax2_price.set_xlabel("ΔDH Price\n[EUR MWh$^{-1}$]", fontsize=12, color="black")
+    ax2_price.tick_params(axis="x", labelsize=10, colors="black")
 
     # Set x-limits for price savings axis with some padding
     price_min, price_max = dh_price_savings.min(), dh_price_savings.max()
@@ -746,9 +750,9 @@ def plot_energy_balance_comparison(
 
     # Update fontsize of yticks for both subplots (now that bars are horizontal)
     for tick in ax1.get_yticklabels():
-        tick.set_fontsize(10)
+        tick.set_fontsize(7)
     for tick in ax2.get_yticklabels():
-        tick.set_fontsize(10)
+        tick.set_fontsize(7)
 
     # Organize legend by categories
     legend_handles = []
@@ -759,6 +763,10 @@ def plot_energy_balance_comparison(
         "Heat Pumps",
         "geothermal heat pump",
         "electrolysis excess heat pump",
+        "air heat pump",
+        "river_water heat pump", 
+        "sea_water heat pump",
+        "ptes heat pump",
         "CHP",
         "resistive heater",
         "gas boiler",
@@ -777,6 +785,13 @@ def plot_energy_balance_comparison(
         label = label.replace("water tanks", "TTES")
         label = label.replace(" charger", "").replace(" discharger", "")
         label = label.replace("A/WSHP", "Air and water sourced heat pumps")
+        
+        # Handle PTES capitalization specifically
+        if label.lower().startswith("ptes"):
+            words = label.split()
+            if words:
+                words[0] = "PTES"
+                label = " ".join(words)
 
         # Capitalize first letter of first word while preserving abbreviations
         words = label.split()
@@ -846,9 +861,9 @@ def plot_energy_balance_comparison(
         Line2D(
             [0],
             [0],
-            marker="o",
-            color="red",
-            markeredgecolor="white",
+            marker="s",
+            color="black",
+            markeredgecolor="black",
             markeredgewidth=0.8,
             markersize=6,
             linestyle="None",
@@ -878,7 +893,7 @@ def plot_energy_balance_comparison(
             [0],
             [0],
             marker="^",
-            color="white",
+            color="black",
             markeredgecolor="black",
             markeredgewidth=0.2,
             markersize=6,
@@ -892,13 +907,9 @@ def plot_energy_balance_comparison(
         Line2D(
             [0],
             [0],
-            color="white",
+            color="black",
             linestyle="--",
-            linewidth=3,
-            path_effects=[
-                matplotlib.patheffects.Stroke(linewidth=4, foreground="black"),
-                matplotlib.patheffects.Normal(),
-            ],
+            linewidth=2,
         )
     )
     legend_labels.append("  Mean ΔDH Price")
@@ -941,8 +952,8 @@ def plot_energy_balance_comparison(
 
     # Adjust layout and save the plot
     plt.tight_layout()
-    # Add space at the bottom for the legend (less space needed now)
-    plt.subplots_adjust(top=0.95, wspace=0.25, left=0.20, right=0.95, bottom=0.18)
+    # Add space at the bottom for the legend (adjusted for taller figure)
+    plt.subplots_adjust(top=0.96, wspace=0.25, left=0.20, right=0.95, bottom=0.14)
     fig.savefig(output_path, bbox_inches="tight")
 
     logger.info(f"Energy balance comparison saved to {output_path}")
@@ -1073,25 +1084,7 @@ def plot_energy_balance_triple_comparison(
 
         to_plot_rel = to_plot_rel_load + to_plot_rel_gen
 
-        # Group PTES heat pump with PTES discharger
-        ptes_techs = [
-            tech
-            for tech in to_plot_rel.columns
-            if "urban central ptes heat pump" in tech
-        ]
-        ptes_discharge_techs = [
-            tech
-            for tech in to_plot_rel.columns
-            if "urban central water pits discharger" in tech
-        ]
-
-        if len(ptes_techs) > 0 and len(ptes_discharge_techs) > 0:
-            # Combine PTES heat pump with PTES discharger
-            for ptes_tech in ptes_techs:
-                for ptes_discharge_tech in ptes_discharge_techs:
-                    to_plot_rel[ptes_discharge_tech] += to_plot_rel[ptes_tech]
-            # Remove the separate PTES heat pump column
-            to_plot_rel = to_plot_rel.drop(columns=ptes_techs)
+        # Note: PTES heat pump is kept separate from PTES storage and treated as a supply technology
 
         # Apply groupings (same logic as dual comparison)
         if not group_heat_pumps:
@@ -1191,11 +1184,33 @@ def plot_energy_balance_triple_comparison(
     dh_price_savings_2 = dh_prices1 - dh_prices2
     dh_price_savings_3 = dh_prices1 - dh_prices3
 
-    # Sort systems by average price savings
-    avg_price_savings = (dh_price_savings_2 + dh_price_savings_3) / 2
-    sorted_systems = avg_price_savings.sort_values(ascending=False).index
+    # Calculate district heating demand for sorting
+    dh_demand_sort = []
+    for system in to_plot_rel1.index:
+        system_name = system.replace(" urban central heat", "")  # Clean system name
+        # Get urban central heat and low-temperature heat for industry loads
+        uch_load = (
+            network1.loads_t.p.filter(regex=f"{system_name}.*urban central heat")
+            .sum()
+            .sum()
+        )
+        industry_load = (
+            network1.loads_t.p.filter(
+                regex=f"{system_name}.*low-temperature heat for industry"
+            )
+            .sum()
+            .sum()
+        )
+        # Convert from MWh to TWh and get absolute value
+        total_demand_twh = abs(uch_load + industry_load) / 1e6
+        dh_demand_sort.append(total_demand_twh)
+    
+    dh_demand_series = pd.Series(dh_demand_sort, index=to_plot_rel1.index)
+    
+    # Sort systems by demand (highest demand first)
+    sorted_systems = dh_demand_series.sort_values(ascending=False).index
 
-    # Reorder all plotting data according to savings
+    # Reorder all plotting data according to demand
     to_plot_rel1 = to_plot_rel1.loc[sorted_systems]
     to_plot_rel2 = to_plot_rel2.loc[sorted_systems]
     to_plot_rel3 = to_plot_rel3.loc[sorted_systems]
@@ -1212,7 +1227,7 @@ def plot_energy_balance_triple_comparison(
     )
 
     # Create subplots with three columns and sub-charts below each
-    fig = plt.figure(figsize=(8, 9))
+    fig = plt.figure(figsize=(8, 12))
 
     # Main plots (top row) - make them take up most of the space
     axes = []
@@ -1270,7 +1285,7 @@ def plot_energy_balance_triple_comparison(
 
         # Handle DH level - handle both with and without underscore
         if "MidDH" in title:
-            title = title.replace("MidDH_", "Medium DH\n").replace("MidDH", "Medium DH")
+            title = title.replace("MidDH_", "").replace("MidDH", "")
         elif "HighDH" in title:
             title = title.replace("HighDH_", "High DH\n").replace("HighDH", "High DH")
         elif "LowDH" in title:
@@ -1396,17 +1411,17 @@ def plot_energy_balance_triple_comparison(
             ax_secondary.scatter(
                 dh_demand.values,
                 y_positions,
-                s=40,
+                s=30,
                 marker="o",
-                facecolor="red",
-                edgecolor="white",
+                facecolor="black",
+                edgecolor="black",
                 linewidth=0.8,
                 zorder=20,
                 clip_on=False,
             )
             ax_secondary.axvline(
                 x=dh_demand.mean(),
-                color="red",
+                color="black",
                 linestyle="--",
                 linewidth=2,
                 alpha=1,
@@ -1420,8 +1435,8 @@ def plot_energy_balance_triple_comparison(
             #     alpha=1,
             #     zorder=6,
             # )
-            ax_secondary.set_xlabel("DH Demand\n[TWh]", fontsize=12, color="red")
-            ax_secondary.tick_params(axis="x", labelsize=10, colors="red")
+            ax_secondary.set_xlabel("DH Demand\n[TWh]", fontsize=12, color="black")
+            ax_secondary.tick_params(axis="x", labelsize=10, colors="black")
 
             demand_min, demand_max = dh_demand.min(), dh_demand.max()
             demand_range = demand_max - demand_min
@@ -1438,17 +1453,17 @@ def plot_energy_balance_triple_comparison(
             ax_secondary.scatter(
                 prices.values,
                 y_positions,
-                s=40,
+                s=30,
                 marker="^",
-                facecolor="red",
-                edgecolor="white",
+                facecolor="black",
+                edgecolor="black",
                 linewidth=0.8,
                 zorder=20,
                 clip_on=False,
             )
             ax_secondary.axvline(
                 x=prices.mean(),
-                color="red",
+                color="black",
                 linestyle="--",
                 linewidth=2,
                 alpha=1,
@@ -1463,16 +1478,16 @@ def plot_energy_balance_triple_comparison(
             #     zorder=6,
             # )
             ax_secondary.set_xlabel(
-                "ΔDH Price\n[EUR MWh$^{-1}$]", fontsize=12, color="red"
+                "ΔDH Price\n[EUR MWh$^{-1}$]", fontsize=12, color="black"
             )
-            ax_secondary.tick_params(axis="x", labelsize=10, colors="red")
+            ax_secondary.tick_params(axis="x", labelsize=10, colors="black")
 
             # Store price axis for later standardization
             price_axes.append((ax_secondary, prices))
 
         # Y-axis formatting
         for tick in ax.get_yticklabels():
-            tick.set_fontsize(10)
+            tick.set_fontsize(7)
 
         if i == 0:  # Only show y-labels on leftmost plot
             ax.tick_params(axis="y", labelleft=True)
@@ -1617,6 +1632,7 @@ def plot_energy_balance_triple_comparison(
             "gas CHP",
             "CHP",
             # Resistive heaters
+            "resistive heater",
             "Resistive Heater",
             # A/WSHP (grouped or individual)
             "A/WSHP",
@@ -1630,16 +1646,44 @@ def plot_energy_balance_triple_comparison(
             "Heat Pumps",
             # Geothermal at the bottom of stack (last, so it appears at bottom visually)
             "geothermal heat pump",
+            "geothermal heat",
         ]
 
         # Use colors from the main color scheme, with fallbacks for grouped categories
         tech_colors_map = colors.copy()
+        
+        # Create comprehensive color mapping for cleaned technology names
+        for tech, color in colors.items():
+            # Map original tech names to cleaned versions
+            clean_tech = (
+                tech.replace("urban central ", "")
+                .replace("water pits", "PTES")
+                .replace("water tanks", "TTES")
+            )
+            tech_colors_map[clean_tech] = color
+        
+        # Add specific mappings for grouped and cleaned names
         tech_colors_map.update(
             {
-                "Heat Pumps": "#FF8C00",  # Orange
-                "A/WSHP": "#FFA600",  # Orange variant
-                "Resistive Heater": "#40E0D0",  # Cyan
+                "Heat Pumps": colors.get("Heat Pumps", "#FF8C00"),  # Orange
+                "A/WSHP": colors.get("A/WSHP", "#FFA600"),  # Orange variant
+                "Resistive Heater": colors.get("urban central resistive heater", "#40E0D0"),  # Cyan
+                "resistive heater": colors.get("urban central resistive heater", "#40E0D0"),
                 "CHP": colors.get("CHP", "#8B4513"),  # Use same color as main plots
+                "gas boiler": colors.get("urban central gas boiler", "#8B0000"),
+                "gas CHP": colors.get("urban central gas CHP", "#CD853F"),
+                "H2 CHP": colors.get("urban central H2 CHP", "#4169E1"),
+                "solid biomass CHP": colors.get("urban central solid biomass CHP", "#228B22"),
+                "waste CHP": colors.get("waste CHP", "#8B4513"),
+                "geothermal heat pump": colors.get("urban central geothermal heat pump", "#B22222"),
+                "geothermal heat": colors.get("urban central geothermal heat", "#B22222"),
+                "air heat pump": colors.get("urban central air heat pump", "#FF6347"),
+                "sea_water heat pump": colors.get("urban central sea_water heat pump", "#4682B4"),
+                "river_water heat pump": colors.get("urban central river_water heat pump", "#20B2AA"),
+                "ptes heat pump": colors.get("urban central ptes heat pump", "#9932CC"),
+                "electrolysis excess heat pump": colors.get("urban central electrolysis excess heat pump", "#FFD700"),
+                "Fischer-Tropsch": colors.get("Fischer-Tropsch", "#A0522D"),
+                "H2 Electrolysis": colors.get("H2 Electrolysis", "#4169E1"),
             }
         )
 
@@ -1709,6 +1753,10 @@ def plot_energy_balance_triple_comparison(
         "Heat Pumps",
         "geothermal heat pump",
         "electrolysis excess heat pump",
+        "air heat pump",
+        "river_water heat pump", 
+        "sea_water heat pump",
+        "ptes heat pump",
         "CHP",
         "resistive heater",
         "gas boiler",
@@ -1727,6 +1775,13 @@ def plot_energy_balance_triple_comparison(
         label = label.replace("water tanks", "TTES")
         label = label.replace(" charger", "").replace(" discharger", "")
         label = label.replace("A/WSHP", "Air and water sourced heat pumps")
+        
+        # Handle PTES capitalization specifically
+        if label.lower().startswith("ptes"):
+            words = label.split()
+            if words:
+                words[0] = "PTES"
+                label = " ".join(words)
 
         # Capitalize first letter of first word while preserving abbreviations
         words = label.split()
@@ -1796,14 +1851,14 @@ def plot_energy_balance_triple_comparison(
     legend_labels.append(r"$\bf{Indicators:}$")
     legend_handles.append(plt.Rectangle((0, 0), 0, 0, alpha=0))  # Invisible spacer
 
-    # DH Demand marker (red circle with white border)
+    # DH Demand marker (black circle)
     legend_handles.append(
         Line2D(
             [0],
             [0],
             marker="o",
-            color="red",
-            markeredgecolor="white",
+            color="black",
+            markeredgecolor="black",
             markeredgewidth=0.8,
             markersize=6,
             linestyle="None",
@@ -1811,18 +1866,14 @@ def plot_energy_balance_triple_comparison(
     )
     legend_labels.append("  DH Demand [TWh]")
 
-    # Mean DH demand line (red with white border)
+    # Mean DH demand line (black)
     legend_handles.append(
         Line2D(
             [0],
             [0],
-            color="red",
+            color="black",
             linestyle="--",
             linewidth=2,
-            path_effects=[
-                matplotlib.patheffects.Stroke(linewidth=4, foreground="white"),
-                matplotlib.patheffects.Normal(),
-            ],
         )
     )
     legend_labels.append("  Mean DH Demand")
@@ -1833,8 +1884,8 @@ def plot_energy_balance_triple_comparison(
             [0],
             [0],
             marker="^",
-            color="red",
-            markeredgecolor="white",
+            color="black",
+            markeredgecolor="black",
             markeredgewidth=0.8,
             markersize=6,
             linestyle="None",
@@ -1842,18 +1893,14 @@ def plot_energy_balance_triple_comparison(
     )
     legend_labels.append("  ΔDH Price [EUR MWh$^{-1}$]")
 
-    # Mean DH price savings line (red with white border to match plot)
+    # Mean DH price savings line (black)
     legend_handles.append(
         Line2D(
             [0],
             [0],
-            color="red",
+            color="black",
             linestyle="--",
             linewidth=2,
-            path_effects=[
-                matplotlib.patheffects.Stroke(linewidth=4, foreground="white"),
-                matplotlib.patheffects.Normal(),
-            ],
         )
     )
     legend_labels.append("  Mean ΔDH Price")

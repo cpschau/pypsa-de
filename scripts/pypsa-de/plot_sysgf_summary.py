@@ -46,17 +46,37 @@ def calc_ptes_cycles(n, mean=True):
     if pits_de.empty:
         return 0
 
+    pits_de_e_max_pu = n.stores_t.e_max_pu.reindex(
+        pits_de.index, axis=1, fill_value=1
+    ).mean()
+
     discharge = (
         n.links_t.p0.filter(regex=r"DE.*pits discharger")
         .mul(n.snapshot_weightings.generators, axis=0)
         .sum()
     )
     discharge.index = discharge.index.str.replace(" discharger", "")
-    no_cycles = discharge.div(pits_de.e_nom_opt)
+    no_cycles = discharge.div(pits_de.e_nom_opt * pits_de_e_max_pu)
     if mean:
         return no_cycles.mean()
     else:
         return no_cycles
+
+
+def get_pit_capacities_de(n, mode="effective"):
+    pits_de = n.stores.filter(regex=r"DE0.*water pits", axis=0).query("e_nom_opt > 0")
+    pits_de_e_max_pu = n.stores_t.e_max_pu.reindex(
+        pits_de.index, axis=1, fill_value=1
+    ).mean()
+    if mode == "effective":
+        caps = pits_de.e_nom_opt * pits_de_e_max_pu
+    elif mode == "volume":
+        caps = pits_de.e_nom_opt / 4500 * 70000
+    elif mode == "capex":
+        caps = pits_de.e_nom_opt * pits_de.capital_cost
+    else:
+        caps = pits_de.e_nom_opt
+    return caps
 
 
 def calc_average_dh_price(n):
@@ -158,6 +178,20 @@ def calc_curtailment_de(n):
             .sum()
         )
         return curtailment
+    except:
+        return 0
+
+
+def calc_vres_gen_de(n):
+    try:
+        gen = (
+            n.statistics.energy_balance(groupby=["bus", "carrier"], nice_names=False)
+            .xs("Generator", level=0)
+            .filter(regex=r"DE.*wind|solar")
+            .div(1e6)
+            .sum()
+        )
+        return gen
     except:
         return 0
 
@@ -451,8 +485,11 @@ def create_summary_df(networks):
             "total_system_costs_DE_bnEUR",
             "district_heating_costs_DE_bnEUR",
             "PTES_capacity_TWh",
+            "PTES_capacity_TWh_scaled",
+            "PTES_capacity_m3",
             "PTES_capacity_GW",
             "PTES_no_cycles",
+            "PTES_investment_bn€",
             "TTES_capacity_TWh",
             "TTES_capacity_GW",
             "H2_store_TWh",
@@ -463,6 +500,18 @@ def create_summary_df(networks):
             "peak_electricity_price_EUR_per_MWh",
             "peak_dh_price_EUR_per_MWh",
             "curtailment_TWh",
+            "vres_gen_TWh",
+            "relative_curtailment",
+            "heat_venting_TWh",
+            "solar capacity_GW",
+            "onwind_capacity_GW",
+            "hp_capacity_GW",
+            "booster_hp_capacity",
+            "electrolysis_cf",
+            "RSHP_cf",
+            "GSHP_cf",
+            "booster_hp_cf",
+            "relative_curtailment",
             "heat_venting_TWh",
             "vRES_capacity_GW",
             "CHP_capacity_GW",
@@ -516,12 +565,12 @@ def create_summary_df(networks):
                             .p_nom_opt.div(1e3)
                             .sum(),
                             "H2_store_TWh": calc_h2_store_capacity(n),
-                            # "co2_price_EU_EUR_per_ton": -n.global_constraints.loc[
-                            #     "CO2Limit", "mu"
-                            # ],
-                            # "co2_price_DE_EUR_per_ton": -n.global_constraints.loc[
-                            #     "co2_limit-DE", "mu"
-                            # ],
+                            "co2_price_EU_EUR_per_ton": -n.global_constraints.loc[
+                                "CO2Limit", "mu"
+                            ],
+                            "co2_price_DE_EUR_per_ton": -n.global_constraints.loc[
+                                "co2_limit-DE", "mu"
+                            ],
                             "dh_price_EUR_per_MWh": calc_average_dh_price(n),
                             "electricity_price_EUR_per_MWh": calc_average_elec_price(n),
                             "peak_electricity_price_EUR_per_MWh": n.buses_t.marginal_price.filter(
@@ -535,6 +584,13 @@ def create_summary_df(networks):
                             .max()
                             .max(),
                             "curtailment_TWh": calc_curtailment_de(n),
+                            "vres_gen_TWh": calc_vres_gen_de(n),
+                            "relative_curtailment": (
+                                calc_curtailment_de(n)
+                                / (calc_vres_gen_de(n) + calc_curtailment_de(n))
+                                if (calc_vres_gen_de(n) + calc_curtailment_de(n)) > 0
+                                else 0
+                            ),
                             "heat_venting_TWh": calc_heat_venting_de(n),
                             "vRES_capacity_GW": n.generators.filter(
                                 regex=r"DE.*(onwind|offwind|solar-)",
@@ -550,6 +606,60 @@ def create_summary_df(networks):
                             )
                             .p_nom_opt.div(1e3)
                             .sum(),
+                            "PTES_capacity_TWh_scaled": get_pit_capacities_de(
+                                n, mode="effective"
+                            ).sum(),
+                            "PTES_capacity_TWh_m3": get_pit_capacities_de(
+                                n, mode="volume"
+                            ).sum(),
+                            "PTES_investment_bn€": get_pit_capacities_de(
+                                n, mode="effective"
+                            ).sum(),
+                            "booster_hp_GW": (
+                                n.links.filter(regex=r"DE.*ptes heat pump", axis=0)
+                                .p_nom_opt.div(1e3)
+                                .sum()
+                                if "hpboost" in scenario
+                                else 0
+                            ),
+                            "onwind_capacity_GW": n.generators.filter(
+                                regex=r"DE.*onwind", axis=0
+                            )
+                            .p_nom_opt.div(1e3)
+                            .sum(),
+                            "solar_capacity_GW": n.generators.filter(
+                                regex=r"DE.*solar", axis=0
+                            )
+                            .p_nom_opt.div(1e3)
+                            .sum(),
+                            "hp_capacity_GW": n.links.filter(
+                                regex="DE.*heat pump", axis=0
+                            )
+                            .p_nom_opt.div(1e3)
+                            .sum(),
+                            "electrolysis_cf": n.statistics.capacity_factor(
+                                groupby=["country", "carrier"]
+                            )
+                            .xs("DE", level="country")
+                            .xs("H2 Electrolysis", level="carrier")
+                            .mean(),
+                            "electrolysis_capacity_GW": n.links.filter(
+                                regex="DE.*H2 Electrolysis", axis=0
+                            )
+                            .p_nom_opt.div(1e3)
+                            .sum(),
+                            "RSHP_cf": n.statistics.capacity_factor(
+                                groupby=["country", "carrier"]
+                            )
+                            .xs("DE", level="country")
+                            .xs("urban central river_water heat pump", level="carrier")
+                            .mean(),
+                            "GSHP_cf": n.statistics.capacity_factor(
+                                groupby=["country", "carrier"]
+                            )
+                            .xs("DE", level="country")
+                            .xs("urban central geothermal heat pump", level="carrier")
+                            .mean(),
                         },
                         index=[0],
                     ),

@@ -3408,11 +3408,6 @@ def add_heat(
                     # if only dimension is nodes, convert series to dataframe with columns as nodes and index as snapshots
                     if p_max_source.ndim == 1:
                         p_max_pu = 1
-                        p_max_source = pd.DataFrame(
-                            [p_max_source] * len(n.snapshots),
-                            index=n.snapshots,
-                            columns=nodes,
-                        )
                     else:
                         p_max_pu = p_max_source / p_max_source.max()
                         p_max_source = p_max_source.max()

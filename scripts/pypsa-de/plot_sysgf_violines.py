@@ -102,7 +102,7 @@ def get_boosting_technology(scenario):
 def calc_ptes_cycles(n, system, year):
     """Calculate the number of cycles for PTES (water pits) systems."""
     pit_system = n.stores.loc[f"{system} urban central water pits-{year}"]
-    if pit_system.e_nom_opt <= 0:
+    if pit_system.e_nom_opt <= 4500:
         return None
 
     discharge = (
@@ -110,7 +110,12 @@ def calc_ptes_cycles(n, system, year):
         .mul(n.snapshot_weightings.generators)
         .sum()
     )
-    no_cycles = discharge / pit_system.e_nom_opt
+    e_max_pu = (
+        n.stores_t.e_max_pu.reindex([pit_system.name], axis=1, fill_value=1)
+        .mean()
+        .item()
+    )
+    no_cycles = discharge / pit_system.e_nom_opt / e_max_pu
     return no_cycles
 
 
@@ -209,11 +214,17 @@ def extract_plotting_data(networks):
                         f"No heat demand found for bus {bus} in scenario {scenario}"
                     )
                     continue
-
+                try:
+                    e_max_pu = n.stores_t.e_max_pu[
+                        f"{location} urban central water pits-{year}"
+                    ].mean()
+                except:
+                    e_max_pu = 1
                 ptes_capacity = (
                     n.stores.loc[
                         f"{location} urban central water pits-{year}", "e_nom_opt"
                     ]
+                    * e_max_pu
                     if ptes_modelled
                     else 0
                 )
@@ -291,7 +302,7 @@ def process_networks(run_name, scenarios, planning_horizons):
             # Find network file for this year
             network_file = None
             for file in os.listdir(scenario_path):
-                if file.endswith(f"{year}.nc"):
+                if file.endswith(f"{year}.nc") and "_init" not in file:
                     network_file = os.path.join(scenario_path, file)
                     break
 
@@ -339,43 +350,40 @@ def create_scenario_order(plotting_data):
             f"  Temp: {row['supply_temperature']}, Boost: {row['boosting_tech']}, Scenario: {row['scenario']}"
         )
 
-    # Define order for boosting technologies (NoPTES first)
-    boosting_order = [None, "hpboost", "hpboost_10Cbottom", "rhboost", "noboost"]
+    # Define order for boosting technologies (NoPTES first, then PTES technologies)
+    boosting_order = [None, "rhboost", "hpboost", "hpboost_10Cbottom", "noboost"]
 
     # Define order for temperatures
     temp_order = ["HighTemp", "MedTemp", "LowTemp"]
 
     ordered_scenarios = []
+
     for temp in temp_order:
-        for boost in boosting_order:
-            # Find scenarios matching this combination
-            if boost is None:
-                # For NoPTES scenarios, match boosting_tech being None or NaN
-                matching = mid_dh_data[
-                    (mid_dh_data["supply_temperature"] == temp)
-                    & (
-                        (mid_dh_data["boosting_tech"].isna())
-                        | (mid_dh_data["boosting_tech"] == None)
-                    )
-                ]["scenario"].unique()
-            else:
-                # For other scenarios, match the specific boosting tech
-                matching = mid_dh_data[
-                    (mid_dh_data["supply_temperature"] == temp)
-                    & (mid_dh_data["boosting_tech"] == boost)
-                ]["scenario"].unique()
+        # Get all scenarios for this temperature
+        temp_data = mid_dh_data[mid_dh_data["supply_temperature"] == temp]
+
+        # First, always add NoPTES scenario for this temperature
+        noptes_scenarios = temp_data[
+            (temp_data["boosting_tech"].isna()) | (temp_data["boosting_tech"] == None)
+        ]["scenario"].unique()
+
+        if len(noptes_scenarios) > 0:
+            ordered_scenarios.extend(noptes_scenarios)
+            logger.info(f"Added NoPTES for {temp}: {noptes_scenarios}")
+
+        # Then add PTES scenarios in the defined order (only those that exist)
+        for boost in boosting_order[1:]:  # Skip None (already added)
+            matching = temp_data[temp_data["boosting_tech"] == boost][
+                "scenario"
+            ].unique()
 
             if len(matching) > 0:
-                logger.info(
-                    f"Found {len(matching)} scenarios for Temp: {temp}, Boost: {boost}"
-                )
-                for scenario in matching:
-                    logger.info(f"  - {scenario}")
-
-            ordered_scenarios.extend(matching)
+                ordered_scenarios.extend(matching)
+                logger.info(f"Added {boost} for {temp}: {matching}")
 
     # Remove any empty entries and return unique scenarios
     ordered_scenarios = [s for s in ordered_scenarios if s]
+    logger.info(f"Final ordered scenarios: {ordered_scenarios}")
     return ordered_scenarios
 
 
@@ -425,14 +433,14 @@ def make_violin_plots(plotting_data, run_name):
         # Create clean label based on the actual boosting technology
         if pd.isna(boosting_tech) or boosting_tech is None:
             clean_label = "NoPTES"
-        elif boosting_tech == "hpboost_10Cbottom":
-            clean_label = "Heat pump to 10°C"
-        elif boosting_tech == "hpboost":
-            clean_label = "Heat pump"
         elif boosting_tech == "rhboost":
-            clean_label = "Resistive Heater"
+            clean_label = "Resistive\nboosting"
+        elif boosting_tech == "hpboost":
+            clean_label = "Heat pump\nto 35°C"
+        elif boosting_tech == "hpboost_10Cbottom":
+            clean_label = "Heat pump\nto 10°C"
         elif boosting_tech == "noboost":
-            clean_label = "No Boost"
+            clean_label = "No\nboosting"
         else:
             clean_label = f"Unknown ({boosting_tech})"
 
@@ -536,9 +544,20 @@ def make_violin_plots(plotting_data, run_name):
         elif metric in ["ptes_to_demand_ratio", "ttes_to_demand_ratio"]:
             ax.set_ylim(0, None)  # Let matplotlib choose upper limit for percentages
 
-        # Add vertical lines between temperature groups (every 5 scenarios)
-        for j in range(5, len(ordered_scenarios), 5):
-            ax.axvline(x=j - 0.5, color="gray", linestyle="--", alpha=0.7, linewidth=2)
+        # Add vertical lines between temperature groups based on actual scenario grouping
+        # Calculate group boundaries by finding where temperature changes
+        temp_boundaries = []
+        current_temp = None
+        for idx, scenario in enumerate(ordered_scenarios):
+            scenario_temp = plotting_data_filtered[
+                plotting_data_filtered["scenario"] == scenario
+            ]["supply_temperature"].iloc[0]
+            if current_temp is not None and scenario_temp != current_temp:
+                temp_boundaries.append(idx - 0.5)
+            current_temp = scenario_temp
+
+        for boundary in temp_boundaries:
+            ax.axvline(x=boundary, color="gray", linestyle="--", alpha=0.7, linewidth=2)
 
     # Set x-axis labels only on bottom subplot
     axes[-1].set_xticks(range(len(all_scenario_labels)))
@@ -546,16 +565,36 @@ def make_violin_plots(plotting_data, run_name):
     axes[-1].set_xlabel("Scenarios", fontweight="bold", fontsize=18)
     axes[-1].tick_params(axis="x", labelsize=16)
 
-    # Add temperature group labels at the top
-    temp_positions = [2, 7, 12]  # Middle of each group of 5
-    temp_labels = ["High Temp", "Medium Temp", "Low Temp"]
+    # Add temperature group labels at the top based on actual group sizes
+    temp_groups = {}  # temperature -> [start_idx, end_idx]
+    temp_order = ["HighTemp", "MedTemp", "LowTemp"]
 
-    for pos, temp_label in zip(temp_positions, temp_labels):
-        if pos < len(ordered_scenarios):
+    for temp in temp_order:
+        temp_indices = []
+        for idx, scenario in enumerate(ordered_scenarios):
+            scenario_temp = plotting_data_filtered[
+                plotting_data_filtered["scenario"] == scenario
+            ]["supply_temperature"].iloc[0]
+            if scenario_temp == temp:
+                temp_indices.append(idx)
+        if temp_indices:
+            temp_groups[temp] = [min(temp_indices), max(temp_indices)]
+
+    # Add labels at the center of each temperature group
+    temp_labels = {
+        "HighTemp": "High Temp",
+        "MedTemp": "Medium Temp",
+        "LowTemp": "Low Temp",
+    }
+
+    for temp in temp_order:
+        if temp in temp_groups:
+            start_idx, end_idx = temp_groups[temp]
+            center_pos = (start_idx + end_idx) / 2
             axes[0].text(
-                pos,
+                center_pos,
                 axes[0].get_ylim()[1],
-                temp_label,
+                temp_labels[temp],
                 ha="center",
                 va="bottom",
                 fontweight="bold",
@@ -586,6 +625,7 @@ def main():
 
         from _helpers import mock_snakemake
 
+        os.chdir(Path(__file__).resolve().parents[2])
         snakemake = mock_snakemake(
             "plot_sysgf_violines",
             configfiles=["config/config.sysgf.yaml", "config/scenarios.sysgf.yaml"],

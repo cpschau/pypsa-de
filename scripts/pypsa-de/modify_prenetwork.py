@@ -1600,12 +1600,7 @@ def fix_foreign_investments(
     for component_type in investment_components:
         component, baseline_component = _get_component_pair(n, n_ref, component_type)
 
-        if lines_only:
-            to_fix = component.s_nom_extendable
-        else:
-            to_fix = _identify_non_german_extendable(
-                component, component_type, countries
-            )
+        to_fix = _identify_non_german_extendable(component, component_type, countries)
 
         if not any(to_fix):
             continue
@@ -1624,7 +1619,6 @@ def fix_foreign_investments(
             nom_min,
             nom_max,
             unfix_bottlenecks,
-            lines_only,
         )
 
         logger.info(f"Fixed {sum(to_fix)} {component_type} components outside Germany")
