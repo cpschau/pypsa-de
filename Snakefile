@@ -452,7 +452,9 @@ rule build_egon_data:
 rule prepare_district_heating_subnodes:
     params:
         district_heating=config_provider("sector", "district_heating"),
-        baseyear=config_provider("scenario", "planning_horizons", 0),
+        baseyear=lambda w: baseyear_value(w),
+        energy_totals_year=config_provider("energy", "energy_totals_year"),
+        sector=config_provider("sector"),
     input:
         heating_technologies_nuts3=resources("heating_technologies_nuts3.geojson"),
         regions_onshore=resources("regions_onshore_base_s_{clusters}.geojson"),
@@ -473,6 +475,19 @@ rule prepare_district_heating_subnodes:
             keep_local=True,
         ),
         dh_areas="data/dh_areas.gpkg",
+        industrial_demand=lambda w: resources(
+            f"industrial_energy_demand_base_s_{{clusters}}_{baseyear_value(w)}.csv"
+        ),
+        hourly_heat_demand_total=resources(
+            "hourly_heat_demand_total_base_s_{clusters}.nc"
+        ),
+        district_heat_share=lambda w: resources(
+            f"district_heat_share_base_s_{{clusters}}_{baseyear_value(w)}-modified.csv"
+        ),
+        pop_weighted_energy_totals=lambda w: resources(
+            f"pop_weighted_energy_totals_s_{{clusters}}.csv"
+        ),
+        heating_efficiencies=resources("heating_efficiencies.csv"),
     output:
         district_heating_subnodes=resources(
             "district_heating_subnodes_base_s_{clusters}.geojson"
@@ -493,7 +508,7 @@ rule prepare_district_heating_subnodes:
 
 
 def baseyear_value(wildcards):
-    return config_provider("scenario", "planning_horizons", 0)(wildcards)
+    return 2020
 
 
 rule add_district_heating_subnodes:
@@ -525,8 +540,8 @@ rule add_district_heating_subnodes:
         direct_heat_source_utilisation_profiles=resources(
             "direct_heat_source_utilisation_profiles_base_s_{clusters}_{planning_horizons}.nc"
         ),
-        existing_heating_distribution=lambda w: resources(
-            f"existing_heating_distribution_base_s_{{clusters}}_{baseyear_value(w)}.csv"
+        existing_heating_distribution=resources(
+            "existing_heating_distribution_base_s_{clusters}_{planning_horizons}.csv"
         ),
         lau_regions="data/lau_regions.zip",
     output:
@@ -1029,6 +1044,32 @@ rule ariadne_report_only:
             RESULTS + "ariadne/report/elec_price_duration_curve.pdf",
             run=config_provider("run", "name"),
         ),
+rule plot_sysgf_violines:
+    params:
+        plotting=config_provider("plotting"),
+        run=config_provider("run", "prefix"),
+        scenarios=config_provider("run", "name"),
+        reference_scenario=config_provider("plotting", "sensitivities", "reference"),
+        sensitivity_runs=config_provider("plotting", "sensitivities", "runs"),
+        planning_horizons=config_provider("scenario", "planning_horizons"),
+    input:
+        # We don't need explicit network inputs as the script will find them based on the run name
+        # This is a dependency to make sure all networks are solved before plotting
+        networks=expand(
+            RESULTS
+            + "networks/base_s_{clusters}_{opts}_{sector_opts}_{planning_horizons}.nc",
+            run=config["run"]["name"],
+            **config["scenario"],
+            allow_missing=False,
+        ),
+    output:
+        sysgf_violines="results/" + config["run"]["prefix"] + "/sysgf/violin_plots_district_heating.pdf",
+    resources:
+        mem_mb=70000,
+    log:
+        "results/" + config["run"]["prefix"] + "/sysgf/logs/plot_sysgf_violines.log",
+    script:
+        "scripts/pypsa-de/plot_sysgf_violines.py"
 
 rule plot_sysgf_summary:
     params:

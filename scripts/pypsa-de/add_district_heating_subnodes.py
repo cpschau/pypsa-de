@@ -103,60 +103,24 @@ def add_loads(
     -------
     None
     """
-    # Get heat loads for urban central heat and low-temperature heat for industry
-    urban_central_heat_load_cluster = (
-        n_copy.snapshot_weightings.generators
-        @ n_copy.loads_t.p_set[f"{subnode['cluster']} urban central heat"]
-    )
-    low_temperature_heat_for_industry_load_cluster = (
-        n_copy.loads.loc[
-            f"{subnode['cluster']} low-temperature heat for industry", "p_set"
-        ]
-        * 8760
-    )
 
-    # Calculate share of low-temperature heat for industry in total district heating load of cluster
-    dh_load_cluster = (
-        urban_central_heat_load_cluster + low_temperature_heat_for_industry_load_cluster
+    urban_central_heat_load = subnode[
+        "fraction_mother_node"
+    ] * n_copy.loads_t.p_set.filter(
+        regex=f"{subnode['cluster']}.*urban central heat"
+    ).sum(
+        1
+    ).rename(
+        f"{subnode['cluster']} {subnode['Stadt']} urban central heat"
     )
 
-    dh_load_cluster_subnodes = subnodes_head.loc[
-        subnodes_head.cluster == subnode["cluster"], "yearly_heat_demand_MWh"
-    ].sum()
-    lost_load = dh_load_cluster_subnodes - dh_load_cluster
-
-    # District heating demand from Fernwärmeatlas exceeding the original cluster load is disregarded. The shares of the subsystems are set according to Fernwärmeatlas, while the aggregate load of cluster is preserved.
-    if lost_load > 0:
-        logger.warning(
-            f"Aggregated district heating load of systems within {subnode['cluster']} exceeds load of cluster."
-        )
-        demand_ratio = subnode["yearly_heat_demand_MWh"] / dh_load_cluster_subnodes
-
-        urban_central_heat_load = demand_ratio * n_copy.loads_t.p_set.filter(
-            regex=f"{subnode['cluster']}.*urban central heat"
-        ).sum(1).rename(f"{subnode['cluster']} {subnode['Stadt']} urban central heat")
-
-        low_temperature_heat_for_industry_load = (
-            demand_ratio
-            * n_copy.loads.filter(
-                regex=f"{subnode['cluster']}.*low-temperature heat for industry",
-                axis=0,
-            )["p_set"].sum()
-        )
-    else:
-        # Calculate demand ratio between load of subnode according to Fernwärmeatlas and remaining load of assigned cluster
-        demand_ratio = subnode["yearly_heat_demand_MWh"] / dh_load_cluster
-
-        urban_central_heat_load = demand_ratio * n_copy.loads_t.p_set[
-            f"{subnode['cluster']} urban central heat"
-        ].rename(f"{subnode['cluster']} {subnode['Stadt']} urban central heat")
-
-        low_temperature_heat_for_industry_load = (
-            demand_ratio
-            * n_copy.loads.loc[
-                f"{subnode['cluster']} low-temperature heat for industry", "p_set"
-            ]
-        )
+    low_temperature_heat_for_industry_load = (
+        subnode["fraction_mother_node"]
+        * n_copy.loads.filter(
+            regex=f"{subnode['cluster']}.*low-temperature heat for industry",
+            axis=0,
+        )["p_set"].sum()
+    )
 
     # Add load components to subnode preserving the share of low-temperature heat for industry of the cluster
     n.add(
@@ -183,15 +147,6 @@ def add_loads(
     n.loads.loc[
         f"{subnode['cluster']} low-temperature heat for industry", "p_set"
     ] -= low_temperature_heat_for_industry_load
-
-    if lost_load > 0:
-        lost_load_subnode = subnode["yearly_heat_demand_MWh"] - (
-            n.snapshot_weightings.generators @ urban_central_heat_load
-            + low_temperature_heat_for_industry_load * 8760
-        )
-        logger.warning(
-            f"District heating load of {subnode['cluster']} {subnode['Stadt']} is reduced by {lost_load_subnode} MWh/a."
-        )
 
 
 def add_stores(

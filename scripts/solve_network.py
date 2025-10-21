@@ -1064,6 +1064,11 @@ def add_discharger_temperature_boosting_constraints(
     )
 
     lhs = None
+    if len(ptes_booster_technologies) == 0:
+        logger.info(
+            "PTES discharger boosting constraint activated with empty set of boosting technologies. Discharge will be prevented at times of T_ff > T_top."
+        )
+        n.model.add_constraints(0 == rhs, name="ptes_discharger_temperature_boosting")
     for tech in ptes_booster_technologies:
         booster_technologies_links = n.links.index[
             n.links.index.str.contains("urban central")
@@ -1091,7 +1096,6 @@ def add_discharger_temperature_boosting_constraints(
             .rename(columns=booster_node_to_link)
             .reindex(columns=booster_technologies_links)
         )
-
         if "ptes" in ptes_booster_technologies:
             cop_booster = (
                 cop.sel(heat_system="urban central", heat_source="ptes")

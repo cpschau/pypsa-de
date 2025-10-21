@@ -32,6 +32,7 @@ class PtesTemperatureApproximator:
         min_ptes_bottom_temperature: float,
         charger_temperature_boosting_required: bool,
         booster_technologies: list = [],
+        scale_capacity: bool = True,
         dynamic_capacity: bool = True,
     ):
         """
@@ -58,6 +59,7 @@ class PtesTemperatureApproximator:
             charger_temperature_boosting_required
         )
         self.booster_technologies = booster_technologies
+        self.scale_capacity = scale_capacity
         self.dynamic_capacity = dynamic_capacity
 
     @property
@@ -84,7 +86,7 @@ class PtesTemperatureApproximator:
         xr.DataArray
             The resulting bottom temperature profile for PTES.
         """
-        if "ptes" in self.booster_technologies:
+        if "ptes" in self.booster_technologies or self.scale_capacity == False:
             return self.min_ptes_bottom_temperature
         else:
             return self.return_temperature.clip(min=self.min_ptes_bottom_temperature)

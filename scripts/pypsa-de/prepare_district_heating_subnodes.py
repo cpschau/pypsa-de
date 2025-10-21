@@ -25,6 +25,8 @@ from scripts._helpers import (
     set_scenario_config,
     update_config_from_wildcards,
 )
+from scripts.prepare_sector_network import build_heat_demand
+from scripts.definitions.heat_system import HeatSystem
 
 logger = logging.getLogger(__name__)
 
@@ -282,6 +284,213 @@ def prepare_subnodes(
 
     # Make point_coords wkt
     subnodes["point_coords"] = subnodes["point_coords"].apply(lambda x: x.wkt)
+
+    return subnodes
+
+
+def scale_subnodal_demand(
+    subnodes: gpd.GeoDataFrame,
+    industry_demand_path: str,
+    hh_services_demand_path: str,
+    district_heating_share_path: str,
+    nlargest: int,
+    pop_weighted_energy_totals: pd.DataFrame,
+    heating_efficiencies: pd.DataFrame,
+    urban_fraction: pd.Series,
+    dist_fraction: pd.Series,
+    losses: float,
+    reduce_space_heating_demand: bool = False,
+    reduce_space_heating_demand_factors: dict[int, float] = {},
+    baseyear: int = 2020,
+) -> gpd.GeoDataFrame:
+    """
+    Scale subnodal demands to maintain the ratio between subnodal demand and
+    mother node demand from the baseyear.
+
+    Parameters
+    ----------
+    subnodes : gpd.GeoDataFrame
+        GeoDataFrame containing the subnodes with yearly_heat_demand_MWh and cluster columns.
+    industry_demand_path : str
+        Path to the industrial demand data CSV file.
+    hh_services_demand_path : str
+        Path to the household services demand data CSV file.
+    district_heating_share_path : str
+        Path to the district heating share data CSV file.
+    nlargest : int
+        Number of largest subnodes to consider for finding mother nodes.
+    pop_weighted_energy_totals : pd.DataFrame
+        Population-weighted energy totals for baseyear heat demand calculation.
+    heating_efficiencies : pd.DataFrame
+        Heating efficiencies for baseyear heat demand calculation.
+    urban_fraction : pd.Series
+        Urban fraction for heat demand weighting.
+    dist_fraction : pd.Series
+        District heating fraction for heat demand weighting.
+    losses : float
+        District heating losses for heat demand calculation.
+    reduce_space_heating_demand : bool, optional
+        Whether to reduce space heating demand based on planning horizon.
+    planning_horizon : int, optional
+        Planning horizon year for demand reduction.
+    Returns
+    -------
+    gpd.GeoDataFrame
+        GeoDataFrame containing subnodes with added fraction_mother_node column.
+    """
+
+    # 1. Find mother nodes from the head of subnodes sorted by yearly_heat_demand_MWh
+    head_subnodes = subnodes.nlargest(nlargest, "yearly_heat_demand_MWh")
+    # mother_nodes = pd.Index(subnodes["cluster"].unique())
+    mother_nodes = pd.Index(subnodes["cluster"].unique())
+
+    logger.info(f"Identified {len(mother_nodes)} mother nodes: {list(mother_nodes)}")
+
+    urban_central_system = HeatSystem.URBAN_CENTRAL
+
+    # Calculate heat demand weighting factor for urban central system
+    factor = urban_central_system.heat_demand_weighting(
+        urban_fraction=urban_fraction[mother_nodes],
+        dist_fraction=dist_fraction[mother_nodes],
+    )
+
+    # Build heat demand for residential and services sectors
+    sectors = ["residential", "services"]
+    uses = ["water", "space"]
+
+    total_hh_services_demand = pd.Series(index=mother_nodes, dtype=float).fillna(0.0)
+
+    for sector in sectors:
+        for use in uses:
+            name = f"{sector} {use}"
+
+            # Get efficiency for final energy to thermal energy service
+            eff = pd.Series(index=mother_nodes, dtype=float)
+            efficiency_column = f"total {sector} {use} efficiency"
+
+            for node in mother_nodes:
+                country_code = node[:2]  # Assuming node format like "DE01"
+                if country_code in heating_efficiencies.index:
+                    eff[node] = heating_efficiencies.loc[
+                        country_code, efficiency_column
+                    ]
+                else:
+                    logger.warning(
+                        f"Country code {country_code} not found in heating_efficiencies, using default 0.85"
+                    )
+                    eff[node] = 0.85
+
+            # Calculate heat demand for this sector/use combination
+            demand_column = f"total {sector} {use}"
+
+            # Get available nodes that exist in both mother_nodes and pop_weighted_energy_totals
+            available_nodes = mother_nodes.intersection(
+                pop_weighted_energy_totals.index
+            )
+
+            if len(available_nodes) > 0:
+                demand_component = (
+                    pop_weighted_energy_totals.loc[available_nodes, demand_column]
+                    * eff[available_nodes]
+                    * 1e6
+                )
+            if reduce_space_heating_demand and use == "space":
+                dE = reduce_space_heating_demand_factors.get(planning_horizon, 0.0)
+                logger.info(f"Assumed space heat reduction of {dE:.2%}")
+                demand_component[node] = (1 - dE) * demand_component[node]
+
+                # Add demand for available nodes
+                for node in available_nodes:
+                    if node in total_hh_services_demand.index:
+                        total_hh_services_demand[node] += (
+                            demand_component[node] * factor[node] * (1 + losses)
+                        )
+                    else:
+                        total_hh_services_demand = pd.concat(
+                            [
+                                total_hh_services_demand,
+                                pd.Series(
+                                    {
+                                        node: demand_component[node]
+                                        * factor[node]
+                                        * (1 + losses)
+                                    }
+                                ),
+                            ]
+                        )
+
+            # Log missing nodes
+            missing_nodes = mother_nodes.difference(pop_weighted_energy_totals.index)
+            if len(missing_nodes) > 0:
+                logger.warning(
+                    f"Mother nodes {list(missing_nodes)} not found in pop_weighted_energy_totals for {demand_column}"
+                )
+
+    logger.info(
+        f"Calculated HH/services district heating demand for mother nodes: {total_hh_services_demand.sum():.1f} MWh"
+    )
+
+    # 3. Build baseyear district heat demands for low-temperature industry heat
+    industrial_demand = pd.read_csv(industry_demand_path, index_col=0) * 1e6
+
+    # Get low-temperature heat demand for industry in mother nodes
+    available_mother_nodes = mother_nodes.intersection(industrial_demand.index)
+    lt_industry_demand = pd.Series(index=mother_nodes, dtype=float).fillna(0.0)
+
+    if len(available_mother_nodes) > 0:
+        lt_industry_demand[available_mother_nodes] = industrial_demand.loc[
+            available_mother_nodes, "low-temperature heat"
+        ].fillna(0.0)
+
+    # Log missing nodes for industrial demand
+    missing_nodes = mother_nodes.difference(industrial_demand.index)
+    if len(missing_nodes) > 0:
+        logger.warning(
+            f"Mother nodes {list(missing_nodes)} not found in industrial demand data"
+        )
+
+    logger.info(
+        f"Industrial LT heat demand for mother nodes: {lt_industry_demand.sum():.1f} MWh"
+    )
+
+    # 4. Sum district heating demands of HH, services, and industry for each mother node
+    total_mother_node_demand = total_hh_services_demand + lt_industry_demand
+
+    logger.info(f"Total district heating demand by mother node:")
+    for node in mother_nodes:
+        logger.info(f"  {node}: {total_mother_node_demand[node]:.1f} MWh")
+
+    # 5. Calculate fraction of subnodal yearly_heat_demand_MWh relative to mother node demand
+    subnodes = subnodes.copy()
+    subnodes["fraction_mother_node"] = 0.0
+
+    for idx, subnode in head_subnodes.iterrows():
+        cluster = subnode["cluster"]
+        if (
+            cluster in total_mother_node_demand.index
+            and total_mother_node_demand[cluster] > 0
+        ):
+            subnodes.loc[idx, "fraction_mother_node"] = (
+                subnode["yearly_heat_demand_MWh"] / total_mother_node_demand[cluster]
+            )
+        else:
+            logger.warning(f"Mother node {cluster} not found or has zero demand")
+            subnodes.loc[idx, "fraction_mother_node"] = 0.0
+    # Where fractions of subnodes exceed 1, normalize them
+    cluster_sums = subnodes.groupby("cluster")["fraction_mother_node"].sum()
+    for cluster, total_fraction in cluster_sums[cluster_sums > 1].items():
+        cluster_mask = subnodes["cluster"] == cluster
+        subnodes.loc[cluster_mask, "fraction_mother_node"] /= total_fraction
+        subnodal_loss = (total_fraction - 1) * subnodes.loc[
+            cluster_mask, "yearly_heat_demand_MWh"
+        ].sum()
+        logger.warning(
+            f"Normalized fractions for cluster {cluster} as total fraction exceeded 1 ({total_fraction:.3f})"
+        )
+        logger.warning(f"Lost demand amounts to {subnodal_loss / 1e6} TWh in baseyear")
+
+    logger.info(f"Calculated fraction_mother_node for {len(subnodes)} subnodes")
+    logger.info(f"Sum of all fractions: {subnodes['fraction_mother_node'].sum():.3f}")
 
     return subnodes
 
@@ -785,12 +994,54 @@ if __name__ == "__main__":
     with zipfile.ZipFile(snakemake.input.census, "r") as z:
         census = load_census_data(z.open("Zensus2022_Heizungsart_100m-Gitter.csv"))
 
+    industry_demand_path = snakemake.input.industrial_demand
+    hh_services_demand_path = snakemake.input.hourly_heat_demand_total
+    district_heating_share_path = snakemake.input.district_heat_share
+
     subnodes = prepare_subnodes(
         subnodes=fernwaermeatlas,
         cities=cities,
         regions_onshore=regions_onshore,
         lau=lau,
         heat_techs=heat_techs,
+    )
+
+    # Load additional data required for scaling subnodal demand
+    # Load population weighted energy totals and heating efficiencies from snakemake inputs
+    pop_weighted_energy_totals = pd.read_csv(
+        snakemake.input.pop_weighted_energy_totals, index_col=0
+    )
+    year = int(snakemake.params["energy_totals_year"])
+    heating_efficiencies = pd.read_csv(
+        snakemake.input.heating_efficiencies, index_col=[1, 0]
+    ).loc[year]
+
+    # Load district heating share to get urban and dist fractions
+    district_heating_share = pd.read_csv(district_heating_share_path, index_col=0)
+
+    # Calculate urban fraction and district heating fraction
+    # These come from the district heating share file prepared by the sector pipeline
+    urban_fraction = district_heating_share["urban fraction"]
+    dist_fraction = district_heating_share["district fraction of node"]
+
+    subnodes = scale_subnodal_demand(
+        subnodes=subnodes,
+        industry_demand_path=industry_demand_path,
+        hh_services_demand_path=hh_services_demand_path,
+        district_heating_share_path=district_heating_share_path,
+        nlargest=snakemake.params.district_heating["subnodes"]["nlargest"],
+        pop_weighted_energy_totals=pop_weighted_energy_totals,
+        heating_efficiencies=heating_efficiencies,
+        urban_fraction=urban_fraction,
+        dist_fraction=dist_fraction,
+        losses=snakemake.params.district_heating["district_heating_loss"],
+        reduce_space_heating_demand=snakemake.params.sector[
+            "reduce_space_heat_exogenously"
+        ],
+        reduce_space_heating_demand_factors=snakemake.params.sector.get(
+            "reduce_space_heat_exogenously_factor", {}
+        ),
+        baseyear=snakemake.params.baseyear,
     )
 
     if snakemake.params.district_heating["subnodes"]["census_areas"]["enable"]:
