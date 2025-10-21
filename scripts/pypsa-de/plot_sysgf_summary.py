@@ -37,6 +37,33 @@ import os
 sys.path.append(os.path.join(os.getcwd(), "code", "pypsa-de"))
 from scripts._helpers import configure_logging, mock_snakemake
 
+# Import temporal heat balance functions
+# import importlib.util
+
+# spec = importlib.util.spec_from_file_location(
+#     "plot_temporal_heat_balance",
+#     os.path.join(
+#         os.getcwd(),
+#         "code",
+#         "pypsa-de",
+#         "scripts",
+#         "pypsa-de",
+#         "plot_temporal_heat_balance.py",
+#     ),
+# )
+# plot_temporal_module = importlib.util.module_from_spec(spec)
+# spec.loader.exec_module(plot_temporal_module)
+
+# plot_seasonal_heat_balance_unified = (
+#     plot_temporal_module.plot_seasonal_heat_balance_unified
+# )
+# plot_seasonal_heat_balance_with_prices = (
+#     plot_temporal_module.plot_seasonal_heat_balance_with_prices
+# )
+# plot_seasonal_heat_balance_with_temperature = (
+#     plot_temporal_module.plot_seasonal_heat_balance_with_temperature
+# )
+
 logger = logging.getLogger(__name__)
 
 
@@ -292,38 +319,56 @@ def calc_system_costs_country(n, country):
     return system_costs_country + ic_costs_correction
 
 
+# def calculate_district_heating_costs(n: pypsa.Network) -> float:
+#     district_heating_carriers = np.array([])
+#     for c in n.iterate_components():
+#         if c.name in ["Store", "Link", "Generator"]:
+#             # Filter rows where any column contains "urban central"
+#             district_heating_carriers = np.append(
+#                 district_heating_carriers,
+#                 c.df[
+#                     c.df.apply(
+#                         lambda x: x.astype(str)
+#                         .str.contains("urban central", case=False)
+#                         .any(),
+#                         axis=1,
+#                     )
+#                 ].carrier.unique(),
+#             )
+
+#     capex = n.statistics.capex(
+#         groupby=["bus", "carrier", "bus_carrier"], nice_names=False
+#     ).filter(like="DE0 ")
+#     opex = n.statistics.opex(
+#         groupby=["bus", "carrier", "bus_carrier"], nice_names=False
+#     ).filter(like="DE0 ")
+
+#     capex_dh = capex[
+#         capex.index.get_level_values("carrier").isin(district_heating_carriers)
+#     ]
+#     opex_dh = opex[
+#         opex.index.get_level_values("carrier").isin(district_heating_carriers)
+#     ]
+
+#     return capex_dh.sum() + opex_dh.sum()
+
+
 def calculate_district_heating_costs(n: pypsa.Network) -> float:
-    district_heating_carriers = np.array([])
-    for c in n.iterate_components():
-        if c.name in ["Store", "Link", "Generator"]:
-            # Filter rows where any column contains "urban central"
-            district_heating_carriers = np.append(
-                district_heating_carriers,
-                c.df[
-                    c.df.apply(
-                        lambda x: x.astype(str)
-                        .str.contains("urban central", case=False)
-                        .any(),
-                        axis=1,
-                    )
-                ].carrier.unique(),
-            )
+    dh_mp = n.buses_t.marginal_price.filter(regex=r"DE0.*urban central heat")
+    dh_loads = n.loads_t.p.filter(regex=r"DE\d.*(urban central|low-temperature) heat")
+    dac_load = n.links_t.p1.filter(regex=r"DE0.*DAC")
+    all_loads = pd.concat([dh_loads, dac_load], axis=1).fillna(0)
+    # Replace all the words following central with " heat" in the column names
+    all_loads.columns = all_loads.columns.str.replace(
+        r"central.*", "central heat", regex=True
+    )
+    # Aggregate columns with same name
+    all_loads = all_loads.T.groupby(level=0).sum().T
 
-    capex = n.statistics.capex(
-        groupby=["bus", "carrier", "bus_carrier"], nice_names=False
-    ).filter(like="DE0 ")
-    opex = n.statistics.opex(
-        groupby=["bus", "carrier", "bus_carrier"], nice_names=False
-    ).filter(like="DE0 ")
+    # Calculate dh consumer costs
+    dh_consumer_costs = (dh_mp * all_loads).sum().sum()
 
-    capex_dh = capex[
-        capex.index.get_level_values("carrier").isin(district_heating_carriers)
-    ]
-    opex_dh = opex[
-        opex.index.get_level_values("carrier").isin(district_heating_carriers)
-    ]
-
-    return capex_dh.sum() + opex_dh.sum()
+    return dh_consumer_costs
 
 
 def calc_h2_store_capacity(n):
@@ -511,8 +556,6 @@ def create_summary_df(networks):
             "RSHP_cf",
             "GSHP_cf",
             "booster_hp_cf",
-            "relative_curtailment",
-            "heat_venting_TWh",
             "vRES_capacity_GW",
             "CHP_capacity_GW",
             "resistive_heater_GW",
@@ -982,399 +1025,6 @@ def plot_heat_balance_unified(
         return legend_handles_labels
 
 
-def plot_seasonal_heat_balance_unified(
-    network_A,
-    network_B,
-    scenario_A,
-    scenario_B,
-    colors,
-    output_path,
-    year,
-    secondary_type="prices",  # "prices" or "temperature_delta"
-):
-    """
-    Unified function to plot seasonal heat balance comparison with either prices or temperature delta.
-
-    Parameters:
-    -----------
-    secondary_type : str
-        Either "prices" or "temperature_delta" to determine secondary axis data
-    """
-    if secondary_type == "prices":
-        logger.info(
-            f"Generating seasonal heat balance comparison with prices for {scenario_A} vs {scenario_B}"
-        )
-    else:
-        logger.info(
-            f"Generating seasonal heat balance comparison with temperature delta for {scenario_A} vs {scenario_B}"
-        )
-
-    fig, axes = plt.subplots(2, 2, figsize=(8, 6), constrained_layout=True)
-    # Increase padding around axes
-    fig.get_layout_engine().set(w_pad=0.2)
-
-    try:
-        # Calculate heat balance for both networks
-        eb_baseline = calculate_heat_balance(network_B, "urban central heat")
-        eb_noptes = calculate_heat_balance(network_A, "urban central heat")
-
-        # Define seasonal dates
-        if secondary_type == "prices":
-            summer_start, summer_end = (
-                f"{network_A.snapshots.year[0]}-07-01",
-                f"{network_A.snapshots.year[0]}-09-30",
-            )
-            winter_start, winter_end = (
-                f"{network_A.snapshots.year[0]}-01-01",
-                f"{network_A.snapshots.year[0]}-03-28",
-            )
-        else:
-            summer_start, summer_end = (
-                f"{network_A.snapshots.year[0]}-07-01",
-                f"{network_A.snapshots.year[0]}-08-31",
-            )
-            winter_start, winter_end = (
-                f"{network_A.snapshots.year[0]}-01-01",
-                f"{network_A.snapshots.year[0]}-02-28",
-            )
-
-        # Process data for each season and scenario
-        summer_data_baseline = process_seasonal_data(
-            eb_baseline, summer_start, summer_end
-        )
-        winter_data_baseline = process_seasonal_data(
-            eb_baseline, winter_start, winter_end
-        )
-        summer_data_noptes = process_seasonal_data(eb_noptes, summer_start, summer_end)
-        winter_data_noptes = process_seasonal_data(eb_noptes, winter_start, winter_end)
-
-        # Get secondary data based on type
-        if secondary_type == "prices":
-            summer_secondary_baseline = calc_average_electricity_price_t_ordered(
-                network_B
-            ).loc[summer_start:summer_end]
-            winter_secondary_baseline = calc_average_electricity_price_t_ordered(
-                network_B
-            ).loc[winter_start:winter_end]
-            summer_secondary_noptes = calc_average_electricity_price_t_ordered(
-                network_A
-            ).loc[summer_start:summer_end]
-            winter_secondary_noptes = calc_average_electricity_price_t_ordered(
-                network_A
-            ).loc[winter_start:winter_end]
-        else:
-            # Temperature delta data
-            ff_temp_B = xr.open_dataarray(
-                f"resources/{snakemake.params.run}/{scenario_B}/central_heating_forward_temperature_profiles_base_s_49_2045.nc"
-            )
-            delta_baseline = (
-                get_delta_ff_top(ff_temp_B)
-                .to_pandas()
-                .filter(like="DE0")
-                .min(1)
-                .loc[network_B.snapshots]
-            )
-            summer_secondary_baseline = delta_baseline.loc[summer_start:summer_end]
-            winter_secondary_baseline = delta_baseline.loc[winter_start:winter_end]
-
-            ff_temp_A = xr.open_dataarray(
-                f"resources/{snakemake.params.run}/{scenario_A}/central_heating_forward_temperature_profiles_base_s_49_2045.nc"
-            )
-            delta_noptes = (
-                get_delta_ff_top(ff_temp_A)
-                .to_pandas()
-                .filter(like="DE0")
-                .min(1)
-                .loc[network_A.snapshots]
-            )
-            summer_secondary_noptes = delta_noptes.loc[summer_start:summer_end]
-            winter_secondary_noptes = delta_noptes.loc[winter_start:winter_end]
-
-        # Calculate ylim to standardize across plots
-        try:
-            ylim_winter = (
-                winter_data_baseline.clip(lower=0).sum(1).max()
-                * pd.Series([1, -1], index=["load", "generation"])
-                * 1e-3
-            )
-            ylim_summer = (
-                summer_data_baseline.clip(lower=0).sum(1).max()
-                * pd.Series([1, -1], index=["load", "generation"])
-                * 1e-3
-            )
-            ylim = pd.concat([ylim_winter, ylim_summer]).abs().max()
-            ylim = ylim * pd.Series([-1.1, 1.1], index=["load", "generation"])
-        except:
-            ylim = None
-
-        line_collections = []
-
-        # Plot each subplot using unified function
-        if secondary_type == "temperature_delta":
-            (handles0, labels0), lc0 = plot_heat_balance_unified(
-                axes[0, 1],
-                summer_data_baseline,
-                summer_secondary_baseline,
-                f"{scenario_B} - Summer Month",
-                summer_start,
-                summer_end,
-                colors,
-                ylim,
-                scenario_A,
-                scenario_B,
-                secondary_type,
-            )
-            line_collections.append(lc0)
-
-            (handles1, labels1), lc1 = plot_heat_balance_unified(
-                axes[1, 1],
-                winter_data_baseline,
-                winter_secondary_baseline,
-                f"{scenario_B} - Winter Month",
-                winter_start,
-                winter_end,
-                colors,
-                ylim,
-                scenario_A,
-                scenario_B,
-                secondary_type,
-            )
-            line_collections.append(lc1)
-
-            (handles2, labels2), lc2 = plot_heat_balance_unified(
-                axes[0, 0],
-                summer_data_noptes,
-                summer_secondary_noptes,
-                f"{scenario_A} - Summer Week",
-                summer_start,
-                summer_end,
-                colors,
-                ylim,
-                scenario_A,
-                scenario_B,
-                secondary_type,
-            )
-            line_collections.append(lc2)
-
-            (handles3, labels3), lc3 = plot_heat_balance_unified(
-                axes[1, 0],
-                winter_data_noptes,
-                winter_secondary_noptes,
-                f"{scenario_A} - Winter Week",
-                winter_start,
-                winter_end,
-                colors,
-                ylim,
-                scenario_A,
-                scenario_B,
-                secondary_type,
-            )
-            line_collections.append(lc3)
-        else:
-            handles0, labels0 = plot_heat_balance_unified(
-                axes[0, 1],
-                summer_data_baseline,
-                summer_secondary_baseline,
-                f"{scenario_B} - Summer Month",
-                summer_start,
-                summer_end,
-                colors,
-                ylim,
-                scenario_A,
-                scenario_B,
-                secondary_type,
-            )
-            handles1, labels1 = plot_heat_balance_unified(
-                axes[1, 1],
-                winter_data_baseline,
-                winter_secondary_baseline,
-                f"{scenario_B} - Winter Month",
-                winter_start,
-                winter_end,
-                colors,
-                ylim,
-                scenario_A,
-                scenario_B,
-                secondary_type,
-            )
-            handles2, labels2 = plot_heat_balance_unified(
-                axes[0, 0],
-                summer_data_noptes,
-                summer_secondary_noptes,
-                f"{scenario_A} - Summer Week",
-                summer_start,
-                summer_end,
-                colors,
-                ylim,
-                scenario_A,
-                scenario_B,
-                secondary_type,
-            )
-            handles3, labels3 = plot_heat_balance_unified(
-                axes[1, 0],
-                winter_data_noptes,
-                winter_secondary_noptes,
-                f"{scenario_A} - Winter Week",
-                winter_start,
-                winter_end,
-                colors,
-                ylim,
-                scenario_A,
-                scenario_B,
-                secondary_type,
-            )
-
-        # Handle colorbar for temperature delta
-        if secondary_type == "temperature_delta":
-            # Find the first valid LineCollection
-            valid_lc = next((lc for lc in line_collections if lc is not None), None)
-
-            if valid_lc is not None:
-                # Create space for the colorbar at the bottom
-                fig.subplots_adjust(bottom=0.15)
-
-                # Create colorbar axes at the bottom of the entire figure
-                cbar_ax = fig.add_axes(
-                    [0.15, -0.1, 0.7, 0.02]
-                )  # [left, bottom, width, height]
-
-                # Create the single colorbar
-                colorbar = fig.colorbar(valid_lc, cax=cbar_ax, orientation="horizontal")
-                colorbar.set_label("DeltaT [K]", fontsize=12)
-
-        # Combine handles and labels while preserving order
-        handles = handles0 + handles1 + handles2 + handles3
-        labels = labels0 + labels1 + labels2 + labels3
-
-        # Clean up labels
-        labels = [
-            label.replace(" discharger", "").replace(" charger", "") for label in labels
-        ]
-
-        # Create a dictionary to map labels to handles
-        label_handle_dict = {label: handle for handle, label in zip(handles, labels)}
-
-        # Get unique labels while preserving order
-        unique_labels = []
-        for label in labels:
-            if label not in unique_labels:
-                unique_labels.append(label)
-
-        # Remap unique labels to handles
-        unique_handles = [label_handle_dict[label] for label in unique_labels]
-
-        # Replace urban central with district heating in labels
-        unique_labels = [
-            label.replace(
-                "urban central heat load", "heat for residential and services load"
-            ).replace("urban central ", "")
-            for label in unique_labels
-        ]
-
-        # Replace Generation and Load with empty string
-        unique_labels = [
-            label.replace(" generation", "")
-            .replace(" load", "")
-            .replace("water pits", "PTES")
-            .replace("water tanks", "TTES")
-            for label in unique_labels
-        ]
-
-        # Drop labels and corresponding handles that appear more than once
-        seen = set()
-        filtered_pairs = []
-        for label, handle in zip(unique_labels, unique_handles):
-            if label not in seen:
-                seen.add(label)
-                filtered_pairs.append((label, handle))
-
-        if filtered_pairs:  # Make sure we have something to unzip
-            unique_labels, unique_handles = zip(*filtered_pairs)
-
-            # Create a legend
-            fig.legend(
-                unique_handles,
-                unique_labels,
-                bbox_to_anchor=(0.5, 1.12),
-                loc="center",
-                frameon=False,
-                title="Technology",
-                title_fontsize=12,
-                ncol=3,
-                fontsize=12,
-            )
-
-        # Save figure with appropriate filename
-        if secondary_type == "prices":
-            filename = f"heat_balance_comparison_with_prices_{scenario_A}_{scenario_B}_{year}.pdf"
-        else:
-            filename = (
-                f"heat_balance_comparison_ffT_{scenario_A}_{scenario_B}_{year}.pdf"
-            )
-
-        fig.savefig(
-            os.path.join(output_path, filename),
-            bbox_inches="tight",
-            pad_inches=0.1,
-        )
-
-        plt.close(fig)  # Close figure to free memory
-        logger.info(f"Seasonal heat balance comparison saved to {output_path}")
-
-    except Exception as e:
-        logger.error(f"Error generating seasonal heat balance plot: {e}")
-        plt.close(fig)  # Close figure even if there was an error
-
-
-# Wrapper functions for backward compatibility
-def plot_seasonal_heat_balance_with_prices(
-    network_A, network_B, scenario_A, scenario_B, colors, output_path, year
-):
-    """Plot seasonal heat balance comparison with electricity prices."""
-    return plot_seasonal_heat_balance_unified(
-        network_A,
-        network_B,
-        scenario_A,
-        scenario_B,
-        colors,
-        output_path,
-        year,
-        "prices",
-    )
-
-
-def plot_seasonal_heat_balance(
-    network_A, network_B, scenario_A, scenario_B, colors, output_path, year
-):
-    """Plot seasonal heat balance comparison with temperature delta."""
-    return plot_seasonal_heat_balance_unified(
-        network_A,
-        network_B,
-        scenario_A,
-        scenario_B,
-        colors,
-        output_path,
-        year,
-        "temperature_delta",
-    )
-
-
-def plot_seasonal_heat_balance(
-    network_A, network_B, scenario_A, scenario_B, colors, output_path, year
-):
-    """Plot seasonal heat balance comparison with temperature delta."""
-    return plot_seasonal_heat_balance_unified(
-        network_A,
-        network_B,
-        scenario_A,
-        scenario_B,
-        colors,
-        output_path,
-        year,
-        "temperature_delta",
-    )
-
-
 def plot_dual_comparison(
     networks,
     costs_agg,
@@ -1555,7 +1205,7 @@ def plot_dual_comparison(
                 balance_output_path = (
                     energy_balances_path if energy_balances_path else output_path
                 )
-                plot_seasonal_heat_balance(
+                plot_seasonal_heat_balance_with_temperature(
                     networks[scenario_A][year],
                     networks[scenario_B][year],
                     scenario_A,
@@ -1563,6 +1213,7 @@ def plot_dual_comparison(
                     colors,
                     balance_output_path,
                     year,
+                    snakemake.params.run,  # Add run_name parameter
                 )
 
     logger.info(f"Dual comparison plots saved to {output_path}")
@@ -1955,7 +1606,7 @@ def plot_summary_metrics(summary_df, output_path):
         scenarios = plot_data.index.get_level_values(0).unique()
 
         # Set up colors for different years
-        year_colors = plt.cm.viridis(np.linspace(0, 1, len(years)))
+        year_colors = plt.cm.coolwarm(np.linspace(0, 1, len(years)))
 
         # Create x positions for the bars
         x = np.arange(len(scenarios))
@@ -5573,7 +5224,7 @@ def plot_energy_balance_combined(
 
             # --- Optional temperature-based coloring ---
             temp_colors = None
-            cmap = plt.get_cmap("viridis")
+            cmap = plt.get_cmap("coolwarm")
             norm = None
             temps_per_bin_aligned = None
             try:
@@ -6094,7 +5745,7 @@ def main(snakemake):
                     )
 
                     # Plot seasonal heat balance comparison with deltaT visualization
-                    plot_seasonal_heat_balance(
+                    plot_seasonal_heat_balance_with_temperature(
                         network_A_year,
                         network_B_year,
                         scenario_A,
@@ -6102,6 +5753,7 @@ def main(snakemake):
                         colors,
                         subdirs["energy_balances"],
                         list(network_A_year.snapshots.year)[0],
+                        run_name,
                     )
 
                     # Plot seasonal heat balance comparison with electricity prices
@@ -6113,6 +5765,7 @@ def main(snakemake):
                         colors,
                         subdirs["energy_balances"],
                         list(network_A_year.snapshots.year)[0],
+                        run_name,
                     )
 
                     # Plot energy balance combined comparison across price ventiles

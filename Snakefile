@@ -197,6 +197,37 @@ rule all:
             run=config["run"]["name"],
             **config["scenario"],
         ),
+            # PTES savings and neighbour costs overview
+            expand(
+                "results/" + config["run"]["prefix"] + "/graphics/ptes_overview/ptes_savings_overview.pdf",
+            ),
+            expand(
+                "results/" + config["run"]["prefix"] + "/graphics/ptes_overview/neighbour_countries_cost_diff_overview.pdf",
+            ),
+rule plot_ptes_savings_and_neighbour_costs:
+    message:
+        "Plot PTES savings and neighbour countries net cost difference (3x2 figures)."
+    params:
+        plotting=config_provider("plotting"),
+        run=config_provider("run", "prefix"),
+        scenarios=config_provider("run", "name"),
+        planning_horizons=config_provider("scenario", "planning_horizons"),
+    input:
+        # Ensure networks are built before plotting
+        networks=expand(
+            RESULTS
+            + "networks/base_s_{clusters}_{opts}_{sector_opts}_{planning_horizons}.nc",
+            run=config["run"]["name"],
+            **config["scenario"],
+            allow_missing=False,
+        ),
+    output:
+        ptes_fig="results/" + config["run"]["prefix"] + "/graphics/ptes_overview/ptes_savings_overview.pdf",
+        neigh_fig="results/" + config["run"]["prefix"] + "/graphics/ptes_overview/neighbour_countries_cost_diff_overview.pdf",
+    conda:
+        "envs/environment.yaml"
+    script:
+        "scripts/pypsa-de/plot_ptes_savings_and_neighbour_costs.py"
 
 
 rule create_scenarios:
@@ -1098,10 +1129,97 @@ rule plot_sysgf_summary:
     script:
         "scripts/pypsa-de/plot_sysgf_summary.py"
 
+rule plot_dh_systems:
+    params:
+        plotting=config_provider("plotting"),
+        run=config_provider("run", "prefix"),
+        scenarios=config_provider("run", "name"),
+        planning_horizons=config_provider("scenario", "planning_horizons"),
+    input:
+        # We don't need explicit network inputs as the script will find them based on the run name
+        # This is a dependency to make sure all networks are solved before plotting
+        networks=expand(
+            RESULTS
+            + "networks/base_s_{clusters}_{opts}_{sector_opts}_{planning_horizons}.nc",
+            run=config["run"]["name"],
+            **config["scenario"],
+            allow_missing=False,
+        ),
+    output:
+        directory("results/" + config["run"]["prefix"] + "/dh_systems/"),
+    resources:
+        mem_mb=50000,
+    log:
+        "results/" + config["run"]["prefix"] + "/dh_systems/logs/plot_dh_systems.log",
+    script:
+        "scripts/pypsa-de/plot_dh_systems.py"
+
+rule plot_temporal_heat_balance:
+    params:
+        plotting=config_provider("plotting"),
+        run=config_provider("run", "prefix"),
+        scenarios=config_provider("run", "name"),
+        planning_horizons=config_provider("scenario", "planning_horizons"),
+    input:
+        # We don't need explicit network inputs as the script will find them based on the run name
+        # This is a dependency to make sure all networks are solved before plotting
+        networks=expand(
+            RESULTS
+            + "networks/base_s_{clusters}_{opts}_{sector_opts}_{planning_horizons}.nc",
+            run=config["run"]["name"],
+            **config["scenario"],
+            allow_missing=False,
+        ),
+    output:
+        directory("results/" + config["run"]["prefix"] + "/temporal_heat_balance/"),
+    resources:
+        mem_mb=30000,
+    log:
+        "results/" + config["run"]["prefix"] + "/temporal_heat_balance/logs/plot_temporal_heat_balance.log",
+    script:
+        "scripts/pypsa-de/plot_temporal_heat_balance.py"
+
+
+rule plot_dh_over_elec_prices:
+    params:
+        plotting=config_provider("plotting"),
+        run=config_provider("run", "prefix"),
+        scenarios=config_provider("run", "name"),
+        planning_horizons=config_provider("scenario", "planning_horizons"),
+    input:
+        # We don't need explicit network inputs as the script will find them based on the run name
+        # This is a dependency to make sure all networks are solved before plotting
+        networks=expand(
+            RESULTS
+            + "networks/base_s_{clusters}_{opts}_{sector_opts}_{planning_horizons}.nc",
+            run=config["run"]["name"],
+            **config["scenario"],
+            allow_missing=False,
+        ),
+    output:
+        dh_grid_plot="results/" + config["run"]["prefix"] + "/dh_over_elec_prices/dh_balance_grid.pdf",
+    resources:
+        mem_mb=60000,
+    log:
+        "results/" + config["run"]["prefix"] + "/dh_over_elec_prices/logs/plot_dh_over_elec_prices.log",
+    script:
+        "scripts/pypsa-de/plot_dh_over_elec_prices.py"
+
+
+rule dh_systems_all:
+    input:
+        expand(
+            "results/" + config["run"]["prefix"] + "/dh_systems/",
+        ),
+
+
 rule sysgf_all:
     input:
         expand(
             "results/" + config["run"]["prefix"] + "/sysgf/summary_metrics.csv",
+        ),
+        expand(
+            "results/" + config["run"]["prefix"] + "/dh_over_elec_prices/dh_balance_grid.pdf",
         ),
         expand(RESULTS + "graphs/costs.svg", run=config["run"]["name"]),
         expand(

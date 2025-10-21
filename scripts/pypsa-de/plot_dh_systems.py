@@ -407,25 +407,63 @@ def plot_energy_balance_comparison(
     dh_demand_sort = []
     for system in to_plot_rel1.index:
         system_name = system.replace(" urban central heat", "")  # Clean system name
-        # Get urban central heat and low-temperature heat for industry loads
-        uch_load = (
-            network1.loads_t.p.filter(regex=f"{system_name}.*urban central heat")
-            .sum()
-            .sum()
-        )
-        industry_load = (
-            network1.loads_t.p.filter(
+
+        # Only calculate demand for subnodes (city systems) to avoid double counting
+        # Filter to exact match for the specific subnode system
+        if subnodes_only:
+            # For subnodes, use exact system name to avoid including mother nodes
+            uch_cols = [
+                col
+                for col in network1.loads_t.p.columns
+                if col == f"{system_name} urban central heat"
+            ]
+            ind_cols = [
+                col
+                for col in network1.loads_t.p.columns
+                if col == f"{system_name} low-temperature heat for industry"
+            ]
+        else:
+            # For all systems, use regex filter as before
+            uch_cols = network1.loads_t.p.filter(
+                regex=f"{system_name}.*urban central heat"
+            ).columns
+            ind_cols = network1.loads_t.p.filter(
                 regex=f"{system_name}.*low-temperature heat for industry"
+            ).columns
+
+        # Calculate weighted loads for the specific columns
+        if len(uch_cols) > 0:
+            uch_weighted = (
+                (
+                    network1.loads_t.p[uch_cols].multiply(
+                        network1.snapshot_weightings.generators, axis=0
+                    )
+                )
+                .sum()
+                .sum()
             )
-            .sum()
-            .sum()
-        )
-        # Convert from MWh to TWh and get absolute value
-        total_demand_twh = abs(uch_load + industry_load) / 1e6
+        else:
+            uch_weighted = 0
+
+        if len(ind_cols) > 0:
+            industry_weighted = (
+                (
+                    network1.loads_t.p[ind_cols].multiply(
+                        network1.snapshot_weightings.generators, axis=0
+                    )
+                )
+                .sum()
+                .sum()
+            )
+        else:
+            industry_weighted = 0
+
+        # Convert to TWh (loads_t.p is in MW, snapshot_weightings gives MWh, so divide by 1e6)
+        total_demand_twh = abs(uch_weighted + industry_weighted) / 1e6
         dh_demand_sort.append(total_demand_twh)
-    
+
     dh_demand_series = pd.Series(dh_demand_sort, index=to_plot_rel1.index)
-    
+
     # Sort systems by demand (highest demand first)
     sorted_systems = dh_demand_series.sort_values(ascending=False).index
 
@@ -560,22 +598,59 @@ def plot_energy_balance_comparison(
     for system in to_plot_rel1.index:
         system_name = system.replace(" urban central heat", "")  # Clean system name
 
-        # Get urban central heat and low-temperature heat for industry loads
-        uch_load = (
-            network1.loads_t.p.filter(regex=f"{system_name}.*urban central heat")
-            .sum()
-            .sum()
-        )
-        industry_load = (
-            network1.loads_t.p.filter(
+        # Only calculate demand for subnodes (city systems) to avoid double counting
+        # Filter to exact match for the specific subnode system
+        if subnodes_only:
+            # For subnodes, use exact system name to avoid including mother nodes
+            uch_cols = [
+                col
+                for col in network1.loads_t.p.columns
+                if col == f"{system_name} urban central heat"
+            ]
+            ind_cols = [
+                col
+                for col in network1.loads_t.p.columns
+                if col == f"{system_name} low-temperature heat for industry"
+            ]
+        else:
+            # For all systems, use regex filter as before
+            uch_cols = network1.loads_t.p.filter(
+                regex=f"{system_name}.*urban central heat"
+            ).columns
+            ind_cols = network1.loads_t.p.filter(
                 regex=f"{system_name}.*low-temperature heat for industry"
-            )
-            .sum()
-            .sum()
-        )
+            ).columns
 
-        # Convert from MWh to TWh and get absolute value
-        total_demand_twh = abs(uch_load + industry_load) / 1e6
+        # Calculate weighted loads for the specific columns
+        if len(uch_cols) > 0:
+            uch_weighted = (
+                (
+                    network1.loads_t.p[uch_cols].multiply(
+                        network1.snapshot_weightings.generators, axis=0
+                    )
+                )
+                .sum()
+                .sum()
+            )
+        else:
+            uch_weighted = 0
+
+        if len(ind_cols) > 0:
+            industry_weighted = (
+                (
+                    network1.loads_t.p[ind_cols].multiply(
+                        network1.snapshot_weightings.generators, axis=0
+                    )
+                )
+                .sum()
+                .sum()
+            )
+        else:
+            industry_weighted = 0
+
+        # Convert to TWh (loads_t.p is in MW, snapshot_weightings gives MWh, so divide by 1e6)
+        total_demand_twh = abs(uch_weighted + industry_weighted) / 1e6
+
         dh_demand.append(total_demand_twh)
 
     dh_demand = pd.Series(dh_demand, index=to_plot_rel1.index)
@@ -764,7 +839,7 @@ def plot_energy_balance_comparison(
         "geothermal heat pump",
         "electrolysis excess heat pump",
         "air heat pump",
-        "river_water heat pump", 
+        "river_water heat pump",
         "sea_water heat pump",
         "ptes heat pump",
         "CHP",
@@ -785,7 +860,7 @@ def plot_energy_balance_comparison(
         label = label.replace("water tanks", "TTES")
         label = label.replace(" charger", "").replace(" discharger", "")
         label = label.replace("A/WSHP", "Air and water sourced heat pumps")
-        
+
         # Handle PTES capitalization specifically
         if label.lower().startswith("ptes"):
             words = label.split()
@@ -1188,25 +1263,63 @@ def plot_energy_balance_triple_comparison(
     dh_demand_sort = []
     for system in to_plot_rel1.index:
         system_name = system.replace(" urban central heat", "")  # Clean system name
-        # Get urban central heat and low-temperature heat for industry loads
-        uch_load = (
-            network1.loads_t.p.filter(regex=f"{system_name}.*urban central heat")
-            .sum()
-            .sum()
-        )
-        industry_load = (
-            network1.loads_t.p.filter(
+
+        # Only calculate demand for subnodes (city systems) to avoid double counting
+        # Filter to exact match for the specific subnode system
+        if subnodes_only:
+            # For subnodes, use exact system name to avoid including mother nodes
+            uch_cols = [
+                col
+                for col in network1.loads_t.p.columns
+                if col == f"{system_name} urban central heat"
+            ]
+            ind_cols = [
+                col
+                for col in network1.loads_t.p.columns
+                if col == f"{system_name} low-temperature heat for industry"
+            ]
+        else:
+            # For all systems, use regex filter as before
+            uch_cols = network1.loads_t.p.filter(
+                regex=f"{system_name}.*urban central heat"
+            ).columns
+            ind_cols = network1.loads_t.p.filter(
                 regex=f"{system_name}.*low-temperature heat for industry"
+            ).columns
+
+        # Calculate weighted loads for the specific columns
+        if len(uch_cols) > 0:
+            uch_weighted = (
+                (
+                    network1.loads_t.p[uch_cols].multiply(
+                        network1.snapshot_weightings.generators, axis=0
+                    )
+                )
+                .sum()
+                .sum()
             )
-            .sum()
-            .sum()
-        )
-        # Convert from MWh to TWh and get absolute value
-        total_demand_twh = abs(uch_load + industry_load) / 1e6
+        else:
+            uch_weighted = 0
+
+        if len(ind_cols) > 0:
+            industry_weighted = (
+                (
+                    network1.loads_t.p[ind_cols].multiply(
+                        network1.snapshot_weightings.generators, axis=0
+                    )
+                )
+                .sum()
+                .sum()
+            )
+        else:
+            industry_weighted = 0
+
+        # Convert to TWh (loads_t.p is in MW, snapshot_weightings gives MWh, so divide by 1e6)
+        total_demand_twh = abs(uch_weighted + industry_weighted) / 1e6
         dh_demand_sort.append(total_demand_twh)
-    
+
     dh_demand_series = pd.Series(dh_demand_sort, index=to_plot_rel1.index)
-    
+
     # Sort systems by demand (highest demand first)
     sorted_systems = dh_demand_series.sort_values(ascending=False).index
 
@@ -1403,7 +1516,29 @@ def plot_energy_balance_triple_comparison(
                     .sum()
                     .sum()
                 )
-                total_demand_twh = abs(uch_load + industry_load) / 1e6
+                # Get weighted load values using PyPSA snapshot weightings
+                uch_weighted = (
+                    (
+                        network1.loads_t.p.filter(
+                            regex=f"{system_name}.*urban central heat"
+                        ).multiply(network1.snapshot_weightings.generators, axis=0)
+                    )
+                    .sum()
+                    .sum()
+                )
+
+                industry_weighted = (
+                    (
+                        network1.loads_t.p.filter(
+                            regex=f"{system_name}.*low-temperature heat for industry"
+                        ).multiply(network1.snapshot_weightings.generators, axis=0)
+                    )
+                    .sum()
+                    .sum()
+                )
+
+                # Convert to TWh (loads_t.p is in MW, snapshot_weightings gives MWh, so divide by 1e6)
+                total_demand_twh = abs(uch_weighted + industry_weighted) / 1e6
                 dh_demand.append(total_demand_twh)
 
             dh_demand = pd.Series(dh_demand, index=data.index)
@@ -1558,7 +1693,7 @@ def plot_energy_balance_triple_comparison(
         to_plot = eb_uch.set_index(["bus", "carrier"]).unstack(-1)
         to_plot.columns = to_plot.columns.droplevel(0)
 
-        # Convert from MWh to TWh and return only positive (supply) values
+        # Convert from MWh to TWh (energy balance already accounts for snapshot weightings)
         to_plot_twh = to_plot / 1e6
         return to_plot_twh.clip(lower=0)
 
@@ -1651,7 +1786,7 @@ def plot_energy_balance_triple_comparison(
 
         # Use colors from the main color scheme, with fallbacks for grouped categories
         tech_colors_map = colors.copy()
-        
+
         # Create comprehensive color mapping for cleaned technology names
         for tech, color in colors.items():
             # Map original tech names to cleaned versions
@@ -1661,27 +1796,43 @@ def plot_energy_balance_triple_comparison(
                 .replace("water tanks", "TTES")
             )
             tech_colors_map[clean_tech] = color
-        
+
         # Add specific mappings for grouped and cleaned names
         tech_colors_map.update(
             {
                 "Heat Pumps": colors.get("Heat Pumps", "#FF8C00"),  # Orange
                 "A/WSHP": colors.get("A/WSHP", "#FFA600"),  # Orange variant
-                "Resistive Heater": colors.get("urban central resistive heater", "#40E0D0"),  # Cyan
-                "resistive heater": colors.get("urban central resistive heater", "#40E0D0"),
+                "Resistive Heater": colors.get(
+                    "urban central resistive heater", "#40E0D0"
+                ),  # Cyan
+                "resistive heater": colors.get(
+                    "urban central resistive heater", "#40E0D0"
+                ),
                 "CHP": colors.get("CHP", "#8B4513"),  # Use same color as main plots
                 "gas boiler": colors.get("urban central gas boiler", "#8B0000"),
                 "gas CHP": colors.get("urban central gas CHP", "#CD853F"),
                 "H2 CHP": colors.get("urban central H2 CHP", "#4169E1"),
-                "solid biomass CHP": colors.get("urban central solid biomass CHP", "#228B22"),
+                "solid biomass CHP": colors.get(
+                    "urban central solid biomass CHP", "#228B22"
+                ),
                 "waste CHP": colors.get("waste CHP", "#8B4513"),
-                "geothermal heat pump": colors.get("urban central geothermal heat pump", "#B22222"),
-                "geothermal heat": colors.get("urban central geothermal heat", "#B22222"),
+                "geothermal heat pump": colors.get(
+                    "urban central geothermal heat pump", "#B22222"
+                ),
+                "geothermal heat": colors.get(
+                    "urban central geothermal heat", "#B22222"
+                ),
                 "air heat pump": colors.get("urban central air heat pump", "#FF6347"),
-                "sea_water heat pump": colors.get("urban central sea_water heat pump", "#4682B4"),
-                "river_water heat pump": colors.get("urban central river_water heat pump", "#20B2AA"),
+                "sea_water heat pump": colors.get(
+                    "urban central sea_water heat pump", "#4682B4"
+                ),
+                "river_water heat pump": colors.get(
+                    "urban central river_water heat pump", "#20B2AA"
+                ),
                 "ptes heat pump": colors.get("urban central ptes heat pump", "#9932CC"),
-                "electrolysis excess heat pump": colors.get("urban central electrolysis excess heat pump", "#FFD700"),
+                "electrolysis excess heat pump": colors.get(
+                    "urban central electrolysis excess heat pump", "#FFD700"
+                ),
                 "Fischer-Tropsch": colors.get("Fischer-Tropsch", "#A0522D"),
                 "H2 Electrolysis": colors.get("H2 Electrolysis", "#4169E1"),
             }
@@ -1754,7 +1905,7 @@ def plot_energy_balance_triple_comparison(
         "geothermal heat pump",
         "electrolysis excess heat pump",
         "air heat pump",
-        "river_water heat pump", 
+        "river_water heat pump",
         "sea_water heat pump",
         "ptes heat pump",
         "CHP",
@@ -1775,7 +1926,7 @@ def plot_energy_balance_triple_comparison(
         label = label.replace("water tanks", "TTES")
         label = label.replace(" charger", "").replace(" discharger", "")
         label = label.replace("A/WSHP", "Air and water sourced heat pumps")
-        
+
         # Handle PTES capitalization specifically
         if label.lower().startswith("ptes"):
             words = label.split()
