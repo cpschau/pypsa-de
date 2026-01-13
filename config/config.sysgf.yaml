@@ -3,47 +3,44 @@
 # SPDX-License-Identifier: CC0-1.0
 
 run:
-  prefix: 20251021_cap_scenarios_demand_evol
+  prefix: 20251107_final
   name:
     # Mid DH – Mid Supply
     - NoPTES_MidSupplyTemperature_MidDH_init
     - NoPTES_MidSupplyTemperature_MidDH
-    - MidSupplyTemperature_MidDH_noboost
-    - MidSupplyTemperature_MidDH_hpboost
+    # - MidSupplyTemperature_MidDH_hpboost
     - MidSupplyTemperature_MidDH_rhboost
     - MidSupplyTemperature_MidDH_hpboost_10Cbottom
     - MidSupplyTemperature_MidDH_freeboost
     - MidSupplyTemperature_MidDH_freecap
-    - MidSupplyTemperature_MidDH_freeboost_freecap
-    # # # # Low Supply
+    # - MidSupplyTemperature_MidDH_freeboost_freecap
+    # # # # # Low Supply
     - NoPTES_LowSupplyTemperature_MidDH_init
     - NoPTES_LowSupplyTemperature_MidDH
-    - LowSupplyTemperature_MidDH_noboost
-    - LowSupplyTemperature_MidDH_hpboost
+    # - LowSupplyTemperature_MidDH_hpboost
     - LowSupplyTemperature_MidDH_rhboost
     - LowSupplyTemperature_MidDH_hpboost_10Cbottom
     - LowSupplyTemperature_MidDH_freeboost
     - LowSupplyTemperature_MidDH_freecap
-    - LowSupplyTemperature_MidDH_freeboost_freecap
-    # # # High Supply
+    # - LowSupplyTemperature_MidDH_freeboost_freecap
+    # # # # # High Supply
     - NoPTES_HighSupplyTemperature_MidDH_init
     - NoPTES_HighSupplyTemperature_MidDH
-    - HighSupplyTemperature_MidDH_noboost
-    - HighSupplyTemperature_MidDH_hpboost
+    # - HighSupplyTemperature_MidDH_hpboost
     - HighSupplyTemperature_MidDH_rhboost
     - HighSupplyTemperature_MidDH_hpboost_10Cbottom
     - HighSupplyTemperature_MidDH_freeboost
     - HighSupplyTemperature_MidDH_freecap
-    - HighSupplyTemperature_MidDH_freeboost_freecap
-    # # DH potential sensitivities
-    # - NoPTES_MidSupplyTemperature_LowDH_init
-    # - NoPTES_MidSupplyTemperature_LowDH
-    # - MidSupplyTemperature_LowDH_rhboost
-    # - NoPTES_MidSupplyTemperature_HighDH_init
-    # - NoPTES_MidSupplyTemperature_HighDH
-    # - MidSupplyTemperature_HighDH_rhboost
-    # # # # CAPEX sensitivities
-    # - MidSupplyTemperature_MidDH_rhboost_0.01CAPEX
+    # - HighSupplyTemperature_MidDH_freeboost_freecap
+    # # # DH potential sensitivities
+    # # - NoPTES_MidSupplyTemperature_LowDH_init
+    # # - NoPTES_MidSupplyTemperature_LowDH
+    # # - MidSupplyTemperature_LowDH_rhboost
+    # # - NoPTES_MidSupplyTemperature_HighDH_init
+    # # - NoPTES_MidSupplyTemperature_HighDH
+    # # - MidSupplyTemperature_HighDH_rhboost
+    # # # # # CAPEX sensitivities
+    # - MidSupplyTemperature_MidDH_rhboost_0.00CAPEX
     # - MidSupplyTemperature_MidDH_rhboost_0.25CAPEX
     # - MidSupplyTemperature_MidDH_rhboost_0.5CAPEX
     # - MidSupplyTemperature_MidDH_rhboost_0.75CAPEX
@@ -115,7 +112,7 @@ clustering:
     'ES': 0.0408
     'IT': 0.0612
   temporal:
-    resolution_sector: 25H
+    resolution_sector: 3H
 
 co2_budget:
   2045: 0.00
@@ -131,16 +128,24 @@ adjustments:
           standing_loss: 0.000077
     factor:
       Link:
+        urban central air heat pump:
+          marginal_cost: 1.80
         urban central geothermal heat pump:
           capital_cost: 0.66
+          marginal_cost: 2.02
         urban central river_water heat pump:
           capital_cost: 0.86
+          marginal_cost: 1.80
         urban central sea_water heat pump:
           capital_cost: 0.86
+          marginal_cost: 1.80
         urban central electrolysis excess heat pump:
           capital_cost: 0.76
+          marginal_cost: 1.80
         urban central ptes heat pump:
           capital_cost: 0.66
+          marginal_cost: 1.80
+
 wasserstoff_kernnetz:
   enable: false
 
@@ -279,7 +284,7 @@ plotting:
   group_ashp_wshp: false            # Group all ASHP and WSHP technologies as "ASHP/WSHP" bypasses
   group_demands: true              # Group demands as "District Heating Demand"
   drop_losses: true
-  subnodes_only: false                # Remove loss columns from plots
+  subnodes_only: true                # Remove loss columns from plots
   aggregate_threshold_pct: 0.05
   balance_map:
     bus_carriers: null
@@ -305,38 +310,38 @@ plotting:
     - ["NoPTES_LowSupplyTemperature", "LowSupplyTemperature_hpboost"]
     - ["NoPTES_LowSupplyTemperature", "LowSupplyTemperature_rhboost"]
     - ["NoPTES_LowSupplyTemperature", "LowSupplyTemperature_hpboost_10Cbottom"]
-    - ["NoPTES_LowSupplyTemperature", "LowSupplyTemperature_noboost"]
-    - ["NoPTES_HighSupplyTemperature", "HighSupplyTemperature_hpboost"]
-    - ["NoPTES_HighSupplyTemperature", "HighSupplyTemperature_rhboost"]
-    - ["NoPTES_HighSupplyTemperature", "HighSupplyTemperature_hpboost_10Cbottom"]
-    - ["NoPTES_HighSupplyTemperature", "HighSupplyTemperature_noboost"]
-    - ["NoPTES_LowDH_LowSupplyTemperature", "LowDH_LowSupplyTemperature_rhboost"]
-    - ["NoPTES_HighDH_LowSupplyTemperature", "HighDH_LowSupplyTemperature_rhboost"]
+    # - ["NoPTES_LowSupplyTemperature", "LowSupplyTemperature_noboost"]
+    # - ["NoPTES_HighSupplyTemperature", "HighSupplyTemperature_hpboost"]
+    # - ["NoPTES_HighSupplyTemperature", "HighSupplyTemperature_rhboost"]
+    # - ["NoPTES_HighSupplyTemperature", "HighSupplyTemperature_hpboost_10Cbottom"]
+    # - ["NoPTES_HighSupplyTemperature", "HighSupplyTemperature_noboost"]
+    # - ["NoPTES_LowDH_LowSupplyTemperature", "LowDH_LowSupplyTemperature_rhboost"]
+    # - ["NoPTES_HighDH_LowSupplyTemperature", "HighDH_LowSupplyTemperature_rhboost"]
     # Mid Supply Temperature scenarios with Mid DH
-    - ["NoPTES_MidSupplyTemperature_MidDH", "MidSupplyTemperature_MidDH_hpboost"]
-    - ["NoPTES_MidSupplyTemperature_MidDH", "MidSupplyTemperature_MidDH_rhboost"]
-    - ["NoPTES_MidSupplyTemperature_MidDH", "MidSupplyTemperature_MidDH_hpboost_10Cbottom"]
-    - ["NoPTES_MidSupplyTemperature_MidDH", "MidSupplyTemperature_MidDH_noboost"]
-    - ["MidSupplyTemperature_MidDH_hpboost", "MidSupplyTemperature_MidDH_noboost"]
+    # - ["NoPTES_MidSupplyTemperature_MidDH", "MidSupplyTemperature_MidDH_hpboost"]
+    # - ["NoPTES_MidSupplyTemperature_MidDH", "MidSupplyTemperature_MidDH_rhboost"]
+    # - ["NoPTES_MidSupplyTemperature_MidDH", "MidSupplyTemperature_MidDH_hpboost_10Cbottom"]
+    # - ["NoPTES_MidSupplyTemperature_MidDH", "MidSupplyTemperature_MidDH_noboost"]
+    # - ["MidSupplyTemperature_MidDH_hpboost", "MidSupplyTemperature_MidDH_noboost"]
     - ["MidSupplyTemperature_MidDH_hpboost", "MidSupplyTemperature_MidDH_rhboost"]
-    - ["MidSupplyTemperature_MidDH_rhboost", "MidSupplyTemperature_MidDH_noboost"]
+    # - ["MidSupplyTemperature_MidDH_rhboost", "MidSupplyTemperature_MidDH_noboost"]
     # Low Supply Temperature scenarios with Mid DH
-    - ["NoPTES_LowSupplyTemperature_MidDH", "LowSupplyTemperature_MidDH_hpboost"]
-    - ["NoPTES_LowSupplyTemperature_MidDH", "LowSupplyTemperature_MidDH_rhboost"]
-    - ["NoPTES_LowSupplyTemperature_MidDH", "LowSupplyTemperature_MidDH_hpboost_10Cbottom"]
-    - ["NoPTES_LowSupplyTemperature_MidDH", "LowSupplyTemperature_MidDH_noboost"]
+    # - ["NoPTES_LowSupplyTemperature_MidDH", "LowSupplyTemperature_MidDH_hpboost"]
+    # - ["NoPTES_LowSupplyTemperature_MidDH", "LowSupplyTemperature_MidDH_rhboost"]
+    # - ["NoPTES_LowSupplyTemperature_MidDH", "LowSupplyTemperature_MidDH_hpboost_10Cbottom"]
+    # - ["NoPTES_LowSupplyTemperature_MidDH", "LowSupplyTemperature_MidDH_noboost"]
     # High Supply Temperature scenarios with Mid DH
-    - ["NoPTES_HighSupplyTemperature_MidDH", "HighSupplyTemperature_MidDH_hpboost"]
-    - ["NoPTES_HighSupplyTemperature_MidDH", "HighSupplyTemperature_MidDH_rhboost"]
-    - ["NoPTES_HighSupplyTemperature_MidDH", "HighSupplyTemperature_MidDH_hpboost_10Cbottom"]
-    - ["NoPTES_HighSupplyTemperature_MidDH", "HighSupplyTemperature_MidDH_noboost"]
+    # - ["NoPTES_HighSupplyTemperature_MidDH", "HighSupplyTemperature_MidDH_hpboost"]
+    # - ["NoPTES_HighSupplyTemperature_MidDH", "HighSupplyTemperature_MidDH_rhboost"]
+    # - ["NoPTES_HighSupplyTemperature_MidDH", "HighSupplyTemperature_MidDH_hpboost_10Cbottom"]
+    # - ["NoPTES_HighSupplyTemperature_MidDH", "HighSupplyTemperature_MidDH_noboost"]
     # Mid Supply Temperature with different DH potentials
-    - ["NoPTES_MidSupplyTemperature_LowDH", "MidSupplyTemperature_LowDH_rhboost"]
-    - ["NoPTES_MidSupplyTemperature_HighDH", "MidSupplyTemperature_HighDH_rhboost"]
+    # - ["NoPTES_MidSupplyTemperature_LowDH", "MidSupplyTemperature_LowDH_rhboost"]
+    # - ["NoPTES_MidSupplyTemperature_HighDH", "MidSupplyTemperature_HighDH_rhboost"]
   scenario_triples:
-    - ["NoPTES_LowSupplyTemperature_MidDH", "LowSupplyTemperature_MidDH_hpboost", "LowSupplyTemperature_MidDH_noboost"]
-    - ["NoPTES_MidSupplyTemperature_MidDH", "MidSupplyTemperature_MidDH_hpboost", "MidSupplyTemperature_MidDH_noboost"]
-    - ["NoPTES_HighSupplyTemperature_MidDH", "HighSupplyTemperature_MidDH_hpboost", "HighSupplyTemperature_MidDH_noboost"]
+    # - ["NoPTES_LowSupplyTemperature_MidDH", "LowSupplyTemperature_MidDH_hpboost", "LowSupplyTemperature_MidDH_noboost"]
+    # - ["NoPTES_MidSupplyTemperature_MidDH", "MidSupplyTemperature_MidDH_hpboost", "MidSupplyTemperature_MidDH_noboost"]
+    # - ["NoPTES_HighSupplyTemperature_MidDH", "HighSupplyTemperature_MidDH_hpboost", "HighSupplyTemperature_MidDH_noboost"]
   save_png: true
   save_pdf: true
   override_tech_colors:
@@ -388,4 +393,5 @@ plotting:
     other supply technologies: "dimgrey"
     other loads: "lightgrey"
     geothermal heat pump: "khaki"
+    Battery: "#ace37f"
 

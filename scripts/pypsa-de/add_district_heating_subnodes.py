@@ -104,23 +104,60 @@ def add_loads(
     None
     """
 
-    urban_central_heat_load = subnode[
-        "fraction_mother_node"
-    ] * n_copy.loads_t.p_set.filter(
-        regex=f"{subnode['cluster']}.*urban central heat"
-    ).sum(
-        1
-    ).rename(
-        f"{subnode['cluster']} {subnode['Stadt']} urban central heat"
+    # Get heat loads for urban central heat and low-temperature heat for industry
+    urban_central_heat_load_cluster = (
+        n_copy.snapshot_weightings.generators
+        @ n_copy.loads_t.p_set[f"{subnode['cluster']} urban central heat"]
+    )
+    low_temperature_heat_for_industry_load_cluster = (
+        n_copy.loads.loc[
+            f"{subnode['cluster']} low-temperature heat for industry", "p_set"
+        ]
+        * 8760
     )
 
-    low_temperature_heat_for_industry_load = (
-        subnode["fraction_mother_node"]
-        * n_copy.loads.filter(
-            regex=f"{subnode['cluster']}.*low-temperature heat for industry",
-            axis=0,
-        )["p_set"].sum()
+    # Calculate share of low-temperature heat for industry in total district heating load of cluster
+    dh_load_cluster = (
+        urban_central_heat_load_cluster + low_temperature_heat_for_industry_load_cluster
     )
+
+    dh_load_cluster_subnodes = subnodes_head.loc[
+        subnodes_head.cluster == subnode["cluster"], "yearly_heat_demand_MWh"
+    ].sum()
+    lost_load = dh_load_cluster_subnodes - dh_load_cluster
+
+    # District heating demand from Fernwärmeatlas exceeding the original cluster load is disregarded. The shares of the subsystems are set according to Fernwärmeatlas, while the aggregate load of cluster is preserved.
+    if lost_load > 0:
+        logger.warning(
+            f"Aggregated district heating load of systems within {subnode['cluster']} exceeds load of cluster."
+        )
+        demand_ratio = subnode["yearly_heat_demand_MWh"] / dh_load_cluster_subnodes
+
+        urban_central_heat_load = demand_ratio * n_copy.loads_t.p_set.filter(
+            regex=f"{subnode['cluster']} .*urban central heat"
+        ).sum(1).rename(f"{subnode['cluster']} {subnode['Stadt']} urban central heat")
+
+        low_temperature_heat_for_industry_load = (
+            demand_ratio
+            * n_copy.loads.filter(
+                regex=f"{subnode['cluster']} .*low-temperature heat for industry",
+                axis=0,
+            )["p_set"].sum()
+        )
+    else:
+        # Calculate demand ratio between load of subnode according to Fernwärmeatlas and remaining load of assigned cluster
+        demand_ratio = subnode["yearly_heat_demand_MWh"] / dh_load_cluster
+
+        urban_central_heat_load = demand_ratio * n_copy.loads_t.p_set[
+            f"{subnode['cluster']} urban central heat"
+        ].rename(f"{subnode['cluster']} {subnode['Stadt']} urban central heat")
+
+        low_temperature_heat_for_industry_load = (
+            demand_ratio
+            * n_copy.loads.loc[
+                f"{subnode['cluster']} low-temperature heat for industry", "p_set"
+            ]
+        )
 
     # Add load components to subnode preserving the share of low-temperature heat for industry of the cluster
     n.add(
@@ -130,7 +167,6 @@ def add_loads(
         p_set=urban_central_heat_load,
         carrier="urban central heat",
     )
-
     n.add(
         "Load",
         f"{subnode['cluster']} {subnode['Stadt']} low-temperature heat for industry",
@@ -147,6 +183,15 @@ def add_loads(
     n.loads.loc[
         f"{subnode['cluster']} low-temperature heat for industry", "p_set"
     ] -= low_temperature_heat_for_industry_load
+
+    if lost_load > 0:
+        lost_load_subnode = subnode["yearly_heat_demand_MWh"] - (
+            n.snapshot_weightings.generators @ urban_central_heat_load
+            + low_temperature_heat_for_industry_load * 8760
+        )
+        logger.warning(
+            f"District heating load of {subnode['cluster']} {subnode['Stadt']} is reduced by {lost_load_subnode} MWh/a."
+        )
 
 
 def add_stores(
@@ -197,7 +242,7 @@ def add_stores(
 
     if limit_ptes_potential_subnodes:
         # Restrict PTES capacity in subnodes
-        stores.loc[stores.carrier.str.contains("pits$").index, "e_nom_max"] = subnode[
+        stores.loc[stores.carrier.str.contains("pits$"), "e_nom_max"] = subnode[
             "ptes_pot_mwh"
         ]
 
@@ -427,7 +472,7 @@ def add_links(
         heat_pump = heat_pump.replace(
             {rf"{subnode['cluster']} urban central(?! electrolysis)": name},
             regex=True,
-        ).drop(["efficiency", "efficiency2", "p_min_pu"], axis=1)
+        ).drop(["efficiency", "efficiency2", "p_min_pu", "marginal_cost"], axis=1)
 
         if heat_pump.empty:
             logger.warning(f"No heat pump found for {heat_source} in {name}")
@@ -438,6 +483,7 @@ def add_links(
                     "Link",
                     heat_pump.index,
                     efficiency=1,
+                    marginal_cost=-cop_heat_pump,
                     p_min_pu=-(1 / cop_heat_pump.clip(lower=0.001)).replace(1000, 0),
                     **heat_pump,
                 )
@@ -446,15 +492,22 @@ def add_links(
                     "Link",
                     heat_pump.index,
                     efficiency=(1 / cop_heat_pump.clip(lower=0.001)).replace(1000, 0),
+                    marginal_cost=-1,
                     p_min_pu=-cop_heat_pump / cop_heat_pump.clip(lower=0.001),
                     **heat_pump,
                 )
         else:
+            if heat_source == "geothermal":
+                m_offset = 0.1  # geothermal heat pumps have a minimum load of 10%
+            else:
+                m_offset = 0.0
             n.add(
                 "Link",
                 heat_pump.index,
-                efficiency=(1 / (cop_heat_pump).clip(lower=0.001)).replace(1000, 0),
+                efficiency=(1 / (cop_heat_pump).clip(lower=0.001)).replace(1000, 0)
+                + m_offset,
                 efficiency2=1 - (1 / cop_heat_pump.clip(lower=0.001)).replace(1000, 0),
+                marginal_cost=-1,
                 p_min_pu=-cop_heat_pump / cop_heat_pump.clip(lower=0.001),
                 **heat_pump,
             )
@@ -636,14 +689,14 @@ def add_subnodes(
             limited_heat_sources,
             heat_source_potentials,
         )
-    dh_loads_after = get_district_heating_loads(n)
-    # Check if the total district heating load is preserved
-    assert abs(dh_loads_before - dh_loads_after) <= 0.001 * dh_loads_before, (
-        "Total district heating load is not preserved after adding subnodes. "
-        "Load before: {}, load after: {}, difference: {}".format(
-            dh_loads_before, dh_loads_after, dh_loads_after - dh_loads_before
+        dh_loads_after = get_district_heating_loads(n)
+        # Check if the total district heating load is preserved
+        assert abs(dh_loads_before - dh_loads_after) <= 0.001 * dh_loads_before, (
+            "Total district heating load is not preserved after adding subnodes. "
+            "Load before: {}, load after: {}, difference: {}".format(
+                dh_loads_before, dh_loads_after, dh_loads_after - dh_loads_before
+            )
         )
-    )
 
 
 def extend_heating_distribution(
@@ -713,12 +766,12 @@ if __name__ == "__main__":
             "add_district_heating_subnodes",
             configfiles=["config/config.sysgf.yaml", "config/scenarios.sysgf.yaml"],
             simpl="",
-            clusters=27,
+            clusters=49,
             opts="",
             ll="vopt",
             sector_opts="none",
             planning_horizons="2045",
-            run="HighSupplyTemperature_MidDH_hpboost",
+            run="MidSupplyTemperature_MidDH_rhboost",
         )
 
     configure_logging(snakemake)

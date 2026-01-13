@@ -163,6 +163,7 @@ MidSupplyTemperature_MidDH_freecap:
       ptes:
         discharger_temperature_boosting_required: true
         booster_technologies: ["resistive heater"]
+        min_bottom_temperature: 10
         scale_capacity: false
       supply_temperature_approximation:
         relative_annual_temperature_reduction: 0.005
@@ -174,7 +175,7 @@ MidSupplyTemperature_MidDH_freecap:
           urban central water tanks:
             capital_cost: 1.05
 
-MidSupplyTemperature_MidDH_freeboost_freescale:
+MidSupplyTemperature_MidDH_freeboost_freecap:
   fix_foreign_investments:
     reference_scenario: NoPTES_MidSupplyTemperature_MidDH
   sector:
@@ -308,6 +309,7 @@ LowSupplyTemperature_MidDH_freecap:
       ptes:
         discharger_temperature_boosting_required: true
         booster_technologies: ["resistive heater"]
+        min_bottom_temperature: 10
         scale_capacity: false
       supply_temperature_approximation:
         relative_annual_temperature_reduction: 0.01
@@ -483,6 +485,7 @@ HighSupplyTemperature_MidDH_freecap:
       ptes:
         discharger_temperature_boosting_required: true
         booster_technologies: ["resistive heater"]
+        min_bottom_temperature: 10
         scale_capacity: false
       supply_temperature_approximation:
         relative_annual_temperature_reduction: 0.0
@@ -494,7 +497,7 @@ HighSupplyTemperature_MidDH_freecap:
           urban central water tanks:
             capital_cost: 1.2
 
-HighSupplyTemperature_MidDH_noboost_noscale:
+HighSupplyTemperature_MidDH_freeboost_freecap:
   fix_foreign_investments:
     reference_scenario: NoPTES_HighSupplyTemperature_MidDH
   sector:
@@ -654,7 +657,7 @@ MidSupplyTemperature_HighDH_rhboost:
             capital_cost: 1.05
 
 # CAPEX sensitivity scenarios (Mid Supply Temperature, Mid DH, rhboost)
-MidSupplyTemperature_MidDH_rhboost_0.01CAPEX:
+MidSupplyTemperature_MidDH_rhboost_0.00CAPEX:
   fix_foreign_investments:
     reference_scenario: NoPTES_MidSupplyTemperature_MidDH
   sector:
@@ -671,7 +674,7 @@ MidSupplyTemperature_MidDH_rhboost_0.01CAPEX:
       factor:
         Store:
           urban central water pits:
-            capital_cost: 0.01
+            capital_cost: 0.0
           urban central water tanks:
             capital_cost: 1.05
 

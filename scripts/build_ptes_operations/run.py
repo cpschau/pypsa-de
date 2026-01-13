@@ -93,6 +93,7 @@ if __name__ == "__main__":
         charger_temperature_boosting_required=snakemake.params.charger_temperature_boosting_required,
         booster_technologies=snakemake.params.booster_technologies,
         dynamic_capacity=snakemake.params.dynamic_capacity,
+        scale_capacity=snakemake.params.scale_capacity,
     )
 
     # Get PTES clipped top temperature profiles

@@ -17,6 +17,29 @@ import os
 sys.path.append(os.getcwd())
 
 import matplotlib
+from matplotlib.legend_handler import HandlerPatch
+import matplotlib.patches as mpatches
+
+
+# Define custom handler class
+class HandlerSquare(HandlerPatch):
+    def create_artists(
+        self, legend, orig_handle, xdescent, ydescent, width, height, fontsize, trans
+    ):
+        # Make the marker perfectly square
+        size = min(width, height)  # Use the smaller dimension to ensure square fits
+        center_x = -xdescent + width / 2
+        center_y = -ydescent + height / 2
+        p = mpatches.Rectangle(
+            (center_x - size / 2, center_y - size / 2),
+            size,
+            size,
+            facecolor=orig_handle.get_facecolor(),
+            edgecolor=orig_handle.get_edgecolor(),
+            transform=trans,
+        )
+        return [p]
+
 
 matplotlib.use("Agg")  # Use non-interactive backend
 import matplotlib.pyplot as plt
@@ -219,7 +242,7 @@ def plot_energy_balance_comparison(
     tuple
         (figure, axes) matplotlib objects
     """
-    plt.rcParams.update({"font.size": 10})
+    plt.rcParams.update({"font.size": 12})
     title = f"Energy Balance Comparison: {scenarios[0]} vs {scenarios[1]}"
 
     def prepare_energy_balance_data(
@@ -305,7 +328,6 @@ def plot_energy_balance_comparison(
 
         to_plot = pd.concat([to_plot, losses], axis=1)
         ch_to_drop = to_plot.filter(regex=r" charger|losses")
-        disch_to_drop = to_plot.filter(regex=r"discharger")
         to_plot_rel_gen = (
             to_plot.clip(lower=0)
             .div(-to_plot.clip(upper=0).drop(ch_to_drop, axis=1).sum(axis=1), axis=0)
@@ -380,6 +402,7 @@ def plot_energy_balance_comparison(
 
         return to_plot_rel, dh_prices
 
+    subnodes_only = True
     # Prepare data for both networks
     to_plot_rel1, dh_prices1 = prepare_energy_balance_data(
         network1,
@@ -399,6 +422,15 @@ def plot_energy_balance_comparison(
         drop_losses,
         subnodes_only,
     )
+    # Check for scenario comparison of NoPTES and rhboost. Both must be MidSupplyTemperature
+    if (
+        "MidSupplyTemperature" in scenarios[0]
+        and "MidSupplyTemperature" in scenarios[1]
+    ):
+        if "NoPTES" in scenarios[0] and "rhboost" in scenarios[1]:
+            logger.info(
+                "Comparing NoPTES with rhboost scenario for MidSupplyTemperature"
+            )
 
     # Calculate price savings (network1 - network2)
     dh_price_savings = dh_prices1 - dh_prices2
@@ -474,8 +506,18 @@ def plot_energy_balance_comparison(
 
     max_ylim = to_plot_rel2.clip(lower=0).sum(1).max() * 1.05
 
-    # Create subplots with side-by-side layout (smaller width for better proportions)
-    fig, axes = plt.subplots(1, 2, figsize=(5, 20), sharey=True)
+    # Create subplots with side-by-side layout and pie charts below
+    fig = plt.figure(figsize=(10, 12))  # Wider for legend on right, less tall
+
+    # Main bar plots (top row) - using grid to leave space for legend on right
+    ax1 = plt.subplot2grid((10, 12), (0, 0), rowspan=6, colspan=5)
+    ax2 = plt.subplot2grid((10, 12), (0, 5), rowspan=6, colspan=5, sharey=ax1)
+    axes = [ax1, ax2]
+
+    # Pie charts (bottom row) - positioned to avoid overlap with upper plots
+    pie_ax1 = plt.subplot2grid((10, 12), (7, 0), rowspan=3, colspan=5)
+    pie_ax2 = plt.subplot2grid((10, 12), (7, 5), rowspan=3, colspan=5)
+    pie_axes = [pie_ax1, pie_ax2]
 
     # Plot for Network 1 (left subplot)
     ax1 = axes[0]
@@ -538,54 +580,31 @@ def plot_energy_balance_comparison(
 
     # Create cleaner scenario title with bold formatting and linebreaks
     def format_scenario_title(scenario):
-        """Format scenario title with proper linebreaks (no asterisks)."""
+        """Format scenario title to show only the essential scenario information."""
         title = scenario
 
-        # Handle supply temperature
-        if "HighSupplyTemperature" in title:
-            title = title.replace("HighSupplyTemperature_", "High Temperature\n")
-        elif "MidSupplyTemperature" in title:
-            title = title.replace("MidSupplyTemperature_", "Medium Temperature\n")
-        elif "LowSupplyTemperature" in title:
-            title = title.replace("LowSupplyTemperature_", "Low Temperature\n")
-
-        # Handle DH level
-        if "MidDH_" in title:
-            title = title.replace("MidDH_", "")
-        elif "HighDH_" in title:
-            title = title.replace("HighDH_", "High DH\n")
-        elif "LowDH_" in title:
-            title = title.replace("LowDH_", "Low DH\n")
-
-        # Handle PTES scenarios
+        # Simplified formatting - only show the main scenario type
         if "NoPTES" in title:
-            title = title.replace("NoPTES", "No PTES")
+            return "No PTES"
         elif "hpboost" in title:
             if "35Ctop" in title:
-                title = title.replace(
-                    "hpboost_35Ctop", "PTES with\nbooster heat pump\nto 35°C"
-                )
+                return "PTES with\nbooster heat pump\nto 35°C"
             elif "10Cbottom" in title:
-                title = title.replace(
-                    "hpboost_10Cbottom", "PTES with\nbooster heat pump\nto 10°C"
-                )
+                return "PTES with\nbooster heat pump\nto 10°C"
             else:
-                title = title.replace("hpboost", "PTES with\nbooster heat pump")
+                return "PTES with\nbooster heat pump"
         elif "rhboost" in title:
-            title = title.replace("rhboost", "PTES with\nresistive boosting")
+            return "PTES with\nresistive boosting"
         elif "noboost" in title:
-            title = title.replace("noboost", "PTES with\nno boosting")
-
-        # Clean up any remaining underscores
-        title = title.replace("_", " ")
-
-        return title
+            return "PTES with\nno boosting"
+        else:
+            # Fallback for other scenarios - clean up the name
+            title = title.replace("_", " ")
+            return title
 
     title1 = format_scenario_title(scenarios[0])
     ax1.set_title(title1, fontsize=11, pad=20, ha="center", weight="bold")
-    ax1.set_xlabel(
-        "Share of district heating\nconsumption and supply\n[%]", fontsize=12
-    )
+    ax1.set_xlabel("Demand and supply [%]", fontsize=12)
 
     ax1.axvline(x=0, color="black", linestyle="-")
     ax1.set_xlim(-max_ylim, max_ylim)
@@ -669,29 +688,21 @@ def plot_energy_balance_comparison(
         clip_on=False,
     )
 
-    # Add mean DH demand line (dotted, white with black border like price savings)
-    # First draw thick black dotted line as border
-    # ax1_demand.axvline(
-    #     x=dh_demand.mean(),
-    #     color="black",
-    #     linestyle=":",
-    #     linewidth=4,
-    #     alpha=1,
-    #     zorder=5,
-    # )
-    # Then draw thinner white dotted line on top
-    # ax1_demand.axvline(
-    #     x=dh_demand.mean(),
-    #     color="white",
-    #     linestyle=":",
-    #     linewidth=2,
-    #     alpha=1,
-    #     zorder=6,
-    # )
+    # Add mean DH demand line (black dotted)
+    ax1_demand.axvline(
+        x=dh_demand.mean(),
+        color="black",
+        linestyle=":",
+        linewidth=2,
+        alpha=1,
+        zorder=5,
+    )
 
     # Set labels for demand axis
     ax1_demand.set_xlabel("DH Demand\n[TWh]", fontsize=12)
     ax1_demand.tick_params(axis="x", labelsize=10)
+
+    ax1.set_ylabel("")
 
     # Set x-limits for demand axis with some padding
     demand_min, demand_max = dh_demand.min(), dh_demand.max()
@@ -765,9 +776,7 @@ def plot_energy_balance_comparison(
     )
     title2 = format_scenario_title(scenarios[1])
     ax2.set_title(title2, fontsize=11, pad=20, ha="center", weight="bold")
-    ax2.set_xlabel(
-        "Share of district heating\nconsumption and supply\n[%]", fontsize=12
-    )
+    ax2.set_xlabel("Demand and supply [%]", fontsize=12)
     ax2.axvline(x=0, color="black", linestyle="-")
     ax2.set_xlim(-max_ylim, max_ylim)
 
@@ -811,23 +820,187 @@ def plot_energy_balance_comparison(
     ax2_price.set_xlabel("ΔDH Price\n[EUR MWh$^{-1}$]", fontsize=12, color="black")
     ax2_price.tick_params(axis="x", labelsize=10, colors="black")
 
-    # Set x-limits for price savings axis with some padding
+    # Set x-limits for price savings axis with symmetric range around 0
     price_min, price_max = dh_price_savings.min(), dh_price_savings.max()
-    price_range = price_max - price_min
-    if price_range > 0:
-        padding = price_range * 0.1  # 10% padding
-        price_xlim = (price_min - padding, price_max + padding)
-    else:
-        # If all savings are the same, add some padding around the value
-        price_xlim = (price_min * 0.95, price_max * 1.05)
+
+    # Use symmetric limits to ensure 0 is exactly in the middle and all markers are visible
+    max_abs_value = max(abs(price_min), abs(price_max))
+
+    # Reduce padding for narrower range and better focus
+    padding = max(
+        max_abs_value * 0.1, 2.0
+    )  # At least 2 EUR/MWh padding or 10% of range (reduced from 20%)
+    symmetric_limit = max_abs_value + padding
+    price_xlim = (-symmetric_limit, symmetric_limit)
 
     ax2_price.set_xlim(price_xlim)
+    # Add a subtle vertical line at 0 to emphasize the center
+    ax2_price.axvline(x=0, color="gray", linestyle=":", alpha=0.7, linewidth=1)
 
     # Update fontsize of yticks for both subplots (now that bars are horizontal)
     for tick in ax1.get_yticklabels():
-        tick.set_fontsize(7)
+        tick.set_fontsize(10)
     for tick in ax2.get_yticklabels():
-        tick.set_fontsize(7)
+        tick.set_fontsize(10)
+
+    # Add vertical dashed lines at -100% and +100% (black for prominence)
+    ax1.axvline(x=-100, color="black", linestyle="--", alpha=0.7, linewidth=1)
+    ax1.axvline(x=100, color="black", linestyle="--", alpha=0.7, linewidth=1)
+    ax2.axvline(x=-100, color="black", linestyle="--", alpha=0.7, linewidth=1)
+    ax2.axvline(x=100, color="black", linestyle="--", alpha=0.7, linewidth=1)
+
+    # Set grid to extend beyond plot area
+    ax1.set_axisbelow(True)
+    ax2.set_axisbelow(True)
+
+    # Create pie charts for aggregated DH supply mix
+    storage_techs = [
+        "urban central water tanks",
+        "urban central water tanks charger",
+        "urban central water tanks losses",
+        "urban central water pits",
+        "urban central water pits charger",
+        "urban central water pits losses",
+        "TTES",
+        "PTES",
+    ]
+
+    # Helper function to get absolute energy balance data
+    def get_absolute_energy_balance(network, subnodes_only=False):
+        """Get absolute energy balance data in TWh for aggregation."""
+        eb_uch = (
+            network.statistics.energy_balance(groupby=["bus", "carrier", "bus_carrier"])
+            .xs("urban central heat", level=3)
+            .reset_index()
+        )
+
+        # Filter for district heating systems - include both subnodes and mother nodes
+        if subnodes_only:
+            eb_uch = eb_uch.loc[eb_uch.bus.str.contains(r"DE\d+ \d+ \w+.*urban"), :]
+        else:
+            eb_uch = eb_uch.loc[eb_uch.bus.str.contains(r"DE\d+ \d+.*urban"), :]
+
+        # Strip 'urban central heat' from the bus index
+        eb_uch["bus"] = eb_uch["bus"].str.replace(" urban central heat", "")
+        eb_uch.drop("component", axis=1, inplace=True)
+
+        # Remove " CC" suffix and aggregate
+        eb_uch["carrier"] = eb_uch["carrier"].str.replace(" CC", "", regex=False)
+        eb_uch = eb_uch.groupby(["bus", "carrier"], as_index=False).sum()
+
+        # Set index and unstack
+        to_plot = eb_uch.set_index(["bus", "carrier"]).unstack(-1)
+        to_plot.columns = to_plot.columns.droplevel(0)
+
+        # Convert from MWh to TWh and keep only positive values (supply)
+        to_plot_twh = to_plot / 1e6
+        return to_plot_twh.clip(lower=0)
+
+    networks = [network1, network2]
+    for i, (network, pie_ax) in enumerate(zip(networks, pie_axes)):
+        # Get absolute energy balance in TWh for all systems
+        abs_data = get_absolute_energy_balance(network, subnodes_only=False)
+
+        # Group supply technologies (excluding storage)
+        grouped_supply = {}
+
+        for col in abs_data.columns:
+            if not any(storage_tech in col for storage_tech in storage_techs):
+                total_value = abs_data[col].sum()  # Sum across all systems in TWh
+                if total_value > 0:
+                    # Apply same grouping logic as main plots
+                    tech_name = col
+
+                    # Group heat pumps if enabled
+                    if group_heat_pumps and "heat pump" in col.lower():
+                        tech_name = "Heat Pumps"
+                    # Group A/WSHP if enabled (and not already grouped with all heat pumps)
+                    elif (
+                        group_ashp_wshp
+                        and not group_heat_pumps
+                        and (
+                            "urban central air heat pump" in col.lower()
+                            or "urban central river_water heat pump" in col.lower()
+                            or "urban central sea_water heat pump" in col.lower()
+                        )
+                    ):
+                        tech_name = "A/WSHP"
+                    # Group CHP if enabled
+                    elif group_chp and (
+                        "chp" in col.lower() or "combined heat" in col.lower()
+                    ):
+                        tech_name = "CHP"
+                    # Clean up other technology names
+                    else:
+                        tech_name = (
+                            col.replace("urban central ", "")
+                            .replace("water pits", "PTES")
+                            .replace("water tanks", "TTES")
+                        )
+
+                    # Add to grouped supply
+                    if tech_name not in grouped_supply:
+                        grouped_supply[tech_name] = 0
+                    grouped_supply[tech_name] += total_value
+
+        # Create pie chart if we have data
+        if grouped_supply:
+            techs = list(grouped_supply.keys())
+            values = list(grouped_supply.values())
+
+            # Use colors from the main color scheme
+            tech_colors_map = colors.copy()
+
+            # Create color mapping for cleaned technology names
+            for tech, color in colors.items():
+                clean_tech = (
+                    tech.replace("urban central ", "")
+                    .replace("water pits", "PTES")
+                    .replace("water tanks", "TTES")
+                )
+                tech_colors_map[clean_tech] = color
+
+            tech_colors = [
+                tech_colors_map.get(tech, "#808080") for tech in techs
+            ]  # Gray fallback
+
+            # Create pie chart
+            wedges, texts, autotexts = pie_ax.pie(
+                values,
+                labels=None,  # Don't show labels on pie itself
+                colors=tech_colors,
+                autopct=lambda pct: (
+                    f"{pct:.1f}%" if pct > 3 else ""
+                ),  # Only show percentage if > 3%
+                startangle=90,
+                textprops={"fontsize": 10},
+                wedgeprops={"alpha": 0.8},
+                pctdistance=0.65,  # Move percentages inward so they're contained within pie slices
+            )
+
+            # Make percentages bold and black, and rotate them to point toward center
+            for i_text, (autotext, wedge) in enumerate(zip(autotexts, wedges)):
+                autotext.set_color("black")  # Changed to black for better readability
+                autotext.set_weight("bold")
+
+                # Calculate angle to rotate text toward center
+                angle = (wedge.theta1 + wedge.theta2) / 2  # Middle angle of the wedge
+                if 90 <= angle <= 270:  # Left side of pie
+                    rotation = angle + 180  # Flip text to keep it readable
+                else:  # Right side of pie
+                    rotation = angle
+                autotext.set_rotation(rotation)
+                autotext.set_horizontalalignment("center")
+                autotext.set_verticalalignment("center")
+
+        # Format pie chart
+        pie_ax.set_aspect("equal")  # Ensure pie chart is circular
+
+        # Add total TWh as title below pie chart - smaller gap between label and pie
+        total_twh = sum(values) if grouped_supply else 0
+        pie_ax.set_title(
+            f"Total: {total_twh:.1f} TWh", fontsize=12, pad=5, weight="bold"
+        )
 
     # Organize legend by categories
     legend_handles = []
@@ -951,13 +1124,9 @@ def plot_energy_balance_comparison(
         Line2D(
             [0],
             [0],
-            color="white",
+            color="black",
             linestyle=":",
-            linewidth=3,
-            path_effects=[
-                matplotlib.patheffects.Stroke(linewidth=4, foreground="black"),
-                matplotlib.patheffects.Normal(),
-            ],
+            linewidth=2,
         )
     )
     legend_labels.append("  Mean DH Demand")
@@ -989,14 +1158,19 @@ def plot_energy_balance_comparison(
     )
     legend_labels.append("  Mean ΔDH Price")
 
+    legend_labels = [label.replace("_", " ") for label in legend_labels]
+
     fig.legend(
         legend_handles,
         legend_labels,
-        bbox_to_anchor=(0.5, 0.05),
-        loc="upper center",
+        bbox_to_anchor=(0.7, 0.72),
+        loc="center left",
         frameon=False,
-        fontsize=10,
-        ncol=3,  # Three columns for better organization
+        fontsize=12,
+        ncol=1,  # Single column on the right side
+        handler_map={mpatches.Patch: HandlerSquare()},  # Add this line
+        handlelength=1.0,  # Optional: adjust handle size
+        handleheight=1.0,  # Optional: adjust handle size
     )
 
     # Replace DE0 at start of yticks with empty string (now y-axis shows regions)
@@ -1007,28 +1181,19 @@ def plot_energy_balance_comparison(
     # Only show y-tick labels on the left subplot and add y-axis label
     ax1.tick_params(axis="y", labelleft=True)
     ax2.tick_params(axis="y", labelleft=False, labelright=False)
-    ax1.set_ylabel("District heating system", fontsize=14)
 
     # Add light horizontal grid lines for easier comparison (extended beyond borders)
     ax1.grid(True, axis="y", alpha=0.3, linestyle="-", linewidth=0.5)
     ax2.grid(True, axis="y", alpha=0.3, linestyle="-", linewidth=0.5)
 
-    # Add vertical dashed lines at -100% and +100% (black for prominence)
-    ax1.axvline(x=-100, color="black", linestyle="--", alpha=0.7, linewidth=1)
-    ax1.axvline(x=100, color="black", linestyle="--", alpha=0.7, linewidth=1)
-    ax2.axvline(x=-100, color="black", linestyle="--", alpha=0.7, linewidth=1)
-    ax2.axvline(x=100, color="black", linestyle="--", alpha=0.7, linewidth=1)
-
-    # Set grid to extend beyond plot area
-    ax1.set_axisbelow(True)
-    ax2.set_axisbelow(True)
-
     # The xlabel is now meaningful for horizontal bars, don't remove it
 
     # Adjust layout and save the plot
     plt.tight_layout()
-    # Add space at the bottom for the legend (adjusted for taller figure)
-    plt.subplots_adjust(top=0.96, wspace=0.25, left=0.20, right=0.95, bottom=0.14)
+    # Adjusted margins: reduced horizontal spacing, more room on right for legend, less bottom margin
+    plt.subplots_adjust(
+        top=0.95, wspace=0.10, left=0.12, right=0.80, bottom=0.05, hspace=0.15
+    )
     fig.savefig(output_path, bbox_inches="tight")
 
     logger.info(f"Energy balance comparison saved to {output_path}")
@@ -1082,7 +1247,7 @@ def plot_energy_balance_triple_comparison(
     tuple
         (figure, axes) matplotlib objects
     """
-    plt.rcParams.update({"font.size": 10})
+    plt.rcParams.update({"font.size": 12})
 
     def prepare_energy_balance_data(
         network,
@@ -1339,23 +1504,21 @@ def plot_energy_balance_triple_comparison(
         * 1.05
     )
 
-    # Create subplots with three columns and sub-charts below each
-    fig = plt.figure(figsize=(8, 12))
+    # Create subplots with three columns and sub-charts below each - smaller overall size for bigger fonts
+    fig = plt.figure(figsize=(10, 10))
 
-    # Main plots (top row) - make them take up most of the space
+    # Main plots (top row) - make them wider and less high
     axes = []
     for i in range(3):
         ax = plt.subplot2grid(
-            (15, 3), (0, i), rowspan=10, sharey=axes[0] if axes else None
+            (12, 3), (0, i), rowspan=7, sharey=axes[0] if axes else None
         )
         axes.append(ax)
 
-    # Sub-charts (bottom row) for aggregated DH mix with shared y-axis
+    # Pie charts (bottom row) for aggregated DH mix
     sub_axes = []
     for i in range(3):
-        sub_ax = plt.subplot2grid(
-            (15, 3), (13, i), rowspan=2, sharey=sub_axes[0] if sub_axes else None
-        )
+        sub_ax = plt.subplot2grid((12, 3), (8, i), rowspan=4)
         sub_axes.append(sub_ax)
 
     def format_scenario_title(scenario):
@@ -1482,10 +1645,8 @@ def plot_energy_balance_triple_comparison(
 
         # Format title and labels
         title = format_scenario_title(scenario)
-        ax.set_title(title, fontsize=11, pad=20, ha="center", weight="bold")
-        ax.set_xlabel(
-            "Share of district heating\nconsumption and supply\n[%]", fontsize=12
-        )
+        ax.set_title(title, fontsize=12, pad=20, ha="center", weight="bold")
+        ax.set_xlabel("Demand and supply [%]", fontsize=12)
         ax.axvline(x=0, color="black", linestyle="-")
         ax.set_xlim(-max_ylim, max_ylim)
 
@@ -1615,18 +1776,17 @@ def plot_energy_balance_triple_comparison(
             ax_secondary.set_xlabel(
                 "ΔDH Price\n[EUR MWh$^{-1}$]", fontsize=12, color="black"
             )
-            ax_secondary.tick_params(axis="x", labelsize=10, colors="black")
+            ax_secondary.tick_params(axis="x", labelsize=12, colors="black")
 
             # Store price axis for later standardization
             price_axes.append((ax_secondary, prices))
 
         # Y-axis formatting
         for tick in ax.get_yticklabels():
-            tick.set_fontsize(7)
+            tick.set_fontsize(10)
 
         if i == 0:  # Only show y-labels on leftmost plot
             ax.tick_params(axis="y", labelleft=True)
-            ax.set_ylabel("District heating system", fontsize=14, weight="bold")
             # Clean y-tick labels
             yticks = [
                 label.get_text().replace("DE0 ", "") for label in ax.get_yticklabels()
@@ -1642,16 +1802,23 @@ def plot_energy_balance_triple_comparison(
         for _, prices in price_axes:
             all_price_values.extend(prices.values)
 
-        combined_min, combined_max = min(all_price_values), max(all_price_values)
-        # Use symmetric limits to ensure 0 aligns vertically across all plots
-        max_abs_value = max(abs(combined_min), abs(combined_max))
-        padding = max_abs_value * 0.1
-        symmetric_limit = max_abs_value + padding
-        shared_xlim = (-symmetric_limit, symmetric_limit)
+        if all_price_values:  # Only proceed if we have price data
+            combined_min, combined_max = min(all_price_values), max(all_price_values)
+            # Use symmetric limits to ensure 0 is exactly in the middle
+            max_abs_value = max(abs(combined_min), abs(combined_max))
+            padding = (
+                max_abs_value * 0.15
+            )  # Increase padding slightly for better visibility
+            symmetric_limit = max_abs_value + padding
+            shared_xlim = (-symmetric_limit, symmetric_limit)
 
-        # Apply the same symmetric limits to both price axes
-        for ax_secondary, _ in price_axes:
-            ax_secondary.set_xlim(shared_xlim)
+            # Apply the same symmetric limits to both price axes
+            for ax_secondary, _ in price_axes:
+                ax_secondary.set_xlim(shared_xlim)
+                # Add a subtle vertical line at 0 to emphasize the center
+                ax_secondary.axvline(
+                    x=0, color="gray", linestyle=":", alpha=0.7, linewidth=1
+                )
 
     # Create aggregated DH mix sub-charts (without storage technologies)
     # For aggregated charts, always include both subnodes and mother nodes
@@ -1857,37 +2024,40 @@ def plot_energy_balance_triple_comparison(
             tech_colors_map.get(tech, "#808080") for tech in techs
         ]  # Gray fallback
 
-        if techs:  # Only create bars if we have data
-            # Reverse the order to flip the stacking (geothermal will now be at top)
-            techs_reversed = list(reversed(techs))
-            values_reversed = list(reversed(values))
-            tech_colors_reversed = list(reversed(tech_colors))
+        if techs:  # Only create pie chart if we have data
+            # Create pie chart
+            wedges, texts, autotexts = sub_ax.pie(
+                values,
+                labels=None,  # Don't show labels on pie itself
+                colors=tech_colors,
+                autopct=lambda pct: (
+                    f"{pct:.1f}%" if pct > 3 else ""
+                ),  # Only show percentage if > 3%
+                startangle=90,
+                textprops={"fontsize": 10},
+                wedgeprops={"alpha": 0.8},
+            )
 
-            bottom = 0
-            for tech, value, color in zip(
-                techs_reversed, values_reversed, tech_colors_reversed
-            ):
-                sub_ax.bar(0, value, bottom=bottom, color=color, width=1.0, alpha=0.8)
-                bottom += value
+            # Make percentages bold and white
+            for autotext in autotexts:
+                autotext.set_color("white")
+                # autotext.set_weight("bold")
 
-        # Format sub-chart
-        sub_ax.set_xlim(-0.5, 0.5)
-        sub_ax.set_xticks([])
-        if i == 0:  # Only show y-label on leftmost chart
-            sub_ax.set_ylabel("TWh", fontsize=12)
-        sub_ax.tick_params(axis="y", labelsize=10)
+        # Format pie chart
+        sub_ax.set_aspect("equal")  # Ensure pie chart is circular
 
-        # Remove spines except left
-        for spine in sub_ax.spines.values():
-            spine.set_visible(False)
-        sub_ax.spines["left"].set_visible(True)
-        sub_ax.grid(True, alpha=0.3, axis="y")
+        # Add total TWh as title below pie chart
+        total_twh = sum(values) if values else 0
+        if i == 1:  # Only show on middle chart to avoid repetition
+            sub_ax.set_title(
+                f"Total: {total_twh:.1f} TWh", fontsize=12, pad=10, weight="bold"
+            )
 
-    # Add single centered title for sub-charts (positioned above the bars)
+    # Add single centered title for pie charts
     fig.text(
         0.5,
-        0.35,
-        "Aggregated DH Supply",
+        0.42,
+        "Aggregated DH Supply Mix",
         ha="center",
         va="center",
         fontsize=12,
@@ -1926,6 +2096,7 @@ def plot_energy_balance_triple_comparison(
         label = label.replace("water tanks", "TTES")
         label = label.replace(" charger", "").replace(" discharger", "")
         label = label.replace("A/WSHP", "Air and water sourced heat pumps")
+        label = label.replace("_", " ")
 
         # Handle PTES capitalization specifically
         if label.lower().startswith("ptes"):
@@ -2059,17 +2230,17 @@ def plot_energy_balance_triple_comparison(
     fig.legend(
         legend_handles,
         legend_labels,
-        bbox_to_anchor=(0.5, 0.17),
+        bbox_to_anchor=(0.5, 0.15),
         loc="upper center",
         frameon=False,
-        fontsize=10,
+        fontsize=12,
         ncol=3,
     )
 
-    # Adjust layout for narrower plots, sub-charts, and comprehensive legend
+    # Adjust layout for wider plots, pie charts, and comprehensive legend
     plt.tight_layout()
     plt.subplots_adjust(
-        top=0.95, wspace=0.12, left=0.12, right=0.95, bottom=0.23, hspace=0.18
+        top=0.95, wspace=0.15, left=0.10, right=0.95, bottom=0.25, hspace=0.25
     )
     fig.savefig(output_path, bbox_inches="tight")
 
@@ -2091,7 +2262,10 @@ def main(snakemake):
 
     # Get parameters from snakemake
     run_name = snakemake.params.run
-    scenarios = snakemake.params.scenarios
+    scenarios = [
+        "NoPTES_MidSupplyTemperature_MidDH",
+        "MidSupplyTemperature_MidDH_freeboost",
+    ]
     planning_horizons = snakemake.params.planning_horizons
 
     # Get color overrides from config if available
@@ -2115,7 +2289,7 @@ def main(snakemake):
         group_demands = True
         drop_losses = True
         subnodes_only = True
-
+    subnodes_only = True
     # Create output directory
     output_path = snakemake.output[0]  # This is a directory
     os.makedirs(output_path, exist_ok=True)

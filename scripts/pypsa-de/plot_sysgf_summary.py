@@ -106,92 +106,65 @@ def get_pit_capacities_de(n, mode="effective"):
     return caps
 
 
-def calc_average_dh_price(n):
-    """Calculate average district heating price in EUR/MWh."""
-    dh_loads = n.loads_t.p.filter(
-        regex=r"DE.*(urban central heat|low-temperature heat for industry)"
-    )
-    if dh_loads.empty:
-        return 0
-
-    # Rename columns to standardize names
-    dh_loads.columns = dh_loads.columns.str.replace(
-        "low-temperature heat for industry", "urban central heat"
-    )
-    # Aggregate columns with same name
-    dh_loads = dh_loads.T.groupby(level=0).sum().T
-
-    prices = n.buses_t.marginal_price.filter(regex=r"DE0.*urban central heat")
-    if prices.empty or dh_loads.sum().sum() == 0:
-        return 0
-
-    average_dh_price = dh_loads.mul(prices).sum().sum() / dh_loads.sum().sum()
-    return average_dh_price
-
-
-def calc_average_elec_price(n):
-    """Calculate average electricity price in EUR/MWh."""
-    elec_mps = n.buses_t.marginal_price.filter(regex=r"DE0 \d+$")
-    elec_demand = n.loads_t.p.filter(regex=r"DE\d.*(\d+|electricity|EV)$")
-
-    if elec_mps.empty or elec_demand.empty:
-        return 0
-
-    elec_demand.columns = elec_demand.columns.str.split(" ").str[:2].str.join(" ")
-    elec_demand = elec_demand.T.groupby(elec_demand.columns).sum().T
-    elec_costs = (elec_mps * elec_demand).sum().sum()
-
-    if elec_demand.sum().sum() == 0:
-        return 0
-
-    return elec_costs / elec_demand.sum().sum()
-
-
-def calc_average_dh_price_t_ordered(n):
+def calc_average_dh_price_t_ordered(n, aggregate_time=False):
     """Calculate time-ordered average district heating price."""
-    loads = n.loads_t.p.filter(
-        regex=r"DE\d.*(urban central|low-temperature) heat"
-    ).clip(lower=0)
-    prices = n.buses_t.marginal_price.filter(regex=r"DE\d.*urban central heat")
+    dh_price_t = n.buses_t.marginal_price.filter(regex=r"DE0 \d+.*urban central heat")
+    dh_wd_t_ordered = n.statistics.withdrawal(
+        groupby=["bus", "carrier", "bus_carrier"],
+        aggregate_time=False,
+        bus_carrier="urban central heat",
+    ).filter(like="DE0", axis=0)
+    # Drop chargers
+    to_drop = dh_wd_t_ordered.filter(like="charger", axis=0).index
+    dh_wd_t_ordered = dh_wd_t_ordered.drop(to_drop, axis=0)
+    # Drop chargers
+    dh_wd_t_ordered = dh_wd_t_ordered.groupby(["bus"]).sum()
 
-    if loads.empty or prices.empty or loads.sum(axis=1).isnull().any():
-        return pd.Series()
-
-    weighted_average_price_t = loads.mul(prices).sum(axis=1).div(loads.sum(axis=1))
-    return weighted_average_price_t
-
-
-# def calc_average_dh_price(n):
-#     """Calculate average district heating price in EUR/MWh."""
-#     dh_mps = n.buses_t.marginal_price.filter(regex=r"DE0.*urban central heat")
-#     dh_loads = n.loads_t.p.filter(regex=r"DE\d.*(urban central|low-temperature) heat")
-
-#     if dh_mps.empty or dh_loads.empty:
-#         return 0
-
-#     dh_loads.columns = dh_loads.columns.str.replace(
-#         "low-temperature heat for industry", "urban central heat"
-#     )
-#     # Aggregate columns with same name
-#     dh_loads = dh_loads.T.groupby(level=0).sum().T
-#     dh_costs = (dh_mps * dh_loads).sum().sum()
-
-#     if dh_loads.sum().sum() == 0:
-#         return 0
-
-#     return dh_costs / dh_loads.sum().sum()
+    weighted_dh_price_t = (
+        dh_price_t.mul(dh_wd_t_ordered.T)
+        .sum(1)
+        .div(dh_wd_t_ordered.sum())
+        .sort_values()
+    )
+    if aggregate_time:
+        weighted_dh_price = (
+            weighted_dh_price_t.mul(dh_wd_t_ordered.sum()).sum()
+            / dh_wd_t_ordered.sum().sum()
+        )
+        return weighted_dh_price
+    else:
+        return weighted_dh_price_t
 
 
-def calc_average_electricity_price_t_ordered(n):
+def calc_average_elec_price_t_ordered(n, aggregate_time=False):
     """Calculate time-ordered average electricity price."""
-    loads = n.buses_t.p.filter(regex=r"DE\d \d$").clip(upper=0).mul(-1)
-    prices = n.buses_t.marginal_price.filter(regex=r"DE\d \d$")
-
-    if loads.empty or prices.empty or loads.sum(axis=1).isnull().any():
-        return pd.Series()
-
-    weighted_average_price_t = loads.mul(prices).sum(axis=1).div(loads.sum(axis=1))
-    return weighted_average_price_t
+    elec_price_t = n.buses_t.marginal_price.filter(regex=r"DE0 \d+$")
+    elec_wd_t_ordered = n.statistics.withdrawal(
+        groupby=["bus", "carrier", "bus_carrier"],
+        aggregate_time=False,
+        bus_carrier="AC",
+    ).filter(like="DE0", axis=0)
+    # Drop carrier=='DC' and component=='Line' entries
+    to_drop = elec_wd_t_ordered.index[
+        (elec_wd_t_ordered.index.get_level_values("carrier") == "DC")
+        | (elec_wd_t_ordered.index.get_level_values("component") == "Line")
+    ]
+    elec_wd_t_ordered = elec_wd_t_ordered.drop(to_drop, axis=0)
+    elec_wd_t_ordered = elec_wd_t_ordered.groupby(["bus"]).sum()
+    weighted_elec_price_t = (
+        elec_price_t.mul(elec_wd_t_ordered.T)
+        .sum(1)
+        .div(elec_wd_t_ordered.sum())
+        .sort_values()
+    )
+    if aggregate_time:
+        weighted_elec_price = (
+            weighted_elec_price_t.mul(elec_wd_t_ordered.sum()).sum()
+            / elec_wd_t_ordered.sum().sum()
+        )
+        return weighted_elec_price
+    else:
+        return weighted_elec_price_t
 
 
 def calc_curtailment_de(n):
@@ -356,19 +329,22 @@ def calc_system_costs_country(n, country):
 def calculate_district_heating_costs(n: pypsa.Network) -> float:
     dh_mp = n.buses_t.marginal_price.filter(regex=r"DE0.*urban central heat")
     dh_loads = n.loads_t.p.filter(regex=r"DE\d.*(urban central|low-temperature) heat")
-    dac_load = n.links_t.p1.filter(regex=r"DE0.*DAC")
+    dac_load = n.links_t.p1.filter(regex=r"DE0.*urban central DAC")
     all_loads = pd.concat([dh_loads, dac_load], axis=1).fillna(0)
     # Replace all the words following central with " heat" in the column names
     all_loads.columns = all_loads.columns.str.replace(
         r"central.*", "central heat", regex=True
-    )
+    ).str.replace(r"low-temperature.*", "urban central heat", regex=True)
     # Aggregate columns with same name
     all_loads = all_loads.T.groupby(level=0).sum().T
 
-    # Calculate dh consumer costs
-    dh_consumer_costs = (dh_mp * all_loads).sum().sum()
+    # Get snapshot weightings
+    snapshot_weightings = n.snapshot_weightings.generators
 
-    return dh_consumer_costs
+    # Calculate dh consumer costs
+    dh_consumer_costs = snapshot_weightings @ (dh_mp * all_loads)
+
+    return dh_consumer_costs.sum()
 
 
 def calc_h2_store_capacity(n):
@@ -614,8 +590,12 @@ def create_summary_df(networks):
                             "co2_price_DE_EUR_per_ton": -n.global_constraints.loc[
                                 "co2_limit-DE", "mu"
                             ],
-                            "dh_price_EUR_per_MWh": calc_average_dh_price(n),
-                            "electricity_price_EUR_per_MWh": calc_average_elec_price(n),
+                            "dh_price_EUR_per_MWh": calc_average_dh_price_t_ordered(
+                                n, aggregate_time=True
+                            ),
+                            "electricity_price_EUR_per_MWh": calc_average_elec_price_t_ordered(
+                                n, aggregate_time=True
+                            ),
                             "peak_electricity_price_EUR_per_MWh": n.buses_t.marginal_price.filter(
                                 regex=r"DE0 \d+$"
                             )
@@ -641,7 +621,22 @@ def create_summary_df(networks):
                             )
                             .p_nom_opt.div(1e3)
                             .sum(),
+                            "solar_capacity_GW": n.generators.filter(
+                                regex=r"DE.*solar", axis=0
+                            )
+                            .p_nom_opt.div(1e3)
+                            .sum(),
+                            "wind_capacity_GW": n.generators.filter(
+                                regex=r"DE.*(onwind|offwind)", axis=0
+                            )
+                            .p_nom_opt.div(1e3)
+                            .sum(),
                             "CHP_capacity_GW": n.links.filter(regex=r"DE.*CHP", axis=0)
+                            .p_nom_opt.div(1e3)
+                            .sum(),
+                            "H2_CHP_capacity_GW": n.links.filter(
+                                regex=r"DE.*H2 CHP", axis=0
+                            )
                             .p_nom_opt.div(1e3)
                             .sum(),
                             "resistive_heater_GW": n.links.filter(
@@ -652,7 +647,7 @@ def create_summary_df(networks):
                             "PTES_capacity_TWh_scaled": get_pit_capacities_de(
                                 n, mode="effective"
                             ).sum(),
-                            "PTES_capacity_TWh_m3": get_pit_capacities_de(
+                            "PTES_capacity_m3": get_pit_capacities_de(
                                 n, mode="volume"
                             ).sum(),
                             "PTES_investment_bn€": get_pit_capacities_de(
@@ -662,6 +657,16 @@ def create_summary_df(networks):
                                 n.links.filter(regex=r"DE.*ptes heat pump", axis=0)
                                 .p_nom_opt.div(1e3)
                                 .sum()
+                                if "hpboost" in scenario
+                                else 0
+                            ),
+                            "booster_hp_cf": (
+                                n.statistics.capacity_factor(
+                                    groupby=["country", "carrier"]
+                                )
+                                .xs("DE", level="country")
+                                .xs("urban central ptes heat pump", level="carrier")
+                                .mean()
                                 if "hpboost" in scenario
                                 else 0
                             ),
@@ -678,7 +683,9 @@ def create_summary_df(networks):
                             "hp_capacity_GW": n.links.filter(
                                 regex="DE.*heat pump", axis=0
                             )
-                            .p_nom_opt.div(1e3)
+                            .p_nom_opt.mul(1 / n.links_t.efficiency.max())
+                            .dropna()
+                            .div(1e3)
                             .sum(),
                             "electrolysis_cf": n.statistics.capacity_factor(
                                 groupby=["country", "carrier"]
@@ -1301,6 +1308,14 @@ def plot_price_duration_curves(networks_dict, output_path, figsize=(21, 7)):
 
     # Plot for each scenario and network
     for scenario, networks_scenario in networks_dict.items():
+        # Drop init, CAPEX, freeboost, and freehp scenarios
+        if (
+            "capex" in scenario.lower()
+            or "freeboost" in scenario.lower()
+            or "freehp" in scenario.lower()
+            or "init" in scenario.lower()
+        ):
+            continue
         for year, network in networks_scenario.items():
             label = f"{scenario}_{year}"
 
@@ -1337,12 +1352,12 @@ def plot_price_duration_curves(networks_dict, output_path, figsize=(21, 7)):
 
     # Set y-axis limits based on 99.5 percentile
     # logger.info(f"HV Y-Limit: {hv_ylim}")
-    # if hv_ylim is not None and hv_ylim != np.nan and hv_ylim != np.inf:
-    #     ax[0].set_ylim(0, hv_ylim)
-    # if lv_ylim is not None:
-    #     ax[1].set_ylim(0, lv_ylim)
-    # if dh_ylim is not None:
-    #     ax[2].set_ylim(0, dh_ylim)
+    if hv_ylim is not None and hv_ylim != np.nan and hv_ylim != np.inf:
+        ax[0].set_ylim(0, hv_ylim)
+    if lv_ylim is not None:
+        ax[1].set_ylim(0, lv_ylim)
+    if dh_ylim is not None:
+        ax[2].set_ylim(0, dh_ylim)
 
     for ax_ in ax:
         ax_.set_ylabel("Price [EUR/MWh]")
@@ -2309,6 +2324,14 @@ def plot_ptes_socs(
     cycle_counts = []
 
     for scenario, networks_scenario in networks.items():
+        # Skip CAPEX and freeboost and freecap scenarios
+        if (
+            "CAPEX" in scenario
+            or "freeboost" in scenario
+            or "freecap" in scenario
+            or "init" in scenario
+        ):
+            continue
         for year, networks_year in networks_scenario.items():
             soc = (
                 networks_year.stores_t.e.filter(regex="DE.*water pits").div(1e6).sum(1)

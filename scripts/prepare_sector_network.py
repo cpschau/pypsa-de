@@ -3381,6 +3381,10 @@ def add_heat(
                 if options["time_dep_hp_cop"]
                 else costs.at[costs_name_heat_pump, "efficiency"]
             )
+            if heat_system == HeatSystem.URBAN_CENTRAL:
+                vom = 1  # to be scaled via adjustments in config file
+            else:
+                vom = 0.0
 
             if heat_source in params.limited_heat_sources:
                 # add resource
@@ -3447,6 +3451,10 @@ def add_heat(
                         p_nom_max=p_max_source,
                         p_max_pu=p_max_pu,
                     )
+                if heat_source == "geothermal":
+                    m_offset = 0.1  # electricity for source pump
+                else:
+                    m_offset = 0.0
                 # add heat pump converting source heat + electricity to urban central heat
                 n.add(
                     "Link",
@@ -3456,12 +3464,13 @@ def add_heat(
                     bus1=nodes,
                     bus2=nodes + f" {heat_carrier}",
                     carrier=f"{heat_system} {heat_source} heat pump",
-                    efficiency=1 / cop_heat_pump.clip(lower=0.01),
+                    efficiency=1 / cop_heat_pump.clip(lower=0.01) + m_offset,
                     efficiency2=1 - 1 / (cop_heat_pump).clip(lower=0.01),
                     capital_cost=costs.at[costs_name_heat_pump, "capital_cost"]
                     * overdim_factor,
                     overnight_cost=costs.at[costs_name_heat_pump, "investment"]
                     * overdim_factor,
+                    marginal_cost=-vom,
                     p_nom_extendable=True,
                     p_max_pu=0,
                     p_min_pu=-1 * cop_heat_pump / cop_heat_pump.clip(lower=0.001),
@@ -3510,6 +3519,7 @@ def add_heat(
                         * overdim_factor,
                         overnight_cost=costs.at[costs_name_heat_pump, "investment"]
                         * overdim_factor,
+                        marginal_cost=-cop_heat_pump * vom,
                         p_nom_extendable=True,
                         p_max_pu=0,
                         p_min_pu=-(1 / cop_heat_pump.clip(lower=0.001)).replace(
@@ -3531,6 +3541,7 @@ def add_heat(
                     * overdim_factor,
                     overnight_cost=costs.at[costs_name_heat_pump, "investment"]
                     * overdim_factor,
+                    marginal_cost=-vom,
                     p_max_pu=0,
                     p_min_pu=-cop_heat_pump / cop_heat_pump.clip(lower=0.001),
                     p_nom_extendable=True,
@@ -3539,6 +3550,11 @@ def add_heat(
 
         if options["resistive_heaters"]:
             key = f"{heat_system.central_or_decentral} resistive heater"
+
+            if heat_system == HeatSystem.URBAN_CENTRAL:
+                vom = costs.at[key, "VOM"]
+            else:
+                vom = 0.0
 
             n.add(
                 "Link",
@@ -3549,6 +3565,7 @@ def add_heat(
                 efficiency=1 / costs.at[key, "efficiency"],
                 capital_cost=costs.at[key, "capital_cost"] * overdim_factor,
                 overnight_cost=costs.at[key, "investment"] * overdim_factor,
+                marginal_cost=-vom,
                 p_max_pu=0,
                 p_min_pu=-1,
                 p_nom_extendable=True,
@@ -3557,6 +3574,10 @@ def add_heat(
 
         if options["boilers"]:
             key = f"{heat_system.central_or_decentral} gas boiler"
+            if heat_system == HeatSystem.URBAN_CENTRAL:
+                vom = costs.at[key, "VOM"]
+            else:
+                vom = 0.0
 
             n.add(
                 "Link",
@@ -3571,6 +3592,7 @@ def add_heat(
                 capital_cost=costs.at[key, "efficiency"]
                 * costs.at[key, "capital_cost"]
                 * overdim_factor,
+                marginal_cost=vom,
                 overnight_cost=costs.at[key, "efficiency"]
                 * costs.at[key, "investment"]
                 * overdim_factor,

@@ -46,7 +46,14 @@ logger = logging.getLogger(__name__)
 
 # Supply temperatures and PTES configurations
 SUPPLY_TEMPS = ["HighSupplyTemperature", "MidSupplyTemperature", "LowSupplyTemperature"]
-PTES_CONFIGS = ["hpboost", "rhboost", "hpboost_10Cbottom", "noboost"]
+PTES_CONFIGS = [
+    # "hpboost",
+    "rhboost",
+    "hpboost_10Cbottom",
+    "noboost",
+    "freeboost",
+    "freecap",
+]
 
 
 def format_label(label):
@@ -110,6 +117,36 @@ def calc_average_dh_price(n):
 
     average_dh_price = dh_loads.mul(prices).sum().sum() / dh_loads.sum().sum()
     return average_dh_price
+
+
+def calc_average_dh_price_t_ordered(n, aggregate_time=False):
+    """Calculate time-ordered average district heating price."""
+    dh_price_t = n.buses_t.marginal_price.filter(regex=r"DE0 \d+.*urban central heat")
+    dh_wd_t_ordered = n.statistics.withdrawal(
+        groupby=["bus", "carrier", "bus_carrier"],
+        aggregate_time=False,
+        bus_carrier="urban central heat",
+    ).filter(like="DE0", axis=0)
+    # Drop chargers
+    to_drop = dh_wd_t_ordered.filter(like="charger", axis=0).index
+    dh_wd_t_ordered = dh_wd_t_ordered.drop(to_drop, axis=0)
+    # Drop chargers
+    dh_wd_t_ordered = dh_wd_t_ordered.groupby(["bus"]).sum()
+
+    weighted_dh_price_t = (
+        dh_price_t.mul(dh_wd_t_ordered.T)
+        .sum(1)
+        .div(dh_wd_t_ordered.sum())
+        .sort_values()
+    )
+    if aggregate_time:
+        weighted_dh_price = (
+            weighted_dh_price_t.mul(dh_wd_t_ordered.sum()).sum()
+            / dh_wd_t_ordered.sum().sum()
+        )
+        return weighted_dh_price
+    else:
+        return weighted_dh_price_t
 
 
 def get_component_mask(lines_or_links, country, other_countries, bus=0):
@@ -644,6 +681,15 @@ def apply_technology_groupings(df: pd.DataFrame) -> pd.DataFrame:
         abs(df.sum().sum() - df_grouped.sum().sum()) < 1e-2
     ), "Grouping of solar technologies changed total sum!"
 
+    # Group home battery and battery as battery
+    battery_cols = [col for col in df_grouped.columns if "battery" in str(col)]
+    if battery_cols:
+        df_grouped["Battery"] = df_grouped[battery_cols].sum(axis=1)
+        df_grouped = df_grouped.drop(columns=battery_cols)
+    assert (
+        abs(df.sum().sum() - df_grouped.sum().sum()) < 1e-2
+    ), "Grouping of battery technologies changed total sum!"
+
     # Group wind technologies -> Wind power
     wind_cols = [
         col
@@ -1094,6 +1140,7 @@ def create_plots(
     all_ptes_scenarios = []
     bar_positions = []
     temp_group_positions = []
+    temp_group_boundaries = []  # Track boundaries for separators
     current_pos = 0
 
     for temp_idx, supply_temp in enumerate(SUPPLY_TEMPS):
@@ -1102,19 +1149,25 @@ def create_plots(
             s for s in savings_agg.index if isinstance(s, tuple) and s[0] == supply_temp
         ]
 
-        # Order PTES scenarios as requested: hpboost, rhboost, hpboost_10Cbottom, noboost
-        if ptes_scenarios_unsorted and not savings_agg.empty:
-            desired_order = ["hpboost", "rhboost", "hpboost_10Cbottom", "noboost"]
-            ptes_scenarios = []
-            # First add scenarios in the desired order
-            for desired in desired_order:
-                for scenario in ptes_scenarios_unsorted:
-                    if scenario[1] == desired:
-                        ptes_scenarios.append(scenario)
-            # Add any remaining scenarios not in desired order
-            for scenario in ptes_scenarios_unsorted:
-                if scenario not in ptes_scenarios:
-                    ptes_scenarios.append(scenario)
+        # Sort PTES scenarios by fixed order: freeboost -> freecap -> rhboost -> hpboost_10Cbottom
+        # Define the desired order
+        config_order = {
+            "freeboost": 0,
+            "freecap": 1,
+            "noboost": 2,
+            "rhboost": 3,
+            "hpboost_10Cbottom": 4,
+            "hpboost": 5,  # Include but will typically not appear
+        }
+
+        if ptes_scenarios_unsorted:
+            # Sort by the predefined order
+            ptes_scenarios = sorted(
+                ptes_scenarios_unsorted,
+                key=lambda x: config_order.get(
+                    x[1] if isinstance(x, tuple) else x.split("_")[-1], 999
+                ),
+            )
         else:
             ptes_scenarios = ptes_scenarios_unsorted
 
@@ -1128,10 +1181,13 @@ def create_plots(
             current_pos += 1
 
         # Store temperature group center position for secondary x-labels
-        temp_group_positions.append((temp_start_pos + current_pos - 1) / 2)
+        if ptes_scenarios:  # Only add if we have scenarios for this temperature
+            temp_group_positions.append((temp_start_pos + current_pos - 1) / 2)
+            # Store boundary for separator
+            temp_group_boundaries.append(current_pos - 1 + 0.5)
 
         # Add gap between temperature groups (except after last group)
-        if temp_idx < len(SUPPLY_TEMPS) - 1:
+        if temp_idx < len(SUPPLY_TEMPS) - 1 and ptes_scenarios:
             current_pos += 0.5
 
     # Plot PTES scenarios if we have any
@@ -1216,26 +1272,52 @@ def create_plots(
             edgecolor="black",
             linewidth=2,
             zorder=10,
-            label=format_label("Net difference"),
+            label=format_label("Net system cost difference"),
         )
 
-        # Add connecting line for star markers
-        if len(total_savings_per_scenario) > 0:
-            # Draw white outline first
-            ax_right.plot(
-                bar_positions,
-                total_savings_per_scenario,
-                "-",
-                color="white",
-                linewidth=2,
-                zorder=8,
-            )
-            # Draw main black line
-            ax_right.plot(
-                bar_positions, total_savings_per_scenario, "k-", linewidth=1, zorder=9
-            )
+        # Connecting lines removed as requested
 
-        # Add annotations for relative changes
+        # Collect DH price changes for annotations only
+        dh_price_changes = []
+        if dh_prices and baseline_scenarios:
+            for j, scenario in enumerate(all_ptes_scenarios):
+                supply_temp = (
+                    scenario[0]
+                    if isinstance(scenario, tuple)
+                    else scenario.split("_")[0]
+                )
+
+                # Find baseline scenario for this temperature
+                baseline_scenario = None
+                for k, temp in enumerate(SUPPLY_TEMPS):
+                    if temp == supply_temp and k < len(baseline_scenarios):
+                        baseline_scenario = baseline_scenarios[k]
+                        break
+
+                # Get scenario name for DH price lookup
+                if isinstance(scenario, tuple):
+                    scenario_name = f"{scenario[0]}_MidDH_{scenario[1]}"
+                else:
+                    scenario_name = scenario
+
+                # Calculate DH price change
+                if (
+                    baseline_scenario
+                    and baseline_scenario in dh_prices
+                    and scenario_name in dh_prices
+                    and dh_prices[baseline_scenario] > 0
+                ):
+
+                    baseline_dh_price = dh_prices[baseline_scenario]
+                    scenario_dh_price = dh_prices[scenario_name]
+                    dh_price_change_pct = (
+                        (scenario_dh_price - baseline_dh_price) / baseline_dh_price
+                    ) * 100
+                    dh_price_changes.append(dh_price_change_pct)
+                else:
+                    dh_price_changes.append(0)
+
+        # Add annotations for system cost changes and DH price changes
         if baseline_scenarios and baseline_costs_list:
             for j, (scenario, total_saving, pos) in enumerate(
                 zip(all_ptes_scenarios, total_savings_per_scenario, bar_positions)
@@ -1261,25 +1343,23 @@ def create_plots(
                         v for k, v in baseline_costs.items() if k != "EU aggregated"
                     )
 
-                    # Calculate percentage relative to total and German costs
-                    pct_vs_total = (total_saving / baseline_total_cost) * 100
+                    # Calculate percentage relative to German costs (main annotation)
                     pct_vs_german = (total_saving / baseline_german_cost) * 100
 
-                    # Position annotations higher in the plot area and rotate them
-                    y_position = ax_right.get_ylim()[1] * 0.7
+                    # Position both annotations in parallel above each bar
+                    y_position_base = ax_right.get_ylim()[1] * 0.85
 
-                    annotation_text = (
-                        f"{pct_vs_total:.1f}% (total)\n{pct_vs_german:.1f}% (DE)"
-                    )
+                    # System cost annotation (black, left position)
+                    annotation_text = f"{pct_vs_german:+.1f}%"
 
                     ax_right.annotate(
                         annotation_text,
-                        (pos, y_position),
-                        xytext=(0, 10),
+                        (pos - 0.15, y_position_base),  # Slight offset to the left
+                        xytext=(0, 0),
                         textcoords="offset points",
                         ha="center",
                         va="bottom",
-                        fontsize=7,
+                        fontsize=8,
                         rotation=90,
                         zorder=20,
                         path_effects=[
@@ -1287,15 +1367,36 @@ def create_plots(
                         ],
                     )
 
+                    # Add DH price change annotation in parallel - right side
+                    if dh_prices and j < len(dh_price_changes):
+                        dh_price_change_pct = dh_price_changes[j]
+                        if dh_price_change_pct != 0:
+                            annotation_text_dh = f"Δ{dh_price_change_pct:+.1f}%"
+
+                            ax_right.annotate(
+                                annotation_text_dh,
+                                (
+                                    pos + 0.15,
+                                    y_position_base,
+                                ),  # Slight offset to the right
+                                xytext=(0, 0),
+                                textcoords="offset points",
+                                ha="center",
+                                va="bottom",
+                                fontsize=8,
+                                rotation=90,
+                                color="red",
+                                zorder=20,
+                                path_effects=[
+                                    path_effects.withStroke(
+                                        linewidth=2, foreground="white"
+                                    )
+                                ],
+                            )
+
         # Add vertical separators between temperature groups
-        for temp_idx in range(len(SUPPLY_TEMPS) - 1):
-            # Find the boundary between temperature groups
-            temp_end_pos = temp_group_positions[temp_idx] + (
-                4 / 2
-            )  # Assuming 4 scenarios per temp
-            ax_right.axvline(
-                x=temp_end_pos + 0.25, color="gray", linestyle="--", alpha=0.5
-            )
+        for boundary in temp_group_boundaries[:-1]:  # Exclude last boundary
+            ax_right.axvline(x=boundary, color="darkgray", linestyle="--", alpha=0.8)
 
         # Set x-axis for PTES plots
         ax_right.set_xlim(-0.5, max(bar_positions) + 0.5)
@@ -1315,6 +1416,10 @@ def create_plots(
                 scenario_labels.append("Heat pump\nto 10°C")
             elif scenario_name == "noboost":
                 scenario_labels.append("No boosting")
+            elif scenario_name == "freeboost":
+                scenario_labels.append("Free\nboosting*")
+            elif scenario_name == "freecap":
+                scenario_labels.append("Free\ncapacity*")
             else:
                 scenario_labels.append(scenario_name)
 
@@ -1339,7 +1444,7 @@ def create_plots(
         # Set y-limits
         if total_savings_per_scenario:
             # Set fixed y-limits as requested
-            ax_right.set_ylim(-1.8, 1.2)
+            ax_right.set_ylim(-2.5, 2)
 
     else:
         # If no PTES scenarios, hide the right plot
@@ -1444,14 +1549,14 @@ def create_plots(
                     markeredgewidth=1.5,
                     label="ΔDH price",
                 )
-                # Add connecting line
-                ax_right_dh.plot(bar_positions, dh_deltas, "r-", linewidth=1, alpha=0.7)
+
+                # Connecting lines removed as requested
 
                 ax_right_dh.set_ylabel(
                     "ΔDH Price [EUR MWh$^{-1}$]", color="red", labelpad=5
                 )
                 ax_right_dh.tick_params(axis="y", labelcolor="red")
-                ax_right_dh.set_ylim(-4.5, 3)
+                ax_right_dh.set_ylim(-4.5, 3.6)
                 ax_right_dh.axhline(
                     y=0, color="red", linestyle="--", alpha=0.5, linewidth=1
                 )
@@ -1529,14 +1634,22 @@ def create_plots(
             linestyle="None",
         )
     )
-    labels.append("  " + format_label("Net difference"))
+    labels.append("  " + format_label("Net system cost difference"))
 
     # Add DH price markers
     if dh_prices:
         # Add baseline DH price marker
         handles.append(
             plt.Line2D(
-                [0], [0], marker="o", color="red", markersize=8, linestyle="None"
+                [0],
+                [0],
+                marker="o",
+                color="w",  # Changed from "red" to "w"
+                markerfacecolor="white",  # Add explicit white face
+                markeredgecolor="red",
+                markeredgewidth=1.5,
+                markersize=8,
+                linestyle="None",
             )
         )
         labels.append("  " + format_label("DH price (baseline)"))
@@ -1547,10 +1660,12 @@ def create_plots(
                 [0],
                 [0],
                 marker="^",
-                color="red",
+                color="w",  # Changed from "red" to "w"
+                markerfacecolor="white",  # Add explicit white face
+                markeredgecolor="red",
+                markeredgewidth=1.5,
                 markersize=8,
-                linestyle="-",
-                linewidth=2,
+                linestyle="None",  # Changed from "-" to "None" to remove line
             )
         )
         labels.append("  " + format_label("ΔDH price"))
@@ -1630,7 +1745,9 @@ def main(snakemake):
     dh_prices = {}
     for scenario_name, network in networks.items():
         try:
-            dh_prices[scenario_name] = calc_average_dh_price(network)
+            dh_prices[scenario_name] = calc_average_dh_price_t_ordered(
+                network, aggregate_time=True
+            )
         except Exception as e:
             logger.warning(f"Failed to calculate DH price for {scenario_name}: {e}")
             dh_prices[scenario_name] = 0
