@@ -740,7 +740,7 @@ if config["enable"]["retrieve"]:
             """
             wget -nv -c https://zenodo.org/records/15198744/files/seawater_temperature.nc -O {output.seawater_temperature}
             """
-
+            
     # dynamic inputs/outputs for hera data retrieval
     if config["atlite"]["default_cutout"] == "be-03-2013-era5":
         hera_data_key = "be_2013-03-01_to_2013-03-08"
@@ -792,7 +792,19 @@ if config["enable"]["retrieve"]:
                 wget -nv -c https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/CEMS-EFAS/HERA/VER1-0/Data/NetCDF/river_discharge/dis.HERA{params.snapshot_year}.nc -O {output.river_discharge}
                 wget -nv -c https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/CEMS-EFAS/HERA/VER1-0/Data/NetCDF/climate_inputs/ta6/ta6_{params.snapshot_year}.nc -O {output.ambient_temperature}
                 """
-
+rule retrieve_seawater_temperature:
+    params:
+        default_cutout=config_provider("atlite", "default_cutout"),
+    output:
+        seawater_temperature="data/seawater_temperature_{year}.nc",
+    log:
+        "logs/retrieve_seawater_temperature_{year}.log",
+    resources:
+        mem_mb=10000,
+    conda:
+        "../envs/environment.yaml"
+    script:
+        "../scripts/retrieve_seawater_temperature.py"
 
 if config["enable"]["retrieve"]:
 

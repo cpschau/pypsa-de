@@ -508,6 +508,34 @@ def input_heat_source_temperature(
         )
     }
 
+def input_seawater_temperature(w) -> dict[str, str]:
+    """
+    Generate input file paths for seawater temperature data.
+
+    Parameters
+    ----------
+    w : snakemake.io.Wildcards
+        Snakemake wildcards object.
+
+    Returns
+    -------
+    dict[str, str]
+        Dictionary mapping keys like "seawater_temperature_{year}" to NetCDF file paths.
+    """
+
+    # Import here to avoid circular imports
+    from scripts._helpers import get_snapshots
+
+    # Get all snapshots and extract unique years
+    snapshots_config = config_provider("snapshots")(w)
+    snapshots = get_snapshots(snapshots_config)
+    unique_years = snapshots.year.unique()
+
+    # Create dictionary with year-specific keys
+    return {
+        f"seawater_temperature_{year}": f"data/seawater_temperature_{year}.nc"
+        for year in unique_years
+    }
 
 rule build_sea_heat_potential:
     params:
@@ -515,12 +543,12 @@ rule build_sea_heat_potential:
         snapshots=config_provider("snapshots"),
         dh_area_buffer=config_provider("sector", "district_heating", "dh_area_buffer"),
     input:
+        unpack(input_seawater_temperature),
         regions_onshore=lambda w: (
             resources("regions_onshore_base-extended_s_{clusters}.geojson")
             if config_provider("sector", "district_heating", "subnodes", "enable")(w)
             else resources("regions_onshore_base_s_{clusters}.geojson")
         ),
-        seawater_temperature="data/seawater_temperature.nc",
         dh_areas=lambda w: resources(
             "dh_areas_base_s_{clusters}-modified.geojson"
         ) if config_provider("sector", "district_heating", "subnodes", "enable")(w) else "data/dh_areas.gpkg",
@@ -613,6 +641,12 @@ rule build_ptes_operations:
             "district_heating",
             "ptes",
             "dynamic_capacity",
+        ),
+        scale_capacity=config_provider(
+            "sector",
+            "district_heating",
+            "ptes",
+            "scale_capacity",
         ),
     input:
         central_heating_forward_temperature_profiles=resources(
