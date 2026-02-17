@@ -40,7 +40,10 @@ import logging
 
 import geopandas as gpd
 import pandas as pd
+import os
+import sys
 
+sys.path.append(os.path.dirname(os.path.abspath(__file__)) + "/..")
 from scripts._helpers import configure_logging, set_scenario_config
 
 logger = logging.getLogger(__name__)
@@ -207,15 +210,18 @@ if __name__ == "__main__":
     if "snakemake" not in globals():
         from scripts._helpers import mock_snakemake
 
+        os.chdir(os.path.dirname(__file__) + "/..")
         snakemake = mock_snakemake(
             "build_geothermal_heat_potential",
-            clusters=48,
+            configfiles=["config/config.sysgf.yaml", "config/scenarios.sysgf.yaml"],
+            clusters=49,
+            run="LowSupplyTemperature_MidDH_noboost",
         )
 
     configure_logging(snakemake)
     set_scenario_config(snakemake)
 
-    # get onshore regions and index them by region name
+    # get onshore regi"ons and index them by region name"
     regions_onshore = gpd.read_file(snakemake.input.regions_onshore).to_crs("EPSG:4326")
     regions_onshore.index = regions_onshore.name
     regions_onshore.drop(columns=["name"], inplace=True)

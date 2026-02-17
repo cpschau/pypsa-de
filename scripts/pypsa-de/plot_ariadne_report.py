@@ -1592,7 +1592,7 @@ def plot_elec_prices_spatial(
             legend=False,
             vmin=vmin,
             vmax=vmax,
-            cmap="viridis_r",
+            cmap="coolwarm_r",
         )
     )
 
@@ -1613,7 +1613,7 @@ def plot_elec_prices_spatial(
         .plot(
             column="elec_price_diff",
             ax=ax2,
-            cmap="viridis",
+            cmap="coolwarm",
             linewidth=0.05,
             edgecolor="grey",
             vmax=vmax - vmin,
@@ -2797,7 +2797,9 @@ if __name__ == "__main__":
                 snakemake.params.costs,
                 snakemake.params.max_hours,
                 nyears,
-            ).multiply(1e-9),  # in bn EUR
+            ).multiply(
+                1e-9
+            ),  # in bn EUR
             snakemake.input.costs,
         )
     )

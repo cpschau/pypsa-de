@@ -11,7 +11,10 @@ import logging
 
 import geopandas as gpd
 import pandas as pd
+import os
+import sys
 
+sys.path.append(os.path.dirname(os.path.abspath(__file__)) + "/.." + "/..")
 from scripts._helpers import configure_logging, mock_snakemake
 
 logger = logging.getLogger(__name__)
@@ -274,10 +277,12 @@ def assign_subnode(
 
 if __name__ == "__main__":
     if "snakemake" not in globals():
+        os.chdir(os.path.dirname(__file__) + "/.." + "/..")
         snakemake = mock_snakemake(
             "build_existing_chp_de",
-            clusters=27,
-            run="KN2045_Mix",
+            configfiles=["config/config.sysgf.yaml", "config/scenarios.sysgf.yaml"],
+            clusters=49,
+            run="NoPTES_MidSupplyTemperature_LowDH",
         )
 
     configure_logging(snakemake)

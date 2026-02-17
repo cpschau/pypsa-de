@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: CC0-1.0
 font.family: sans-serif
-image.cmap: viridis
+image.cmap: coolwarm
 figure.autolayout : True
 figure.dpi : 400
 legend.frameon : False

@@ -44,6 +44,10 @@ import yaml
 from pypsa.descriptors import get_activity_mask
 from pypsa.descriptors import get_switchable_as_dense as get_as_dense
 
+import sys
+import os
+
+sys.path.append(os.path.dirname(__file__) + "/..")
 from scripts.definitions.tes_system import TesSystem
 
 from scripts._benchmark import memory_logger
@@ -1032,6 +1036,7 @@ def add_discharger_temperature_boosting_constraints(
     ValueError
         If no links are found for a specified booster technology.
     """
+    logger.info("Adding PTES discharger temperature boosting constraints")
     ptes_discharger = n.links[
         n.links.index.str.contains("urban central water pits discharger")
     ].index
@@ -1700,13 +1705,17 @@ if __name__ == "__main__":
     if "snakemake" not in globals():
         from scripts._helpers import mock_snakemake
 
+        os.chdir(os.path.dirname(__file__) + "/..")
         snakemake = mock_snakemake(
             "solve_sector_network_myopic",
+            configfiles=["config/config.sysgf.yaml", "config/scenarios.sysgf.yaml"],
+            simpl="",
+            clusters=49,
             opts="",
-            clusters="30",
-            # configfiles="config/test/config.myopic.yaml",
-            sector_opts="",
-            planning_horizons="2050",
+            ll="vopt",
+            sector_opts="none",
+            planning_horizons="2045",
+            run="MidSupplyTemperature_MidDH_noboost",
         )
     configure_logging(snakemake)
     set_scenario_config(snakemake)

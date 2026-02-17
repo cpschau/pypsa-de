@@ -54,6 +54,10 @@ Approximate thermal energy storage (TES) top temperature and identify need for s
 import logging
 
 import xarray as xr
+import os
+import sys
+
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 from scripts._helpers import set_scenario_config
 
 from scripts._helpers import set_scenario_config
@@ -67,10 +71,13 @@ if __name__ == "__main__":
     if "snakemake" not in globals():
         from scripts._helpers import mock_snakemake
 
+        os.chdir(os.path.join(os.path.dirname(__file__), "..", ".."))
         snakemake = mock_snakemake(
             "build_ptes_operations",
-            clusters=8,
-            planning_horizons="2030",
+            configfiles=["config/config.sysgf.yaml", "config/scenarios.sysgf.yaml"],
+            clusters=49,
+            planning_horizons="2045",
+            run="MidSupplyTemperature_MidDH_hpboost",
         )
 
     set_scenario_config(snakemake)

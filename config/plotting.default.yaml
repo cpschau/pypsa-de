@@ -593,3 +593,16 @@ plotting:
     import NH3: '#e2ed74'
     import oil: '#93eda2'
     import methanol: '#87d0e6'
+
+  # District heating system plot options
+  group_chp: true
+  group_heat_pumps: true
+  group_demands: true
+  drop_losses: true
+  subnodes_only: true  # Only show systems with city names (subnodes)
+  
+  # Override colors for grouped technologies (optional)
+  override_tech_colors:
+    CHP: "#8B4513"  # saddle brown
+    Heat Pumps: "#FF8C00"  # dark orange
+    District Heating Demand: "#CCCCCC"  # light grey

@@ -72,7 +72,36 @@ KN2045_Mix:
 # Ausbau der erneuerbare Stromerzeugung erreicht politisch gesetzte Ziele
 # Importe erneuerbar erzeugter Energien auf mittlerem Niveau
 # dient als Referenzszenario in der Familie der Ariadne-Szenarien
-
+KN2045_Mix_0DH:
+  sector:
+    district_heating:
+      potential:
+        DE: 0.0
+        default: 0.3
+KN2045_Mix_0.25DH:
+  sector:
+    district_heating:
+      potential:
+        DE: 0.25
+        default: 0.3
+KN2045_Mix_0.5DH:
+  sector:
+    district_heating:
+      potential:
+        DE: 0.5
+        default: 0.3
+KN2045_Mix_0.75DH:
+  sector:
+    district_heating:
+      potential:
+        DE: 0.75
+        default: 0.3
+KN2045_Mix_1DH:
+  sector:
+    district_heating:
+      potential:
+        DE: 1.0
+        default: 0.3
 
 KN2045_Elek:
 # Fokus auf dem Hochlauf von Technologien zur direkten Elektrifizierung der Sektoren

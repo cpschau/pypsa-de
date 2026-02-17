@@ -12,7 +12,10 @@ import pypsa
 from packaging.version import Version, parse
 from pypsa.plot import add_legend_lines, add_legend_patches, add_legend_semicircles
 from pypsa.statistics import get_transmission_carriers
+import os
+import sys
 
+sys.path.append(os.path.dirname(__file__) + "/..")
 from scripts._helpers import (
     PYPSA_V1,
     configure_logging,
@@ -28,13 +31,16 @@ if __name__ == "__main__":
     if "snakemake" not in globals():
         from scripts._helpers import mock_snakemake
 
+        os.chdir(os.path.dirname(__file__) + "/..")
         snakemake = mock_snakemake(
             "plot_balance_map",
-            clusters="10",
+            configfiles=["config/config.sysgf.yaml", "config/scenarios.sysgf.yaml"],
+            clusters="49",
             opts="",
-            sector_opts="",
-            planning_horizons="2050",
-            carrier="H2",
+            sector_opts="none",
+            planning_horizons="2045",
+            carrier="urban central heat",
+            run="MidSupplyTemperature_MidDH_rhboost",
         )
 
     configure_logging(snakemake)
@@ -170,9 +176,11 @@ if __name__ == "__main__":
         link_widths=link_widths * branch_width_factor,
         line_flow=line_flow * flow_size_factor if line_flow is not None else None,
         link_flow=link_flow * flow_size_factor if link_flow is not None else None,
-        transformer_flow=transformer_flow * flow_size_factor
-        if transformer_flow is not None
-        else None,
+        transformer_flow=(
+            transformer_flow * flow_size_factor
+            if transformer_flow is not None
+            else None
+        ),
         ax=ax,
         margin=0.2,
         color_geomap={"border": "darkgrey", "coastline": "darkgrey"},

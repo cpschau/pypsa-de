@@ -1,94 +1,305 @@
-# SPDX-FileCopyrightText: Contributors to PyPSA-Eur <https://github.com/pypsa/pypsa-eur>
-#
-# SPDX-License-Identifier: CC0-1.0
-
-master
-
-.snakemake*
-.ipynb_checkpoints
-__pycache__
-*dconf
-gurobi.log
+# misc
 .vscode
-*.orig
-.idea
+dconf
+.snakemake/
+*.ipynb_checkpoints
+*.nc
+*.log
+*.pdf
+*.png
+*.html
+*.geojson
+*.csv
+*.txt
 
-/bak
-/resources
-/resources*
-/results
-/networks
-/benchmarks
-/logs
-/notebooks
-/data
-/cutouts
-/tmp
-doc/_build
+# allow PDFs in paper/static to be committed
+!paper/static/*.pdf
 
-/scripts/old
-/scripts/create_scenarios.py
-/config/create_scenarios.py
+# generated files
+results/
+resources/
+data/
+logs/
 
+# local archive of old/debug files (not pushed)
+_archive/
+
+# personal/local config files (not pushed)
+config/config.yaml
+config/config.personal.yaml
+config/config.public.yaml
+config/config.test.yaml
+config/config.eem.yaml
+config/config.jc.yaml
+config/config.sysgf copy.yaml
 config/scenarios.yaml
 config/scenarios.automated.yaml
+config/scenarios.eem.yaml
+config/scenarios.jc.yaml
+config/scenarios.public.yaml
+config/scenarios.template.yaml
 
-dconf
-/data/links_p_nom.csv
-/data/*totals.csv
-/data/biomass*
-/data/bundle/emobility/
-/data/bundle/eea*
-/data/bundle/jrc*
-/data/heating/
-/data/bundle/eurostat*
-/data/odyssee/
-/data/transport_data.csv
-/data/.nfs*
-/data/retro/*
-/data/bundle/nuts*
-data/gas_network/scigrid-gas/
-data/costs_*.csv
+# upstream files not relevant to this fork
+.github/ISSUE_TEMPLATE/
+.github/dependabot.yml
+.github/workflows/codeql.yml
+.gitmodules
+.reuse/
+CODEOWNERS
+LICENSE.md
+docs/
+pixi.lock
+pixi.toml
+envs/linux-pinned.yaml
+envs/macos-pinned.yaml
+envs/windows-pinned.yaml
+envs/retrieve.yaml
+envs/pypsa-de-paper.yaml
 
-dask-worker-space/
-publications.jrc.ec.europa.eu/
-d1gam3xoknrgr2.cloudfront.net/
+## Core latex/pdflatex auxiliary files:
+*.aux
+*.lof
+*.log
+*.lot
+*.fls
+*.out
+*.toc
+*.fmt
+*.fot
+*.cb
+*.cb2
 
-*.org
+## Bibliography auxiliary files (bibtex/biblatex/biber):
+*.bbl
+*.bcf
+*.blg
+*-blx.aux
+*-blx.bib
+*.brf
+*.run.xml
 
-*.nc
+## Build tool auxiliary files:
+*.fdb_latexmk
+*.synctex
+*.synctex(busy)
+*.synctex.gz
+*.synctex.gz(busy)
+*.pdfsync
 
-*~
-
+# Python
 *.pyc
+build/
+dist/
+__pycache__
+*.egg-info
+.cache/
 
-*.xlsx
+## Intermediate documents:
+*.dvi
+*.xdv
+*-converted-to.*
+# these rules might exclude image files for figures etc.
+# *.ps
+# *.eps
+# *.pdf
 
-*.xls
+## Build tool directories for auxiliary files
+# latexrun
+latex.out/
 
-*.geojson
+## Auxiliary and intermediate files from other packages:
+# algorithms
+*.alg
+*.loa
 
-*.ipynb
+# achemso
+acs-*.bib
 
-merger-todos.md
+# amsthm
+*.thm
 
-*.html
+# beamer
+*.nav
+*.pre
+*.snm
+*.vrb
 
-# DE model specific
-cidportal.jrc.ec.europa.eu
-zenodo.org
-globalenergymonitor.org/wp-content/uploads/2023/07/Europe-Gas-Tracker-2023-03-v3.xlsx
-fnb-gas.de
-raw.githubusercontent.com
-cutouts
+# changes
+*.soc
 
+# cprotect
+*.cpt
 
-# custom local files
-local
-# private dev folder
-dev/*
+# elsarticle (documentclass of Elsevier journals)
+*.spl
 
-# ai coding tools
-CLAUDE.md
-.claude/
-.github/copilot-instructions.md
+# endnotes
+*.ent
+
+# fixme
+*.lox
+
+# feynmf/feynmp
+*.mf
+*.mp
+*.t[1-9]
+*.t[1-9][0-9]
+*.tfm
+
+#(r)(e)ledmac/(r)(e)ledpar
+*.end
+*.?end
+*.[1-9]
+*.[1-9][0-9]
+*.[1-9][0-9][0-9]
+*.[1-9]R
+*.[1-9][0-9]R
+*.[1-9][0-9][0-9]R
+*.eledsec[1-9]
+*.eledsec[1-9]R
+*.eledsec[1-9][0-9]
+*.eledsec[1-9][0-9]R
+*.eledsec[1-9][0-9][0-9]
+*.eledsec[1-9][0-9][0-9]R
+
+# glossaries
+*.acn
+*.acr
+*.glg
+*.glo
+*.gls
+*.glsdefs
+
+# gnuplottex
+*-gnuplottex-*
+
+# gregoriotex
+*.gaux
+*.gtex
+
+# htlatex
+*.4ct
+*.4tc
+*.idv
+*.lg
+*.trc
+*.xref
+
+# hyperref
+*.brf
+
+# knitr
+*-concordance.tex
+*.tikz
+*-tikzDictionary
+
+# listings
+*.lol
+
+# makeidx
+*.idx
+*.ilg
+*.ind
+*.ist
+
+# minitoc
+*.maf
+*.mlf
+*.mlt
+*.mtc[0-9]*
+*.slf[0-9]*
+*.slt[0-9]*
+*.stc[0-9]*
+
+# minted
+_minted*
+*.pyg
+
+# morewrites
+*.mw
+
+# nomencl
+*.nlg
+*.nlo
+*.nls
+
+# pax
+*.pax
+
+# pdfpcnotes
+*.pdfpc
+
+# sagetex
+*.sagetex.sage
+*.sagetex.py
+*.sagetex.scmd
+
+# scrwfile
+*.wrt
+
+# sympy
+*.sout
+*.sympy
+sympy-plots-for-*.tex/
+
+# pdfcomment
+*.upa
+*.upb
+
+# pythontex
+*.pytxcode
+pythontex-files-*/
+
+# thmtools
+*.loe
+
+# TikZ & PGF
+*.dpth
+*.md5
+*.auxlock
+
+*.tdo
+*.lod
+
+# xmpincl
+*.xmpi
+
+# xindy
+*.xdy
+
+# xypic precompiled matrices
+*.xyc
+
+# endfloat
+*.ttt
+*.fff
+
+# Latexian
+TSWLatexianTemp*
+
+## Editors:
+# WinEdt
+*.bak
+*.sav
+
+# Texpad
+.texpadtmp
+
+# LyX
+*.lyx~
+
+# Kile
+*.backup
+
+# KBibTeX
+*~[0-9]*
+
+# auto folder when using emacs and auctex
+./auto/*
+*.el
+
+# expex forward references with \gathertags
+*-tags.tex
+
+# standalone packages
+*.sta

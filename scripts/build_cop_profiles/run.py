@@ -39,7 +39,11 @@ Outputs
 
 import pandas as pd
 import xarray as xr
+import os
+import sys
 
+sys.path.append(os.getcwd())
+sys.path.append(os.path.join(os.getcwd(), "code", "pypsa-de"))
 from scripts._helpers import set_scenario_config
 from scripts.build_cop_profiles.CentralHeatingCopApproximator import (
     CentralHeatingCopApproximator,
@@ -112,8 +116,10 @@ if __name__ == "__main__":
 
         snakemake = mock_snakemake(
             "build_cop_profiles",
-            clusters=8,
-            planning_horizons=2030,
+            configfiles=["config/config.sysgf.yaml", "config/scenarios.sysgf.yaml"],
+            run="HighSupplyTemperature_MidDH_hpboost",
+            clusters=49,
+            planning_horizons=2045,
         )
 
     set_scenario_config(snakemake)

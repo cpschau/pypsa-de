@@ -3,55 +3,61 @@
 # SPDX-License-Identifier: CC0-1.0
 
 run:
-  prefix: 20251107_final
+  prefix: ptes_sweep_0213
   name:
-    # Mid DH – Mid Supply
-    - NoPTES_MidSupplyTemperature_MidDH_init
-    - NoPTES_MidSupplyTemperature_MidDH
-    # - MidSupplyTemperature_MidDH_hpboost
-    - MidSupplyTemperature_MidDH_rhboost
-    - MidSupplyTemperature_MidDH_hpboost_10Cbottom
-    - MidSupplyTemperature_MidDH_freeboost
-    - MidSupplyTemperature_MidDH_freecap
-    # - MidSupplyTemperature_MidDH_freeboost_freecap
-    # # # # # Low Supply
-    - NoPTES_LowSupplyTemperature_MidDH_init
-    - NoPTES_LowSupplyTemperature_MidDH
-    # - LowSupplyTemperature_MidDH_hpboost
-    - LowSupplyTemperature_MidDH_rhboost
-    - LowSupplyTemperature_MidDH_hpboost_10Cbottom
-    - LowSupplyTemperature_MidDH_freeboost
-    - LowSupplyTemperature_MidDH_freecap
-    # - LowSupplyTemperature_MidDH_freeboost_freecap
-    # # # # # High Supply
-    - NoPTES_HighSupplyTemperature_MidDH_init
-    - NoPTES_HighSupplyTemperature_MidDH
-    # - HighSupplyTemperature_MidDH_hpboost
-    - HighSupplyTemperature_MidDH_rhboost
-    - HighSupplyTemperature_MidDH_hpboost_10Cbottom
-    - HighSupplyTemperature_MidDH_freeboost
-    - HighSupplyTemperature_MidDH_freecap
-    # - HighSupplyTemperature_MidDH_freeboost_freecap
-    # # # DH potential sensitivities
-    # # - NoPTES_MidSupplyTemperature_LowDH_init
-    # # - NoPTES_MidSupplyTemperature_LowDH
-    # # - MidSupplyTemperature_LowDH_rhboost
-    # # - NoPTES_MidSupplyTemperature_HighDH_init
-    # # - NoPTES_MidSupplyTemperature_HighDH
-    # # - MidSupplyTemperature_HighDH_rhboost
-    # # # # # CAPEX sensitivities
-    # - MidSupplyTemperature_MidDH_rhboost_0.00CAPEX
-    # - MidSupplyTemperature_MidDH_rhboost_0.25CAPEX
-    # - MidSupplyTemperature_MidDH_rhboost_0.5CAPEX
-    # - MidSupplyTemperature_MidDH_rhboost_0.75CAPEX
-    # - MidSupplyTemperature_MidDH_rhboost_1.25CAPEX
-    # - MidSupplyTemperature_MidDH_rhboost_1.5CAPEX
-    # - MidSupplyTemperature_MidDH_rhboost_1.75CAPEX
-    # - MidSupplyTemperature_MidDH_rhboost_2CAPEX
-    # # # H2 variant
-    # - NoPTES_MidSupplyTemperature_MidDH_H2_init
-    # - NoPTES_MidSupplyTemperature_MidDH_H2
-    # - MidSupplyTemperature_MidDH_H2_rhboost
+    # ===== Setup 1: Baseline (DH 0.6, 1%/a temp reduction) =====
+    - Base_init
+    - NoPTES_Base
+    - PTES_Base_10CAPEX
+    - PTES_Base_20CAPEX
+    - PTES_Base_40CAPEX
+    - PTES_Base_80CAPEX
+    - PTES_Base_160CAPEX
+
+    # ===== Setup 2: H2 plants forced in 2050 instead of 2035 =====
+    - H2Late_init
+    - NoPTES_H2Late
+    - PTES_H2Late_10CAPEX
+    - PTES_H2Late_20CAPEX
+    - PTES_H2Late_40CAPEX
+    - PTES_H2Late_80CAPEX
+    - PTES_H2Late_160CAPEX
+
+    # ===== Setup 3: H2 plants 2050 + 2× Electrolyzer CAPEX =====
+    - H2Late2Ely_init
+    - NoPTES_H2Late2Ely
+    - PTES_H2Late2Ely_10CAPEX
+    - PTES_H2Late2Ely_20CAPEX
+    - PTES_H2Late2Ely_40CAPEX
+    - PTES_H2Late2Ely_80CAPEX
+    - PTES_H2Late2Ely_160CAPEX
+
+    # ===== Setup 4: Progressive DH (0.6, 2%/a temp reduction) =====
+    - ProgDH_init
+    - NoPTES_ProgDH
+    - PTES_ProgDH_10CAPEX
+    - PTES_ProgDH_20CAPEX
+    - PTES_ProgDH_40CAPEX
+    - PTES_ProgDH_80CAPEX
+    - PTES_ProgDH_160CAPEX
+
+    # ===== Setup 5: Conservative DH (0.2, 0.5%/a temp reduction) =====
+    - ConsDH_init
+    - NoPTES_ConsDH
+    - PTES_ConsDH_10CAPEX
+    - PTES_ConsDH_20CAPEX
+    - PTES_ConsDH_40CAPEX
+    - PTES_ConsDH_80CAPEX
+    - PTES_ConsDH_160CAPEX
+
+    # ===== Setup 6: Relaxed CO2 budget (0.20 in 2045) =====
+    - RelaxCO2_init
+    - NoPTES_RelaxCO2
+    - PTES_RelaxCO2_10CAPEX
+    - PTES_RelaxCO2_20CAPEX
+    - PTES_RelaxCO2_40CAPEX
+    - PTES_RelaxCO2_80CAPEX
+    - PTES_RelaxCO2_160CAPEX
   scenarios:
     enable: true
     manual_file: config/scenarios.sysgf.yaml
@@ -87,7 +93,7 @@ scenario:
 
 fix_foreign_investments:
   enable: true
-  reference_scenario: NoPTES_MidSupplyTemperature_MidDH
+  reference_scenario: PTES_HighDH_68CAPEX
   nom_min: true
   nom_max: true
   lines_only: false
@@ -112,7 +118,7 @@ clustering:
     'ES': 0.0408
     'IT': 0.0612
   temporal:
-    resolution_sector: 3H
+    resolution_sector: 5H
 
 co2_budget:
   2045: 0.00
@@ -242,6 +248,11 @@ sector:
     - air
     - ground
   electrobiofuels: true
+
+electricity:
+  H2_plants_DE:
+    enable: true
+    force: 2035
 
 solving:
   runtime: 24h
@@ -394,4 +405,3 @@ plotting:
     other loads: "lightgrey"
     geothermal heat pump: "khaki"
     Battery: "#ace37f"
-

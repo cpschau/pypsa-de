@@ -3,205 +3,37 @@
 #
 # SPDX-License-Identifier: MIT
 
-# Mid Supply Temperature scenarios with Mid DH (0.4)
-NoPTES_MidSupplyTemperature_MidDH_init:
+# =============================================================================
+# PTES CAPEX Sensitivity Scenarios
+# 6 setups × (init + NoPTES + 5 CAPEX levels) = 42 scenarios
+#
+# CAPEX factors (relative to base 68 €/m³):
+#   10 €/m³ → 0.147    20 €/m³ → 0.294    40 €/m³ → 0.588
+#   80 €/m³ → 1.176   160 €/m³ → 2.353
+#
+# Setups:
+#   1. Base          — Baseline (DH 0.6, 1%/a temp reduction)
+#   2. H2Late        — H2 plants forced 2050 instead of 2035
+#   3. H2Late2Ely    — H2 plants 2050 + 2× Electrolyzer CAPEX
+#   4. ProgDH        — Progressive DH (0.6, 2%/a temp reduction)
+#   5. ConsDH        — Conservative DH (0.2, 0.5%/a temp reduction)
+#   6. RelaxCO2      — Relaxed CO2 budget (0.20 in 2045)
+# =============================================================================
+
+
+# =============================================================================
+# Setup 1: Base — Baseline assumptions (DH 0.6, 1%/a temp reduction)
+# =============================================================================
+
+Base_init:
   fix_foreign_investments:
     enable: false
   sector:
     district_heating:
       potential:
-        DE: 0.4
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.005
-  adjustments:
-    electricity: false
-    sector:
-      absolute:
-        Store:
-          urban central water pits:
-            e_nom_max: 0
-      factor:
-        Store:
-          urban central water tanks:
-            capital_cost: 1.05
-  solving:
-    options:
-      skip_iterations: false
-
-# Mid Supply Temperature scenarios with Mid DH (0.4)
-NoPTES_MidSupplyTemperature_MidDH:
-  fix_foreign_investments:
-    enable: true
-    lines_only: true
-    reference_scenario: NoPTES_MidSupplyTemperature_MidDH_init
-  sector:
-    district_heating:
-      potential:
-        DE: 0.4
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.005
-  adjustments:
-    electricity: false
-    sector:
-      absolute:
-        Store:
-          urban central water pits:
-            e_nom_max: 0
-      factor:
-        Store:
-          urban central water tanks:
-            capital_cost: 1.05
-  solving:
-    options:
-      skip_iterations: true
-
-MidSupplyTemperature_MidDH_noboost:
-  fix_foreign_investments:
-    reference_scenario: NoPTES_MidSupplyTemperature_MidDH
-  sector:
-    district_heating:
-      potential:
-        DE: 0.4
-      ptes:
-        booster_technologies: []
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.005
-  adjustments:
-    electricity: false
-    sector:
-      factor:
-        Store:
-          urban central water tanks:
-            capital_cost: 1.05
-
-
-MidSupplyTemperature_MidDH_hpboost:
-  fix_foreign_investments:
-    reference_scenario: NoPTES_MidSupplyTemperature_MidDH
-  sector:
-    district_heating:
-      potential:
-        DE: 0.4
-      ptes:
-        booster_technologies: ["ptes"]
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.005
-  adjustments:
-    electricity: false
-    sector:
-      factor:
-        Store:
-          urban central water tanks:
-            capital_cost: 1.05
-
-MidSupplyTemperature_MidDH_rhboost:
-  fix_foreign_investments:
-    reference_scenario: NoPTES_MidSupplyTemperature_MidDH
-  sector:
-    district_heating:
-      potential:
-        DE: 0.4
+        DE: 0.6
       ptes:
         booster_technologies: ["resistive heater"]
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.005
-  adjustments:
-    electricity: false
-    sector:
-      factor:
-        Store:
-          urban central water tanks:
-            capital_cost: 1.05
-
-MidSupplyTemperature_MidDH_hpboost_10Cbottom:
-  fix_foreign_investments:
-    reference_scenario: NoPTES_MidSupplyTemperature_MidDH
-  sector:
-    district_heating:
-      potential:
-        DE: 0.4
-      ptes:
-        booster_technologies: ["ptes"]
-        min_bottom_temperature: 10
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.005
-  adjustments:
-    electricity: false
-    sector:
-      factor:
-        Store:
-          urban central water tanks:
-            capital_cost: 1.05
-
-MidSupplyTemperature_MidDH_freeboost:
-  fix_foreign_investments:
-    reference_scenario: NoPTES_MidSupplyTemperature_MidDH
-  sector:
-    district_heating:
-      potential:
-        DE: 0.4
-      ptes:
-        discharger_temperature_boosting_required: false
-        booster_technologies: ["resistive heater"]
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.005
-  adjustments:
-    electricity: false
-    sector:
-      factor:
-        Store:
-          urban central water tanks:
-            capital_cost: 1.05
-
-MidSupplyTemperature_MidDH_freecap:
-  fix_foreign_investments:
-    reference_scenario: NoPTES_MidSupplyTemperature_MidDH
-  sector:
-    district_heating:
-      potential:
-        DE: 0.4
-      ptes:
-        discharger_temperature_boosting_required: true
-        booster_technologies: ["resistive heater"]
-        min_bottom_temperature: 10
-        scale_capacity: false
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.005
-  adjustments:
-    electricity: false
-    sector:
-      factor:
-        Store:
-          urban central water tanks:
-            capital_cost: 1.05
-
-MidSupplyTemperature_MidDH_freeboost_freecap:
-  fix_foreign_investments:
-    reference_scenario: NoPTES_MidSupplyTemperature_MidDH
-  sector:
-    district_heating:
-      potential:
-        DE: 0.4
-      ptes:
-        discharger_temperature_boosting_required: false
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.005
-  adjustments:
-    electricity: false
-    sector:
-      factor:
-        Store:
-          urban central water tanks:
-            capital_cost: 1.05
-
-# Low Supply Temperature scenarios with Mid DH (0.4)
-NoPTES_LowSupplyTemperature_MidDH_init:
-  fix_foreign_investments:
-    enable: false
-  sector:
-    district_heating:
-      potential:
-        DE: 0.4
       supply_temperature_approximation:
         relative_annual_temperature_reduction: 0.01
   adjustments:
@@ -215,15 +47,17 @@ NoPTES_LowSupplyTemperature_MidDH_init:
     options:
       skip_iterations: false
 
-NoPTES_LowSupplyTemperature_MidDH:
+NoPTES_Base:
   fix_foreign_investments:
     enable: true
     lines_only: true
-    reference_scenario: NoPTES_LowSupplyTemperature_MidDH_init
+    reference_scenario: Base_init
   sector:
     district_heating:
       potential:
-        DE: 0.4
+        DE: 0.6
+      ptes:
+        booster_technologies: ["resistive heater"]
       supply_temperature_approximation:
         relative_annual_temperature_reduction: 0.01
   adjustments:
@@ -237,106 +71,120 @@ NoPTES_LowSupplyTemperature_MidDH:
     options:
       skip_iterations: true
 
-LowSupplyTemperature_MidDH_noboost:
+PTES_Base_10CAPEX:
   fix_foreign_investments:
-    reference_scenario: NoPTES_LowSupplyTemperature_MidDH
+    reference_scenario: NoPTES_Base
   sector:
     district_heating:
       potential:
-        DE: 0.4
-      ptes:
-        booster_technologies: []
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.01
-
-LowSupplyTemperature_MidDH_hpboost:
-  fix_foreign_investments:
-    reference_scenario: NoPTES_LowSupplyTemperature_MidDH
-  sector:
-    district_heating:
-      potential:
-        DE: 0.4
-      ptes:
-        booster_technologies: ["ptes"]
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.01
-
-LowSupplyTemperature_MidDH_rhboost:
-  fix_foreign_investments:
-    reference_scenario: NoPTES_LowSupplyTemperature_MidDH
-  sector:
-    district_heating:
-      potential:
-        DE: 0.4
+        DE: 0.6
       ptes:
         booster_technologies: ["resistive heater"]
       supply_temperature_approximation:
         relative_annual_temperature_reduction: 0.01
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 0.147
 
-LowSupplyTemperature_MidDH_hpboost_10Cbottom:
+PTES_Base_20CAPEX:
   fix_foreign_investments:
-    reference_scenario: NoPTES_LowSupplyTemperature_MidDH
+    reference_scenario: NoPTES_Base
   sector:
     district_heating:
       potential:
-        DE: 0.4
+        DE: 0.6
       ptes:
-        booster_technologies: ["ptes"]
-        min_bottom_temperature: 10
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.01
-
-LowSupplyTemperature_MidDH_freeboost:
-  fix_foreign_investments:
-    reference_scenario: NoPTES_LowSupplyTemperature_MidDH
-  sector:
-    district_heating:
-      potential:
-        DE: 0.4
-      ptes:
-        discharger_temperature_boosting_required: false
         booster_technologies: ["resistive heater"]
       supply_temperature_approximation:
         relative_annual_temperature_reduction: 0.01
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 0.294
 
-LowSupplyTemperature_MidDH_freecap:
+PTES_Base_40CAPEX:
   fix_foreign_investments:
-    reference_scenario: NoPTES_LowSupplyTemperature_MidDH
+    reference_scenario: NoPTES_Base
   sector:
     district_heating:
       potential:
-        DE: 0.4
+        DE: 0.6
       ptes:
-        discharger_temperature_boosting_required: true
         booster_technologies: ["resistive heater"]
-        min_bottom_temperature: 10
-        scale_capacity: false
       supply_temperature_approximation:
         relative_annual_temperature_reduction: 0.01
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 0.588
 
-LowSupplyTemperature_MidDH_freeboost_freecap:
+PTES_Base_80CAPEX:
   fix_foreign_investments:
-    reference_scenario: NoPTES_LowSupplyTemperature_MidDH
+    reference_scenario: NoPTES_Base
   sector:
     district_heating:
       potential:
-        DE: 0.4
+        DE: 0.6
       ptes:
-        discharger_temperature_boosting_required: false
+        booster_technologies: ["resistive heater"]
       supply_temperature_approximation:
         relative_annual_temperature_reduction: 0.01
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 1.176
+
+PTES_Base_160CAPEX:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_Base
+  sector:
+    district_heating:
+      potential:
+        DE: 0.6
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.01
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 2.353
 
 
-# High Supply Temperature scenarios with Mid DH (0.4)
-NoPTES_HighSupplyTemperature_MidDH_init:
+# =============================================================================
+# Setup 2: H2Late — H2 plants forced in 2050 instead of 2035
+# =============================================================================
+
+H2Late_init:
   fix_foreign_investments:
     enable: false
+  electricity:
+    H2_plants_DE:
+      force: 2050
   sector:
     district_heating:
       potential:
-        DE: 0.4
+        DE: 0.6
+      ptes:
+        booster_technologies: ["resistive heater"]
       supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.0
+        relative_annual_temperature_reduction: 0.01
   adjustments:
     electricity: false
     sector:
@@ -344,25 +192,26 @@ NoPTES_HighSupplyTemperature_MidDH_init:
         Store:
           urban central water pits:
             e_nom_max: 0
-      factor:
-        Store:
-          urban central water tanks:
-            capital_cost: 1.2
   solving:
     options:
       skip_iterations: false
 
-NoPTES_HighSupplyTemperature_MidDH:
+NoPTES_H2Late:
   fix_foreign_investments:
     enable: true
     lines_only: true
-    reference_scenario: NoPTES_HighSupplyTemperature_MidDH_init
+    reference_scenario: H2Late_init
+  electricity:
+    H2_plants_DE:
+      force: 2050
   sector:
     district_heating:
       potential:
-        DE: 0.4
+        DE: 0.6
+      ptes:
+        booster_technologies: ["resistive heater"]
       supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.0
+        relative_annual_temperature_reduction: 0.01
   adjustments:
     electricity: false
     sector:
@@ -370,162 +219,139 @@ NoPTES_HighSupplyTemperature_MidDH:
         Store:
           urban central water pits:
             e_nom_max: 0
-      factor:
-        Store:
-          urban central water tanks:
-            capital_cost: 1.2
   solving:
     options:
       skip_iterations: true
 
-HighSupplyTemperature_MidDH_noboost:
+PTES_H2Late_10CAPEX:
   fix_foreign_investments:
-    reference_scenario: NoPTES_HighSupplyTemperature_MidDH
+    reference_scenario: NoPTES_H2Late
+  electricity:
+    H2_plants_DE:
+      force: 2050
   sector:
     district_heating:
       potential:
-        DE: 0.4
-      ptes:
-        booster_technologies: []
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.0
-  adjustments:
-    electricity: false
-    sector:
-      factor:
-        Store:
-          urban central water tanks:
-            capital_cost: 1.2
-
-HighSupplyTemperature_MidDH_hpboost:
-  fix_foreign_investments:
-    reference_scenario: NoPTES_HighSupplyTemperature_MidDH
-  sector:
-    district_heating:
-      potential:
-        DE: 0.4
-      ptes:
-        booster_technologies: ["ptes"]
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.0
-  adjustments:
-    electricity: false
-    sector:
-      factor:
-        Store:
-          urban central water tanks:
-            capital_cost: 1.2
-
-HighSupplyTemperature_MidDH_rhboost:
-  fix_foreign_investments:
-    reference_scenario: NoPTES_HighSupplyTemperature_MidDH
-  sector:
-    district_heating:
-      potential:
-        DE: 0.4
+        DE: 0.6
       ptes:
         booster_technologies: ["resistive heater"]
       supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.0
+        relative_annual_temperature_reduction: 0.01
   adjustments:
     electricity: false
     sector:
       factor:
         Store:
-          urban central water tanks:
-            capital_cost: 1.2
+          urban central water pits:
+            capital_cost: 0.147
 
-HighSupplyTemperature_MidDH_hpboost_10Cbottom:
+PTES_H2Late_20CAPEX:
   fix_foreign_investments:
-    reference_scenario: NoPTES_HighSupplyTemperature_MidDH
+    reference_scenario: NoPTES_H2Late
+  electricity:
+    H2_plants_DE:
+      force: 2050
   sector:
     district_heating:
       potential:
-        DE: 0.4
+        DE: 0.6
       ptes:
-        booster_technologies: ["ptes"]
-        min_bottom_temperature: 10
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.0
-  adjustments:
-    electricity: false
-    sector:
-      factor:
-        Store:
-          urban central water tanks:
-            capital_cost: 1.2
-
-HighSupplyTemperature_MidDH_freeboost:
-  fix_foreign_investments:
-    reference_scenario: NoPTES_HighSupplyTemperature_MidDH
-  sector:
-    district_heating:
-      potential:
-        DE: 0.4
-      ptes:
-        discharger_temperature_boosting_required: false
         booster_technologies: ["resistive heater"]
       supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.0
+        relative_annual_temperature_reduction: 0.01
   adjustments:
     electricity: false
     sector:
       factor:
         Store:
-          urban central water tanks:
-            capital_cost: 1.2
+          urban central water pits:
+            capital_cost: 0.294
 
-HighSupplyTemperature_MidDH_freecap:
+PTES_H2Late_40CAPEX:
   fix_foreign_investments:
-    reference_scenario: NoPTES_HighSupplyTemperature_MidDH
+    reference_scenario: NoPTES_H2Late
+  electricity:
+    H2_plants_DE:
+      force: 2050
   sector:
     district_heating:
       potential:
-        DE: 0.4
+        DE: 0.6
       ptes:
-        discharger_temperature_boosting_required: true
         booster_technologies: ["resistive heater"]
-        min_bottom_temperature: 10
-        scale_capacity: false
       supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.0
+        relative_annual_temperature_reduction: 0.01
   adjustments:
     electricity: false
     sector:
       factor:
         Store:
-          urban central water tanks:
-            capital_cost: 1.2
+          urban central water pits:
+            capital_cost: 0.588
 
-HighSupplyTemperature_MidDH_freeboost_freecap:
+PTES_H2Late_80CAPEX:
   fix_foreign_investments:
-    reference_scenario: NoPTES_HighSupplyTemperature_MidDH
+    reference_scenario: NoPTES_H2Late
+  electricity:
+    H2_plants_DE:
+      force: 2050
   sector:
     district_heating:
       potential:
-        DE: 0.4
+        DE: 0.6
       ptes:
-        discharger_temperature_boosting_required: false
+        booster_technologies: ["resistive heater"]
       supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.0
+        relative_annual_temperature_reduction: 0.01
   adjustments:
     electricity: false
     sector:
       factor:
         Store:
-          urban central water tanks:
-            capital_cost: 1.2
+          urban central water pits:
+            capital_cost: 1.176
 
-# Mid Supply Temperature with Low DH (0.3)
-NoPTES_MidSupplyTemperature_LowDH_init:
+PTES_H2Late_160CAPEX:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_H2Late
+  electricity:
+    H2_plants_DE:
+      force: 2050
+  sector:
+    district_heating:
+      potential:
+        DE: 0.6
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.01
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 2.353
+
+
+# =============================================================================
+# Setup 3: H2Late2Ely — H2 plants 2050 + 2× Electrolyzer CAPEX
+# =============================================================================
+
+H2Late2Ely_init:
   fix_foreign_investments:
     enable: false
+  electricity:
+    H2_plants_DE:
+      force: 2050
   sector:
     district_heating:
       potential:
-        DE: 0.3
+        DE: 0.6
+      ptes:
+        booster_technologies: ["resistive heater"]
       supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.005
+        relative_annual_temperature_reduction: 0.01
   adjustments:
     electricity: false
     sector:
@@ -534,310 +360,185 @@ NoPTES_MidSupplyTemperature_LowDH_init:
           urban central water pits:
             e_nom_max: 0
       factor:
-        Store:
-          urban central water tanks:
-            capital_cost: 1.05
-  solving:
-    options:
-      skip_iterations: false
-
-NoPTES_MidSupplyTemperature_LowDH:
-  fix_foreign_investments:
-    enable: true
-    lines_only: true
-    reference_scenario: NoPTES_MidSupplyTemperature_LowDH_init
-  sector:
-    district_heating:
-      potential:
-        DE: 0.3
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.005
-  adjustments:
-    electricity: false
-    sector:
-      absolute:
-        Store:
-          urban central water pits:
-            e_nom_max: 0
-      factor:
-        Store:
-          urban central water tanks:
-            capital_cost: 1.05
-  solving:
-    options:
-      skip_iterations: true
-
-MidSupplyTemperature_LowDH_rhboost:
-  fix_foreign_investments:
-    reference_scenario: NoPTES_MidSupplyTemperature_LowDH
-  sector:
-    district_heating:
-      potential:
-        DE: 0.3
-      ptes:
-        booster_technologies: ["resistive heater"]
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.005
-  adjustments:
-    electricity: false
-    sector:
-      factor:
-        Store:
-          urban central water tanks:
-            capital_cost: 1.05
-
-# Mid Supply Temperature with High DH (0.5)
-NoPTES_MidSupplyTemperature_HighDH_init:
-  fix_foreign_investments:
-    enable: false
-  sector:
-    district_heating:
-      potential:
-        DE: 0.5
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.005
-  adjustments:
-    electricity: false
-    sector:
-      absolute:
-        Store:
-          urban central water pits:
-            e_nom_max: 0
-      factor:
-        Store:
-          urban central water tanks:
-            capital_cost: 1.05
-  solving:
-    options:
-      skip_iterations: false
-
-NoPTES_MidSupplyTemperature_HighDH:
-  fix_foreign_investments:
-    enable: true
-    lines_only: true
-    reference_scenario: NoPTES_MidSupplyTemperature_HighDH_init
-  sector:
-    district_heating:
-      potential:
-        DE: 0.5
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.005 
-  adjustments:
-    electricity: false
-    sector:
-      absolute:
-        Store:
-          urban central water pits:
-            e_nom_max: 0
-      factor:
-        Store:
-          urban central water tanks:
-            capital_cost: 1.05
-  solving:
-    options:
-      skip_iterations: true
-
-MidSupplyTemperature_HighDH_rhboost:
-  fix_foreign_investments:
-    reference_scenario: NoPTES_MidSupplyTemperature_HighDH
-  sector:
-    district_heating:
-      potential:
-        DE: 0.5
-      ptes:
-        booster_technologies: ["resistive heater"]
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.005
-  adjustments:
-    electricity: false
-    sector:
-      factor:
-        Store:
-          urban central water tanks:
-            capital_cost: 1.05
-
-# CAPEX sensitivity scenarios (Mid Supply Temperature, Mid DH, rhboost)
-MidSupplyTemperature_MidDH_rhboost_0.00CAPEX:
-  fix_foreign_investments:
-    reference_scenario: NoPTES_MidSupplyTemperature_MidDH
-  sector:
-    district_heating:
-      potential:
-        DE: 0.4
-      ptes:
-        booster_technologies: ["resistive heater"]
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.005
-  adjustments:
-    electricity: false
-    sector:
-      factor:
-        Store:
-          urban central water pits:
-            capital_cost: 0.0
-          urban central water tanks:
-            capital_cost: 1.05
-
-MidSupplyTemperature_MidDH_rhboost_0.25CAPEX:
-  fix_foreign_investments:
-    reference_scenario: NoPTES_MidSupplyTemperature_MidDH
-  sector:
-    district_heating:
-      potential:
-        DE: 0.4
-      ptes:
-        booster_technologies: ["resistive heater"]
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.005
-  adjustments:
-    electricity: false
-    sector:
-      factor:
-        Store:
-          urban central water pits:
-            capital_cost: 0.25
-          urban central water tanks:
-            capital_cost: 1.05
-
-MidSupplyTemperature_MidDH_rhboost_0.5CAPEX:
-  fix_foreign_investments:
-    reference_scenario: NoPTES_MidSupplyTemperature_MidDH
-  sector:
-    district_heating:
-      potential:
-        DE: 0.4
-      ptes:
-        booster_technologies: ["resistive heater"]
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.005
-  adjustments:
-    electricity: false
-    sector:
-      factor:
-        Store:
-          urban central water pits:
-            capital_cost: 0.5
-          urban central water tanks:
-            capital_cost: 1.05
-
-MidSupplyTemperature_MidDH_rhboost_0.75CAPEX:
-  fix_foreign_investments:
-    reference_scenario: NoPTES_MidSupplyTemperature_MidDH
-  sector:
-    district_heating:
-      potential:
-        DE: 0.4
-      ptes:
-        booster_technologies: ["resistive heater"]
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.005
-  adjustments:
-    electricity: false
-    sector:
-      factor:
-        Store:
-          urban central water pits:
-            capital_cost: 0.75
-          urban central water tanks:
-            capital_cost: 1.05
-
-MidSupplyTemperature_MidDH_rhboost_1.25CAPEX:
-  fix_foreign_investments:
-    reference_scenario: NoPTES_MidSupplyTemperature_MidDH
-  sector:
-    district_heating:
-      potential:
-        DE: 0.4
-      ptes:
-        booster_technologies: ["resistive heater"]
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.005
-  adjustments:
-    electricity: false
-    sector:
-      factor:
-        Store:
-          urban central water pits:
-            capital_cost: 1.25
-          urban central water tanks:
-            capital_cost: 1.05
-
-MidSupplyTemperature_MidDH_rhboost_1.5CAPEX:
-  fix_foreign_investments:
-    reference_scenario: NoPTES_MidSupplyTemperature_MidDH
-  sector:
-    district_heating:
-      potential:
-        DE: 0.4
-      ptes:
-        booster_technologies: ["resistive heater"]
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.005
-  adjustments:
-    electricity: false
-    sector:
-      factor:
-        Store:
-          urban central water pits:
-            capital_cost: 1.5
-          urban central water tanks:
-            capital_cost: 1.05
-
-MidSupplyTemperature_MidDH_rhboost_1.75CAPEX:
-  fix_foreign_investments:
-    reference_scenario: NoPTES_MidSupplyTemperature_MidDH
-  sector:
-    district_heating:
-      potential:
-        DE: 0.4
-      ptes:
-        booster_technologies: ["resistive heater"]
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.005
-  adjustments:
-    electricity: false
-    sector:
-      factor:
-        Store:
-          urban central water pits:
-            capital_cost: 1.75
-          urban central water tanks:
-            capital_cost: 1.05
-
-MidSupplyTemperature_MidDH_rhboost_2CAPEX:
-  fix_foreign_investments:
-    reference_scenario: NoPTES_MidSupplyTemperature_MidDH
-  sector:
-    district_heating:
-      potential:
-        DE: 0.4
-      ptes:
-        booster_technologies: ["resistive heater"]
-      supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.005
-  adjustments:
-    electricity: false
-    sector:
-      factor:
-        Store:
-          urban central water pits:
+        Link:
+          H2 Electrolysis:
             capital_cost: 2.0
-          urban central water tanks:
-            capital_cost: 1.05
+  solving:
+    options:
+      skip_iterations: false
 
-NoPTES_MidSupplyTemperature_MidDH_H2_init:
-# Fokus stärker auf dem Hochlauf von Technologien zur indirekten Elektrifizierung der Sektoren
-# Verstärkter Einsatz von Wasserstoff und synthetischen Kraftstoffen - erneuerbar erzeugt und auch importiert
-# Direkte Elektrifizierung spielt dennoch wesentliche Rolle bei der Dekarbonisierung der Endenergie
-# Ausbau der erneuerbaren Stromerzeugung erreicht politisch gesetzte Ziele
+NoPTES_H2Late2Ely:
+  fix_foreign_investments:
+    enable: true
+    lines_only: true
+    reference_scenario: H2Late2Ely_init
+  electricity:
+    H2_plants_DE:
+      force: 2050
+  sector:
+    district_heating:
+      potential:
+        DE: 0.6
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.01
+  adjustments:
+    electricity: false
+    sector:
+      absolute:
+        Store:
+          urban central water pits:
+            e_nom_max: 0
+      factor:
+        Link:
+          H2 Electrolysis:
+            capital_cost: 2.0
+  solving:
+    options:
+      skip_iterations: true
+
+PTES_H2Late2Ely_10CAPEX:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_H2Late2Ely
+  electricity:
+    H2_plants_DE:
+      force: 2050
+  sector:
+    district_heating:
+      potential:
+        DE: 0.6
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.01
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 0.147
+        Link:
+          H2 Electrolysis:
+            capital_cost: 2.0
+
+PTES_H2Late2Ely_20CAPEX:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_H2Late2Ely
+  electricity:
+    H2_plants_DE:
+      force: 2050
+  sector:
+    district_heating:
+      potential:
+        DE: 0.6
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.01
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 0.294
+        Link:
+          H2 Electrolysis:
+            capital_cost: 2.0
+
+PTES_H2Late2Ely_40CAPEX:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_H2Late2Ely
+  electricity:
+    H2_plants_DE:
+      force: 2050
+  sector:
+    district_heating:
+      potential:
+        DE: 0.6
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.01
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 0.588
+        Link:
+          H2 Electrolysis:
+            capital_cost: 2.0
+
+PTES_H2Late2Ely_80CAPEX:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_H2Late2Ely
+  electricity:
+    H2_plants_DE:
+      force: 2050
+  sector:
+    district_heating:
+      potential:
+        DE: 0.6
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.01
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 1.176
+        Link:
+          H2 Electrolysis:
+            capital_cost: 2.0
+
+PTES_H2Late2Ely_160CAPEX:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_H2Late2Ely
+  electricity:
+    H2_plants_DE:
+      force: 2050
+  sector:
+    district_heating:
+      potential:
+        DE: 0.6
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.01
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 2.353
+        Link:
+          H2 Electrolysis:
+            capital_cost: 2.0
+
+
+# =============================================================================
+# Setup 4: ProgDH — Progressive DH (potential 0.6, 2%/a temp reduction)
+# =============================================================================
+
+ProgDH_init:
   fix_foreign_investments:
     enable: false
   sector:
     district_heating:
       potential:
-        DE: 0.4
+        DE: 0.6
+      ptes:
+        booster_technologies: ["resistive heater"]
       supply_temperature_approximation:
-        relative_annual_temperature_reduction: 0.005
+        relative_annual_temperature_reduction: 0.02
   adjustments:
     electricity: false
     sector:
@@ -845,25 +546,143 @@ NoPTES_MidSupplyTemperature_MidDH_H2_init:
         Store:
           urban central water pits:
             e_nom_max: 0
-      factor:
-        Store:
-          urban central water tanks:
-            capital_cost: 1.05
-  iiasa_database:
-    reference_scenario: KN2045_H2
   solving:
     options:
       skip_iterations: false
 
-NoPTES_MidSupplyTemperature_MidDH_H2:
+NoPTES_ProgDH:
   fix_foreign_investments:
     enable: true
     lines_only: true
-    reference_scenario: NoPTES_MidSupplyTemperature_MidDH_H2_init
+    reference_scenario: ProgDH_init
   sector:
     district_heating:
       potential:
-        DE: 0.4
+        DE: 0.6
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.02
+  adjustments:
+    electricity: false
+    sector:
+      absolute:
+        Store:
+          urban central water pits:
+            e_nom_max: 0
+  solving:
+    options:
+      skip_iterations: true
+
+PTES_ProgDH_10CAPEX:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_ProgDH
+  sector:
+    district_heating:
+      potential:
+        DE: 0.6
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.02
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 0.147
+
+PTES_ProgDH_20CAPEX:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_ProgDH
+  sector:
+    district_heating:
+      potential:
+        DE: 0.6
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.02
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 0.294
+
+PTES_ProgDH_40CAPEX:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_ProgDH
+  sector:
+    district_heating:
+      potential:
+        DE: 0.6
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.02
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 0.588
+
+PTES_ProgDH_80CAPEX:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_ProgDH
+  sector:
+    district_heating:
+      potential:
+        DE: 0.6
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.02
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 1.176
+
+PTES_ProgDH_160CAPEX:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_ProgDH
+  sector:
+    district_heating:
+      potential:
+        DE: 0.6
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.02
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 2.353
+
+
+# =============================================================================
+# Setup 5: ConsDH — Conservative DH (potential 0.2, 0.5%/a temp reduction)
+# =============================================================================
+
+ConsDH_init:
+  fix_foreign_investments:
+    enable: false
+  sector:
+    district_heating:
+      potential:
+        DE: 0.2
+      ptes:
+        booster_technologies: ["resistive heater"]
       supply_temperature_approximation:
         relative_annual_temperature_reduction: 0.005
   adjustments:
@@ -873,27 +692,41 @@ NoPTES_MidSupplyTemperature_MidDH_H2:
         Store:
           urban central water pits:
             e_nom_max: 0
-      factor:
+  solving:
+    options:
+      skip_iterations: false
+
+NoPTES_ConsDH:
+  fix_foreign_investments:
+    enable: true
+    lines_only: true
+    reference_scenario: ConsDH_init
+  sector:
+    district_heating:
+      potential:
+        DE: 0.2
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+  adjustments:
+    electricity: false
+    sector:
+      absolute:
         Store:
-          urban central water tanks:
-            capital_cost: 1.05
-  iiasa_database:
-    reference_scenario: KN2045_H2
+          urban central water pits:
+            e_nom_max: 0
   solving:
     options:
       skip_iterations: true
 
-MidSupplyTemperature_MidDH_H2_rhboost:
-# Fokus stärker auf dem Hochlauf von Technologien zur indirekten Elektrifizierung der Sektoren
-# Verstärkter Einsatz von Wasserstoff und synthetischen Kraftstoffen - erneuerbar erzeugt und auch importiert
-# Direkte Elektrifizierung spielt dennoch wesentliche Rolle bei der Dekarbonisierung der Endenergie
-# Ausbau der erneuerbaren Stromerzeugung erreicht politisch gesetzte Ziele
+PTES_ConsDH_10CAPEX:
   fix_foreign_investments:
-    reference_scenario: NoPTES_MidSupplyTemperature_MidDH_H2
+    reference_scenario: NoPTES_ConsDH
   sector:
     district_heating:
       potential:
-        DE: 0.4
+        DE: 0.2
       ptes:
         booster_technologies: ["resistive heater"]
       supply_temperature_approximation:
@@ -903,7 +736,241 @@ MidSupplyTemperature_MidDH_H2_rhboost:
     sector:
       factor:
         Store:
-          urban central water tanks:
-            capital_cost: 1.05
-  iiasa_database:
-    reference_scenario: KN2045_H2
+          urban central water pits:
+            capital_cost: 0.147
+
+PTES_ConsDH_20CAPEX:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_ConsDH
+  sector:
+    district_heating:
+      potential:
+        DE: 0.2
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 0.294
+
+PTES_ConsDH_40CAPEX:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_ConsDH
+  sector:
+    district_heating:
+      potential:
+        DE: 0.2
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 0.588
+
+PTES_ConsDH_80CAPEX:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_ConsDH
+  sector:
+    district_heating:
+      potential:
+        DE: 0.2
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 1.176
+
+PTES_ConsDH_160CAPEX:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_ConsDH
+  sector:
+    district_heating:
+      potential:
+        DE: 0.2
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 2.353
+
+
+# =============================================================================
+# Setup 6: RelaxCO2 — Relaxed CO2 budget (0.20 in 2045)
+# =============================================================================
+
+RelaxCO2_init:
+  fix_foreign_investments:
+    enable: false
+  co2_budget:
+    2045: 0.20
+  sector:
+    district_heating:
+      potential:
+        DE: 0.6
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.01
+  adjustments:
+    electricity: false
+    sector:
+      absolute:
+        Store:
+          urban central water pits:
+            e_nom_max: 0
+  solving:
+    options:
+      skip_iterations: false
+
+NoPTES_RelaxCO2:
+  fix_foreign_investments:
+    enable: true
+    lines_only: true
+    reference_scenario: RelaxCO2_init
+  co2_budget:
+    2045: 0.20
+  sector:
+    district_heating:
+      potential:
+        DE: 0.6
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.01
+  adjustments:
+    electricity: false
+    sector:
+      absolute:
+        Store:
+          urban central water pits:
+            e_nom_max: 0
+  solving:
+    options:
+      skip_iterations: true
+
+PTES_RelaxCO2_10CAPEX:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_RelaxCO2
+  co2_budget:
+    2045: 0.20
+  sector:
+    district_heating:
+      potential:
+        DE: 0.6
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.01
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 0.147
+
+PTES_RelaxCO2_20CAPEX:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_RelaxCO2
+  co2_budget:
+    2045: 0.20
+  sector:
+    district_heating:
+      potential:
+        DE: 0.6
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.01
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 0.294
+
+PTES_RelaxCO2_40CAPEX:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_RelaxCO2
+  co2_budget:
+    2045: 0.20
+  sector:
+    district_heating:
+      potential:
+        DE: 0.6
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.01
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 0.588
+
+PTES_RelaxCO2_80CAPEX:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_RelaxCO2
+  co2_budget:
+    2045: 0.20
+  sector:
+    district_heating:
+      potential:
+        DE: 0.6
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.01
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 1.176
+
+PTES_RelaxCO2_160CAPEX:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_RelaxCO2
+  co2_budget:
+    2045: 0.20
+  sector:
+    district_heating:
+      potential:
+        DE: 0.6
+      ptes:
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.01
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water pits:
+            capital_cost: 2.353

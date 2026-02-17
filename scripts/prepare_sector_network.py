@@ -20,7 +20,10 @@ from networkx.algorithms import complement
 from networkx.algorithms.connectivity.edge_augmentation import k_edge_augmentation
 from pypsa.geo import haversine_pts
 from scipy.stats import beta
+import os
+import sys
 
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from scripts._helpers import (
     configure_logging,
     get,
@@ -6455,12 +6458,18 @@ if __name__ == "__main__":
     if "snakemake" not in globals():
         from scripts._helpers import mock_snakemake
 
+        os.chdir(os.path.join(os.path.dirname(__file__), ".."))
+
         snakemake = mock_snakemake(
             "prepare_sector_network",
+            configfiles=["config/config.sysgf.yaml", "config/scenarios.sysgf.yaml"],
+            simpl="",
+            clusters=49,
             opts="",
-            clusters="8",
-            sector_opts="",
-            planning_horizons="2030",
+            ll="vopt",
+            sector_opts="none",
+            planning_horizons="2045",
+            run="NoPTES_MidSupplyTemperature_MidDH",
         )
 
     configure_logging(snakemake)  # pylint: disable=E0606
