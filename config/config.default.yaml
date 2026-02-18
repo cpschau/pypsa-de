@@ -11,8 +11,8 @@ logging:
   format: '%(levelname)s:%(name)s:%(message)s'
 
 remote:
-  ssh: ""
-  path: ""
+  ssh: "z1"
+  path: "/home/htc/cschauss/scratch/pypsa-de-paper1"
 
 # docs in https://pypsa-eur.readthedocs.io/en/latest/configuration.html#run
 run:
