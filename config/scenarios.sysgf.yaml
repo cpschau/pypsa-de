@@ -161,6 +161,7 @@ MidSupplyTemperature_MidDH_freecap:
       potential:
         DE: 0.4
       ptes:
+        min_bottom_temperature: 10
         discharger_temperature_boosting_required: true
         booster_technologies: ["resistive heater"]
         scale_capacity: false
@@ -306,6 +307,7 @@ LowSupplyTemperature_MidDH_freecap:
       potential:
         DE: 0.4
       ptes:
+        min_bottom_temperature: 10
         discharger_temperature_boosting_required: true
         booster_technologies: ["resistive heater"]
         scale_capacity: false
@@ -481,6 +483,7 @@ HighSupplyTemperature_MidDH_freecap:
       potential:
         DE: 0.4
       ptes:
+        min_bottom_temperature: 10
         discharger_temperature_boosting_required: true
         booster_technologies: ["resistive heater"]
         scale_capacity: false
@@ -980,7 +983,7 @@ TopTSens_85_rhboost:
           urban central water tanks:
             capital_cost: 1.05
 
-TopTSens_85_hpboost:
+TopTSens_85_hpboost_10Cbottom:
   fix_foreign_investments:
     reference_scenario: NoPTES_TopTSens_85
   sector:
@@ -990,6 +993,7 @@ TopTSens_85_hpboost:
       ptes:
         max_top_temperature: 85
         booster_technologies: ["ptes"]
+        min_bottom_temperature: 10
       supply_temperature_approximation:
         relative_annual_temperature_reduction: 0.005
   adjustments:
@@ -1030,6 +1034,7 @@ TopTSens_85_freecap:
         DE: 0.4
       ptes:
         max_top_temperature: 85
+        min_bottom_temperature: 10
         discharger_temperature_boosting_required: true
         booster_technologies: ["resistive heater"]
         scale_capacity: false
@@ -1118,7 +1123,7 @@ TopTSens_95_rhboost:
           urban central water tanks:
             capital_cost: 1.05
 
-TopTSens_95_hpboost:
+TopTSens_95_hpboost_10Cbottom:
   fix_foreign_investments:
     reference_scenario: NoPTES_TopTSens_95
   sector:
@@ -1127,6 +1132,7 @@ TopTSens_95_hpboost:
         DE: 0.4
       ptes:
         max_top_temperature: 95
+        min_bottom_temperature: 10
         booster_technologies: ["ptes"]
       supply_temperature_approximation:
         relative_annual_temperature_reduction: 0.005
@@ -1168,6 +1174,7 @@ TopTSens_95_freecap:
         DE: 0.4
       ptes:
         max_top_temperature: 95
+        min_bottom_temperature: 10
         discharger_temperature_boosting_required: true
         booster_technologies: ["resistive heater"]
         scale_capacity: false

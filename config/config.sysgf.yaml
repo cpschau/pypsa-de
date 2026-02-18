@@ -14,38 +14,38 @@ run:
     - MidSupplyTemperature_MidDH_hpboost_10Cbottom
     - MidSupplyTemperature_MidDH_freeboost
     - MidSupplyTemperature_MidDH_freecap
-    - MidSupplyTemperature_MidDH_freeboost_freecap
+    # - MidSupplyTemperature_MidDH_freeboost_freecap
     # # # # Low Supply
-    - NoPTES_LowSupplyTemperature_MidDH_init
-    - NoPTES_LowSupplyTemperature_MidDH
-    - LowSupplyTemperature_MidDH_noboost
-    - LowSupplyTemperature_MidDH_hpboost
-    - LowSupplyTemperature_MidDH_rhboost
-    - LowSupplyTemperature_MidDH_hpboost_10Cbottom
-    - LowSupplyTemperature_MidDH_freeboost
-    - LowSupplyTemperature_MidDH_freecap
-    - LowSupplyTemperature_MidDH_freeboost_freecap
-    # # # High Supply
-    - NoPTES_HighSupplyTemperature_MidDH_init
-    - NoPTES_HighSupplyTemperature_MidDH
-    - HighSupplyTemperature_MidDH_noboost
-    - HighSupplyTemperature_MidDH_hpboost
-    - HighSupplyTemperature_MidDH_rhboost
-    - HighSupplyTemperature_MidDH_hpboost_10Cbottom
-    - HighSupplyTemperature_MidDH_freeboost
-    - HighSupplyTemperature_MidDH_freecap
-    - HighSupplyTemperature_MidDH_freeboost_freecap
+    # - NoPTES_LowSupplyTemperature_MidDH_init
+    # - NoPTES_LowSupplyTemperature_MidDH
+    # - LowSupplyTemperature_MidDH_noboost
+    # - LowSupplyTemperature_MidDH_hpboost
+    # - LowSupplyTemperature_MidDH_rhboost
+    # - LowSupplyTemperature_MidDH_hpboost_10Cbottom
+    # - LowSupplyTemperature_MidDH_freeboost
+    # - LowSupplyTemperature_MidDH_freecap
+    # - LowSupplyTemperature_MidDH_freeboost_freecap
+    # # # # High Supply
+    # - NoPTES_HighSupplyTemperature_MidDH_init
+    # - NoPTES_HighSupplyTemperature_MidDH
+    # - HighSupplyTemperature_MidDH_noboost
+    # - HighSupplyTemperature_MidDH_hpboost
+    # - HighSupplyTemperature_MidDH_rhboost
+    # - HighSupplyTemperature_MidDH_hpboost_10Cbottom
+    # - HighSupplyTemperature_MidDH_freeboost
+    # - HighSupplyTemperature_MidDH_freecap
+    # - HighSupplyTemperature_MidDH_freeboost_freecap
     # # Top Temperature Sensitivity (±5°C from 90°C baseline)
     - NoPTES_TopTSens_85_init
     - NoPTES_TopTSens_85
     - TopTSens_85_rhboost
-    - TopTSens_85_hpboost
+    - TopTSens_85_hpboost_10Cbottom
     - TopTSens_85_freeboost
     - TopTSens_85_freecap
     - NoPTES_TopTSens_95_init
     - NoPTES_TopTSens_95
     - TopTSens_95_rhboost
-    - TopTSens_95_hpboost
+    - TopTSens_95_hpboost_10Cbottom
     - TopTSens_95_freeboost
     - TopTSens_95_freecap
     # # DH potential sensitivities
@@ -128,7 +128,7 @@ clustering:
     'ES': 0.0408
     'IT': 0.0612
   temporal:
-    resolution_sector: 25H
+    resolution_sector: 3H
 
 co2_budget:
   2045: 0.00
