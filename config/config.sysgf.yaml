@@ -35,6 +35,19 @@ run:
     - HighSupplyTemperature_MidDH_freeboost
     - HighSupplyTemperature_MidDH_freecap
     - HighSupplyTemperature_MidDH_freeboost_freecap
+    # # Top Temperature Sensitivity (±5°C from 90°C baseline)
+    - NoPTES_TopTSens_85_init
+    - NoPTES_TopTSens_85
+    - TopTSens_85_rhboost
+    - TopTSens_85_hpboost
+    - TopTSens_85_freeboost
+    - TopTSens_85_freecap
+    - NoPTES_TopTSens_95_init
+    - NoPTES_TopTSens_95
+    - TopTSens_95_rhboost
+    - TopTSens_95_hpboost
+    - TopTSens_95_freeboost
+    - TopTSens_95_freecap
     # # DH potential sensitivities
     # - NoPTES_MidSupplyTemperature_LowDH_init
     # - NoPTES_MidSupplyTemperature_LowDH
@@ -333,6 +346,15 @@ plotting:
     # Mid Supply Temperature with different DH potentials
     - ["NoPTES_MidSupplyTemperature_LowDH", "MidSupplyTemperature_LowDH_rhboost"]
     - ["NoPTES_MidSupplyTemperature_HighDH", "MidSupplyTemperature_HighDH_rhboost"]
+    # Top Temperature Sensitivity (85°C / 95°C)
+    - ["NoPTES_TopTSens_85", "TopTSens_85_rhboost"]
+    - ["NoPTES_TopTSens_85", "TopTSens_85_hpboost"]
+    - ["NoPTES_TopTSens_85", "TopTSens_85_freeboost"]
+    - ["NoPTES_TopTSens_85", "TopTSens_85_freecap"]
+    - ["NoPTES_TopTSens_95", "TopTSens_95_rhboost"]
+    - ["NoPTES_TopTSens_95", "TopTSens_95_hpboost"]
+    - ["NoPTES_TopTSens_95", "TopTSens_95_freeboost"]
+    - ["NoPTES_TopTSens_95", "TopTSens_95_freecap"]
   scenario_triples:
     - ["NoPTES_LowSupplyTemperature_MidDH", "LowSupplyTemperature_MidDH_hpboost", "LowSupplyTemperature_MidDH_noboost"]
     - ["NoPTES_MidSupplyTemperature_MidDH", "MidSupplyTemperature_MidDH_hpboost", "MidSupplyTemperature_MidDH_noboost"]

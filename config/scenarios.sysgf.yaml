@@ -904,3 +904,279 @@ MidSupplyTemperature_MidDH_H2_rhboost:
             capital_cost: 1.05
   iiasa_database:
     reference_scenario: KN2045_H2
+
+# Top Temperature Sensitivity – 85°C (baseline 90°C, −5°C)
+NoPTES_TopTSens_85_init:
+  fix_foreign_investments:
+    enable: false
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        max_top_temperature: 85
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+  adjustments:
+    electricity: false
+    sector:
+      absolute:
+        Store:
+          urban central water pits:
+            e_nom_max: 0
+      factor:
+        Store:
+          urban central water tanks:
+            capital_cost: 1.05
+  solving:
+    options:
+      skip_iterations: false
+
+NoPTES_TopTSens_85:
+  fix_foreign_investments:
+    enable: true
+    lines_only: true
+    reference_scenario: NoPTES_TopTSens_85_init
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        max_top_temperature: 85
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+  adjustments:
+    electricity: false
+    sector:
+      absolute:
+        Store:
+          urban central water pits:
+            e_nom_max: 0
+      factor:
+        Store:
+          urban central water tanks:
+            capital_cost: 1.05
+  solving:
+    options:
+      skip_iterations: true
+
+TopTSens_85_rhboost:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_TopTSens_85
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        max_top_temperature: 85
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water tanks:
+            capital_cost: 1.05
+
+TopTSens_85_hpboost:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_TopTSens_85
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        max_top_temperature: 85
+        booster_technologies: ["ptes"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water tanks:
+            capital_cost: 1.05
+
+TopTSens_85_freeboost:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_TopTSens_85
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        max_top_temperature: 85
+        discharger_temperature_boosting_required: false
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water tanks:
+            capital_cost: 1.05
+
+TopTSens_85_freecap:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_TopTSens_85
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        max_top_temperature: 85
+        discharger_temperature_boosting_required: true
+        booster_technologies: ["resistive heater"]
+        scale_capacity: false
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water tanks:
+            capital_cost: 1.05
+
+# Top Temperature Sensitivity – 95°C (baseline 90°C, +5°C)
+NoPTES_TopTSens_95_init:
+  fix_foreign_investments:
+    enable: false
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        max_top_temperature: 95
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+  adjustments:
+    electricity: false
+    sector:
+      absolute:
+        Store:
+          urban central water pits:
+            e_nom_max: 0
+      factor:
+        Store:
+          urban central water tanks:
+            capital_cost: 1.05
+  solving:
+    options:
+      skip_iterations: false
+
+NoPTES_TopTSens_95:
+  fix_foreign_investments:
+    enable: true
+    lines_only: true
+    reference_scenario: NoPTES_TopTSens_95_init
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        max_top_temperature: 95
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+  adjustments:
+    electricity: false
+    sector:
+      absolute:
+        Store:
+          urban central water pits:
+            e_nom_max: 0
+      factor:
+        Store:
+          urban central water tanks:
+            capital_cost: 1.05
+  solving:
+    options:
+      skip_iterations: true
+
+TopTSens_95_rhboost:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_TopTSens_95
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        max_top_temperature: 95
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water tanks:
+            capital_cost: 1.05
+
+TopTSens_95_hpboost:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_TopTSens_95
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        max_top_temperature: 95
+        booster_technologies: ["ptes"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water tanks:
+            capital_cost: 1.05
+
+TopTSens_95_freeboost:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_TopTSens_95
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        max_top_temperature: 95
+        discharger_temperature_boosting_required: false
+        booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water tanks:
+            capital_cost: 1.05
+
+TopTSens_95_freecap:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_TopTSens_95
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        max_top_temperature: 95
+        discharger_temperature_boosting_required: true
+        booster_technologies: ["resistive heater"]
+        scale_capacity: false
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water tanks:
+            capital_cost: 1.05
