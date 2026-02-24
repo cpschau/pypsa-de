@@ -486,6 +486,7 @@ rule prepare_district_heating_subnodes:
         baseyear=lambda w: baseyear_value(w),
         energy_totals_year=config_provider("energy", "energy_totals_year"),
         sector=config_provider("sector"),
+        planning_horizons=config_provider("scenario", "planning_horizons"),
     input:
         heating_technologies_nuts3=resources("heating_technologies_nuts3.geojson"),
         regions_onshore=resources("regions_onshore_base_s_{clusters}.geojson"),

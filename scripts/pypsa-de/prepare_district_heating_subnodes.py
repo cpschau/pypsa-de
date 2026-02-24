@@ -301,11 +301,11 @@ def scale_subnodal_demand(
     losses: float,
     reduce_space_heating_demand: bool = False,
     reduce_space_heating_demand_factors: dict[int, float] = {},
-    baseyear: int = 2020,
+    planning_horizon: int = 2045,
 ) -> gpd.GeoDataFrame:
     """
     Scale subnodal demands to maintain the ratio between subnodal demand and
-    mother node demand from the baseyear.
+    mother node demand from the planning_horizon.
 
     Parameters
     ----------
@@ -394,13 +394,15 @@ def scale_subnodal_demand(
                     * eff[available_nodes]
                     * 1e6
                 )
-            if reduce_space_heating_demand and use == "space":
-                dE = reduce_space_heating_demand_factors.get(planning_horizon, 0.0)
-                logger.info(f"Assumed space heat reduction of {dE:.2%}")
-                demand_component[node] = (1 - dE) * demand_component[node]
 
                 # Add demand for available nodes
                 for node in available_nodes:
+                    if reduce_space_heating_demand and use == "space":
+                        dE = reduce_space_heating_demand_factors.get(
+                            planning_horizon, 0.0
+                        )
+                        logger.info(f"Assumed space heat reduction of {dE:.2%}")
+                        demand_component[node] = (1 - dE) * demand_component[node]
                     if node in total_hh_services_demand.index:
                         total_hh_services_demand[node] += (
                             demand_component[node] * factor[node] * (1 + losses)
@@ -959,12 +961,12 @@ if __name__ == "__main__":
             "prepare_district_heating_subnodes",
             configfiles=["config/config.sysgf.yaml", "config/scenarios.sysgf.yaml"],
             simpl="",
-            clusters=27,
+            clusters=49,
             opts="",
             ll="vopt",
             sector_opts="none",
             planning_horizons="2045",
-            run="2PTESCAPEX",
+            run="NoPTES_MidSupplyTemperature_MidDH",
         )
 
     configure_logging(snakemake)
@@ -1041,7 +1043,7 @@ if __name__ == "__main__":
         reduce_space_heating_demand_factors=snakemake.params.sector.get(
             "reduce_space_heat_exogenously_factor", {}
         ),
-        baseyear=snakemake.params.baseyear,
+        planning_horizon=snakemake.params.planning_horizons[0],
     )
 
     if snakemake.params.district_heating["subnodes"]["census_areas"]["enable"]:
