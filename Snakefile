@@ -483,10 +483,6 @@ rule build_egon_data:
 rule prepare_district_heating_subnodes:
     params:
         district_heating=config_provider("sector", "district_heating"),
-        baseyear=lambda w: baseyear_value(w),
-        energy_totals_year=config_provider("energy", "energy_totals_year"),
-        sector=config_provider("sector"),
-        planning_horizons=config_provider("scenario", "planning_horizons"),
     input:
         heating_technologies_nuts3=resources("heating_technologies_nuts3.geojson"),
         regions_onshore=resources("regions_onshore_base_s_{clusters}.geojson"),
@@ -507,19 +503,6 @@ rule prepare_district_heating_subnodes:
             keep_local=True,
         ),
         dh_areas="data/dh_areas.gpkg",
-        industrial_demand=lambda w: resources(
-            f"industrial_energy_demand_base_s_{{clusters}}_{baseyear_value(w)}.csv"
-        ),
-        hourly_heat_demand_total=resources(
-            "hourly_heat_demand_total_base_s_{clusters}.nc"
-        ),
-        district_heat_share=lambda w: resources(
-            f"district_heat_share_base_s_{{clusters}}_{baseyear_value(w)}-modified.csv"
-        ),
-        pop_weighted_energy_totals=lambda w: resources(
-            f"pop_weighted_energy_totals_s_{{clusters}}.csv"
-        ),
-        heating_efficiencies=resources("heating_efficiencies.csv"),
     output:
         district_heating_subnodes=resources(
             "district_heating_subnodes_base_s_{clusters}.geojson"
