@@ -146,14 +146,19 @@ adjustments:
       Link:
         urban central geothermal heat pump:
           capital_cost: 0.66
+          marginal_cost: 2.02
         urban central river_water heat pump:
           capital_cost: 0.86
+          marginal_cost: 1.8
         urban central sea_water heat pump:
           capital_cost: 0.86
+          marginal_cost: 1.8
         urban central electrolysis excess heat pump:
           capital_cost: 0.76
+          marginal_cost: 1.8
         urban central ptes heat pump:
           capital_cost: 0.66
+          marginal_cost: 1.8
 wasserstoff_kernnetz:
   enable: false
 

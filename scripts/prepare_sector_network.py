@@ -3382,6 +3382,11 @@ def add_heat(
                 else costs.at[costs_name_heat_pump, "efficiency"]
             )
 
+            if heat_system == HeatSystem.URBAN_CENTRAL:
+                marginal_cost = -1
+            else:
+                marginal_cost = 0
+
             if heat_source in params.limited_heat_sources:
                 # add resource
                 heat_carrier = f"{heat_system} {heat_source} heat"
@@ -3460,6 +3465,7 @@ def add_heat(
                     efficiency2=1 - 1 / (cop_heat_pump).clip(lower=0.01),
                     capital_cost=costs.at[costs_name_heat_pump, "capital_cost"]
                     * overdim_factor,
+                    marginal_cost=marginal_cost,
                     overnight_cost=costs.at[costs_name_heat_pump, "investment"]
                     * overdim_factor,
                     p_nom_extendable=True,
@@ -3508,6 +3514,7 @@ def add_heat(
                         efficiency=cop_heat_pump / cop_heat_pump.clip(lower=0.001),
                         capital_cost=costs.at[costs_name_heat_pump, "capital_cost"]
                         * overdim_factor,
+                        marginal_cost=marginal_cost,
                         overnight_cost=costs.at[costs_name_heat_pump, "investment"]
                         * overdim_factor,
                         p_nom_extendable=True,
@@ -3529,6 +3536,7 @@ def add_heat(
                     efficiency=(1 / cop_heat_pump.clip(lower=0.001)).replace(1000, 0),
                     capital_cost=costs.at[costs_name_heat_pump, "capital_cost"]
                     * overdim_factor,
+                    marginal_cost=marginal_cost,
                     overnight_cost=costs.at[costs_name_heat_pump, "investment"]
                     * overdim_factor,
                     p_max_pu=0,
@@ -3547,6 +3555,7 @@ def add_heat(
                 bus1=nodes,
                 carrier=f"{heat_system} resistive heater",
                 efficiency=1 / costs.at[key, "efficiency"],
+                marginal_cost=-costs.at[key, "VOM"],
                 capital_cost=costs.at[key, "capital_cost"] * overdim_factor,
                 overnight_cost=costs.at[key, "investment"] * overdim_factor,
                 p_max_pu=0,
@@ -3571,6 +3580,7 @@ def add_heat(
                 capital_cost=costs.at[key, "efficiency"]
                 * costs.at[key, "capital_cost"]
                 * overdim_factor,
+                marginal_cost=costs.at[key, "VOM"],
                 overnight_cost=costs.at[key, "efficiency"]
                 * costs.at[key, "investment"]
                 * overdim_factor,
