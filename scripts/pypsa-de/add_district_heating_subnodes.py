@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import sys
 
 import geopandas as gpd
@@ -39,6 +40,7 @@ def add_buses(n: pypsa.Network, subnode: pd.Series, name: str) -> None:
     buses = (
         n.buses.loc[~n.buses.carrier.str.contains("excess heat")]
         .filter(like=f"{subnode['cluster']} urban central", axis=0)
+        .rename_axis("Bus")
         .reset_index()
         .replace(
             {
@@ -104,11 +106,10 @@ def add_loads(
     None
     """
 
+    cluster = re.escape(subnode["cluster"])
     urban_central_heat_load = subnode[
         "fraction_mother_node"
-    ] * n_copy.loads_t.p_set.filter(
-        regex=f"{subnode['cluster']}.*urban central heat"
-    ).sum(
+    ] * n_copy.loads_t.p_set.filter(regex=f"^{cluster} .*urban central heat$").sum(
         1
     ).rename(
         f"{subnode['cluster']} {subnode['Stadt']} urban central heat"
@@ -117,7 +118,7 @@ def add_loads(
     low_temperature_heat_for_industry_load = (
         subnode["fraction_mother_node"]
         * n_copy.loads.filter(
-            regex=f"{subnode['cluster']}.*low-temperature heat for industry",
+            regex=f"^{cluster} .*low-temperature heat for industry$",
             axis=0,
         )["p_set"].sum()
     )
@@ -187,6 +188,7 @@ def add_stores(
     # Replicate district heating stores of mother node for subnodes
     stores = (
         n.stores.filter(like=f"{subnode['cluster']} urban central", axis=0)
+        .rename_axis("Store")
         .reset_index()
         .replace(
             {f"{subnode['cluster']} urban central": name},
@@ -197,7 +199,7 @@ def add_stores(
 
     if limit_ptes_potential_subnodes:
         # Restrict PTES capacity in subnodes
-        stores.loc[stores.carrier.str.contains("pits$").index, "e_nom_max"] = subnode[
+        stores.loc[stores.carrier.str.contains("pits$"), "e_nom_max"] = subnode[
             "ptes_pot_mwh"
         ]
 
@@ -256,6 +258,7 @@ def add_storage_units(n: pypsa.Network, subnode: pd.Series, name: str) -> None:
     # Replicate district heating storage units of mother node for subnodes
     storage_units = (
         n.storage_units.filter(like=f"{subnode['cluster']} urban central", axis=0)
+        .rename_axis("StorageUnit")
         .reset_index()
         .replace(
             {f"{subnode['cluster']} urban central": name},
@@ -328,6 +331,7 @@ def add_generators(n: pypsa.Network, subnode: pd.Series, name: str) -> None:
     # Replicate district heating generators of mother node for subnodes
     generators = (
         n.generators.filter(like=f"{subnode['cluster']} urban central", axis=0)
+        .rename_axis("Generator")
         .reset_index()
         .replace(
             {f"{subnode['cluster']} urban central": name},
@@ -387,6 +391,7 @@ def add_links(
             regex=f"{subnode['cluster']} (urban central|waste CHP)",
             axis=0,
         )
+        .rename_axis("Link")
         .reset_index()
         .replace(
             {
@@ -418,7 +423,7 @@ def add_links(
         heat_pump = n.links.filter(
             regex=f"{subnode['cluster']} urban central.*{heat_source}.*heat pump",
             axis=0,
-        ).reset_index()
+        ).rename_axis("Link").reset_index()
 
         heat_pump.Link = heat_pump.Link.str.replace(
             rf"{subnode['cluster']} urban central", name, regex=True
@@ -473,7 +478,7 @@ def add_links(
             direct_utilization = n.links.filter(
                 regex=f"{subnode['cluster']} urban central.*{heat_source}.*direct",
                 axis=0,
-            ).reset_index()
+            ).rename_axis("Link").reset_index()
 
             direct_utilization["Link"] = direct_utilization["Link"].replace(
                 {f"{subnode['cluster']} urban central": name},
