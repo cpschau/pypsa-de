@@ -665,6 +665,51 @@ def add_subnodes(
 
     n_copy = n.copy()
 
+    # Calculate fraction_mother_node using actual network demands
+    # to ensure subnodal demands match the yearly heat feed-in
+    # (Wärmeeinspeisung in GWh/a) when loads are added
+    logger.info("Calculating fraction_mother_node from actual network demands")
+    for idx, subnode in subnodes_head.iterrows():
+        cluster = subnode["cluster"]
+        cluster_re = re.escape(cluster)
+        actual_urban_central_heat = (
+            n_copy.snapshot_weightings.generators
+            @ n_copy.loads_t.p_set.filter(
+                regex=f"^{cluster_re} .*urban central heat$"
+            ).sum(axis=1)
+        )
+        actual_lt_industry = (
+            n_copy.loads.filter(
+                regex=f"^{cluster_re} .*low-temperature heat for industry$", axis=0
+            )["p_set"].sum()
+            * 8760
+        )
+        actual_demand = actual_urban_central_heat + actual_lt_industry
+
+        if actual_demand > 0:
+            subnodes_head.loc[idx, "fraction_mother_node"] = (
+                subnode["yearly_heat_demand_MWh"] / actual_demand
+            )
+            logger.info(
+                f"  {subnode['Stadt']}: fraction = {subnodes_head.loc[idx, 'fraction_mother_node']:.6f} "
+                f"(demand: {subnode['yearly_heat_demand_MWh']:.1f} MWh, "
+                f"mother node: {actual_demand:.1f} MWh)"
+            )
+        else:
+            logger.warning(
+                f"  {subnode['Stadt']}: mother node {cluster} has zero demand"
+            )
+            subnodes_head.loc[idx, "fraction_mother_node"] = 0.0
+
+    # Normalize fractions where they exceed 1 per cluster
+    cluster_sums = subnodes_head.groupby("cluster")["fraction_mother_node"].sum()
+    for cluster, total_fraction in cluster_sums[cluster_sums > 1].items():
+        cluster_mask = subnodes_head["cluster"] == cluster
+        subnodes_head.loc[cluster_mask, "fraction_mother_node"] /= total_fraction
+        logger.warning(
+            f"Normalized fractions for cluster {cluster} as total exceeded 1 ({total_fraction:.3f})"
+        )
+
     dh_loads_before = get_district_heating_loads(n)
     # Add subnodes to network
     for _, subnode in subnodes_head.iterrows():
