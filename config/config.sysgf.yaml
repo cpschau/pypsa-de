@@ -3,61 +3,25 @@
 # SPDX-License-Identifier: CC0-1.0
 
 run:
-  prefix: ptes_sweep_0213
+  prefix: ptes_chp_sweep
   name:
-    # ===== Setup 1: Baseline (DH 0.6, 1%/a temp reduction) =====
-    - Base_init
-    - NoPTES_Base
-    - PTES_Base_10CAPEX
-    - PTES_Base_20CAPEX
-    - PTES_Base_40CAPEX
-    - PTES_Base_80CAPEX
-    - PTES_Base_160CAPEX
+    # ===== Future 1: H2 CHP (gas plants converted to H2, forced by 2035) =====
+    - H2CHP_init
+    - NoPTES_H2CHP
+    - PTES_H2CHP_10CAPEX
+    - PTES_H2CHP_20CAPEX
+    - PTES_H2CHP_40CAPEX
+    - PTES_H2CHP_80CAPEX
+    - PTES_H2CHP_160CAPEX
 
-    # ===== Setup 2: H2 plants forced in 2050 instead of 2035 =====
-    - H2Late_init
-    - NoPTES_H2Late
-    - PTES_H2Late_10CAPEX
-    - PTES_H2Late_20CAPEX
-    - PTES_H2Late_40CAPEX
-    - PTES_H2Late_80CAPEX
-    - PTES_H2Late_160CAPEX
-
-    # ===== Setup 3: H2 plants 2050 + 2× Electrolyzer CAPEX =====
-    - H2Late2Ely_init
-    - NoPTES_H2Late2Ely
-    - PTES_H2Late2Ely_10CAPEX
-    - PTES_H2Late2Ely_20CAPEX
-    - PTES_H2Late2Ely_40CAPEX
-    - PTES_H2Late2Ely_80CAPEX
-    - PTES_H2Late2Ely_160CAPEX
-
-    # ===== Setup 4: Progressive DH (0.6, 2%/a temp reduction) =====
-    - ProgDH_init
-    - NoPTES_ProgDH
-    - PTES_ProgDH_10CAPEX
-    - PTES_ProgDH_20CAPEX
-    - PTES_ProgDH_40CAPEX
-    - PTES_ProgDH_80CAPEX
-    - PTES_ProgDH_160CAPEX
-
-    # ===== Setup 5: Conservative DH (0.2, 0.5%/a temp reduction) =====
-    - ConsDH_init
-    - NoPTES_ConsDH
-    - PTES_ConsDH_10CAPEX
-    - PTES_ConsDH_20CAPEX
-    - PTES_ConsDH_40CAPEX
-    - PTES_ConsDH_80CAPEX
-    - PTES_ConsDH_160CAPEX
-
-    # ===== Setup 6: Relaxed CO2 budget (0.20 in 2045) =====
-    - RelaxCO2_init
-    - NoPTES_RelaxCO2
-    - PTES_RelaxCO2_10CAPEX
-    - PTES_RelaxCO2_20CAPEX
-    - PTES_RelaxCO2_40CAPEX
-    - PTES_RelaxCO2_80CAPEX
-    - PTES_RelaxCO2_160CAPEX
+    # ===== Future 2: CH4 CHP (gas plants remain methane-fired) =====
+    - CH4CHP_init
+    - NoPTES_CH4CHP
+    - PTES_CH4CHP_10CAPEX
+    - PTES_CH4CHP_20CAPEX
+    - PTES_CH4CHP_40CAPEX
+    - PTES_CH4CHP_80CAPEX
+    - PTES_CH4CHP_160CAPEX
   scenarios:
     enable: true
     manual_file: config/scenarios.sysgf.yaml
@@ -93,7 +57,7 @@ scenario:
 
 fix_foreign_investments:
   enable: true
-  reference_scenario: PTES_HighDH_68CAPEX
+  reference_scenario: H2CHP_init
   nom_min: true
   nom_max: true
   lines_only: false
@@ -301,58 +265,26 @@ plotting:
     bus_carriers: null
   dual_comparison:
     enable: true
-    scenario_A: NoPTES_LowSupplyTemperature_MidDH
-    scenario_B: MidSupplyTemperature_MidDH_rhboost
+    scenario_A: NoPTES_H2CHP
+    scenario_B: NoPTES_CH4CHP
   sensitivities:
     enable: false
-    reference: MidSupplyTemperature_MidDH_rhboost
-    runs: [
-      MidSupplyTemperature_MidDH_rhboost_0.01CAPEX, 
-      MidSupplyTemperature_MidDH_rhboost_0.25CAPEX, 
-      MidSupplyTemperature_MidDH_rhboost_0.5CAPEX, 
-      MidSupplyTemperature_MidDH_rhboost_0.75CAPEX, 
-      MidSupplyTemperature_MidDH_rhboost_1.25CAPEX, 
-      MidSupplyTemperature_MidDH_rhboost_1.5CAPEX, 
-      MidSupplyTemperature_MidDH_rhboost_1.75CAPEX, 
-      MidSupplyTemperature_MidDH_rhboost_2CAPEX
-    ]
+    reference: NoPTES_H2CHP
+    runs: []
   scenario_tuples:
-    # Original scenarios
-    - ["NoPTES_LowSupplyTemperature", "LowSupplyTemperature_hpboost"]
-    - ["NoPTES_LowSupplyTemperature", "LowSupplyTemperature_rhboost"]
-    - ["NoPTES_LowSupplyTemperature", "LowSupplyTemperature_hpboost_10Cbottom"]
-    # - ["NoPTES_LowSupplyTemperature", "LowSupplyTemperature_noboost"]
-    # - ["NoPTES_HighSupplyTemperature", "HighSupplyTemperature_hpboost"]
-    # - ["NoPTES_HighSupplyTemperature", "HighSupplyTemperature_rhboost"]
-    # - ["NoPTES_HighSupplyTemperature", "HighSupplyTemperature_hpboost_10Cbottom"]
-    # - ["NoPTES_HighSupplyTemperature", "HighSupplyTemperature_noboost"]
-    # - ["NoPTES_LowDH_LowSupplyTemperature", "LowDH_LowSupplyTemperature_rhboost"]
-    # - ["NoPTES_HighDH_LowSupplyTemperature", "HighDH_LowSupplyTemperature_rhboost"]
-    # Mid Supply Temperature scenarios with Mid DH
-    # - ["NoPTES_MidSupplyTemperature_MidDH", "MidSupplyTemperature_MidDH_hpboost"]
-    # - ["NoPTES_MidSupplyTemperature_MidDH", "MidSupplyTemperature_MidDH_rhboost"]
-    # - ["NoPTES_MidSupplyTemperature_MidDH", "MidSupplyTemperature_MidDH_hpboost_10Cbottom"]
-    # - ["NoPTES_MidSupplyTemperature_MidDH", "MidSupplyTemperature_MidDH_noboost"]
-    # - ["MidSupplyTemperature_MidDH_hpboost", "MidSupplyTemperature_MidDH_noboost"]
-    - ["MidSupplyTemperature_MidDH_hpboost", "MidSupplyTemperature_MidDH_rhboost"]
-    # - ["MidSupplyTemperature_MidDH_rhboost", "MidSupplyTemperature_MidDH_noboost"]
-    # Low Supply Temperature scenarios with Mid DH
-    # - ["NoPTES_LowSupplyTemperature_MidDH", "LowSupplyTemperature_MidDH_hpboost"]
-    # - ["NoPTES_LowSupplyTemperature_MidDH", "LowSupplyTemperature_MidDH_rhboost"]
-    # - ["NoPTES_LowSupplyTemperature_MidDH", "LowSupplyTemperature_MidDH_hpboost_10Cbottom"]
-    # - ["NoPTES_LowSupplyTemperature_MidDH", "LowSupplyTemperature_MidDH_noboost"]
-    # High Supply Temperature scenarios with Mid DH
-    # - ["NoPTES_HighSupplyTemperature_MidDH", "HighSupplyTemperature_MidDH_hpboost"]
-    # - ["NoPTES_HighSupplyTemperature_MidDH", "HighSupplyTemperature_MidDH_rhboost"]
-    # - ["NoPTES_HighSupplyTemperature_MidDH", "HighSupplyTemperature_MidDH_hpboost_10Cbottom"]
-    # - ["NoPTES_HighSupplyTemperature_MidDH", "HighSupplyTemperature_MidDH_noboost"]
-    # Mid Supply Temperature with different DH potentials
-    # - ["NoPTES_MidSupplyTemperature_LowDH", "MidSupplyTemperature_LowDH_rhboost"]
-    # - ["NoPTES_MidSupplyTemperature_HighDH", "MidSupplyTemperature_HighDH_rhboost"]
-  scenario_triples:
-    # - ["NoPTES_LowSupplyTemperature_MidDH", "LowSupplyTemperature_MidDH_hpboost", "LowSupplyTemperature_MidDH_noboost"]
-    # - ["NoPTES_MidSupplyTemperature_MidDH", "MidSupplyTemperature_MidDH_hpboost", "MidSupplyTemperature_MidDH_noboost"]
-    # - ["NoPTES_HighSupplyTemperature_MidDH", "HighSupplyTemperature_MidDH_hpboost", "HighSupplyTemperature_MidDH_noboost"]
+    # H2 CHP future: NoPTES vs each CAPEX level
+    - ["NoPTES_H2CHP", "PTES_H2CHP_10CAPEX"]
+    - ["NoPTES_H2CHP", "PTES_H2CHP_20CAPEX"]
+    - ["NoPTES_H2CHP", "PTES_H2CHP_40CAPEX"]
+    - ["NoPTES_H2CHP", "PTES_H2CHP_80CAPEX"]
+    - ["NoPTES_H2CHP", "PTES_H2CHP_160CAPEX"]
+    # CH4 CHP future: NoPTES vs each CAPEX level
+    - ["NoPTES_CH4CHP", "PTES_CH4CHP_10CAPEX"]
+    - ["NoPTES_CH4CHP", "PTES_CH4CHP_20CAPEX"]
+    - ["NoPTES_CH4CHP", "PTES_CH4CHP_40CAPEX"]
+    - ["NoPTES_CH4CHP", "PTES_CH4CHP_80CAPEX"]
+    - ["NoPTES_CH4CHP", "PTES_CH4CHP_160CAPEX"]
+  scenario_triples: []
   save_png: true
   save_pdf: true
   override_tech_colors:
