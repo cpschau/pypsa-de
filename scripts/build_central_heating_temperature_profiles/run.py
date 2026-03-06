@@ -260,46 +260,6 @@ if __name__ == "__main__":
         )
     )
 
-    if snakemake.params.ptes["clip_network_temperature"] == True:
-        # Clip max_forward_temperature at max_top_temperature if it is higher
-        if (
-            snakemake.params.ptes["max_top_temperature"]
-            > max_forward_temperature_central_heating_by_node_and_time.min()
-        ):
-            max_forward_temperature_central_heating_by_node_and_time = (
-                max_forward_temperature_central_heating_by_node_and_time.clip(
-                    min=snakemake.params.ptes["max_top_temperature"]
-                )
-            )
-            logger.warning(
-                "Clipped max_forward_temperature_central_heating_by_node_and_time to max_top_temperature"
-            )
-        # Clip min_forward_temperature at max_top_temperature if it is higher
-        if (
-            snakemake.params.ptes["max_top_temperature"]
-            > min_forward_temperature_central_heating_by_node_and_time.min()
-        ):
-            min_forward_temperature_central_heating_by_node_and_time = (
-                min_forward_temperature_central_heating_by_node_and_time.clip(
-                    min=snakemake.params.ptes["max_top_temperature"]
-                )
-            )
-            logger.warning(
-                "Clipped min_forward_temperature_central_heating_by_node_and_time to max_top_temperature"
-            )
-        if (
-            snakemake.params.ptes["min_bottom_temperature"]
-            > return_temperature_central_heating_by_node_and_time.min()
-        ):
-            return_temperature_central_heating_by_node_and_time = (
-                return_temperature_central_heating_by_node_and_time.clip(
-                    min=snakemake.params.ptes["min_bottom_temperature"] + 5
-                )
-            )
-            logger.warning(
-                "Clipped return_temperature_central_heating_by_node_and_time to min_bottom_temperature + 5K"
-            )
-
     central_heating_temperature_approximator = CentralHeatingTemperatureApproximator(
         ambient_temperature=xr.open_dataarray(snakemake.input.temp_air_total),
         max_forward_temperature=max_forward_temperature_central_heating_by_node_and_time,
@@ -310,9 +270,23 @@ if __name__ == "__main__":
         rolling_window_ambient_temperature=snakemake.params.rolling_window_ambient_temperature,
     )
 
-    central_heating_temperature_approximator.forward_temperature.to_netcdf(
+    forward_temperature = central_heating_temperature_approximator.forward_temperature
+    return_temperature = central_heating_temperature_approximator.return_temperature
+
+    if snakemake.params.ptes["clip_network_temperature"]:
+        max_top_temperature = snakemake.params.ptes["max_top_temperature"]
+        # Clip the computed forward temperature curve at the storage top
+        # temperature (lower clip only) to avoid charging heat that is less
+        # valuable than what the storage can discharge.
+        forward_temperature = forward_temperature.clip(min=max_top_temperature)
+        logger.info(
+            "Clipped forward temperature profile at storage top temperature "
+            f"({max_top_temperature}°C)"
+        )
+
+    forward_temperature.to_netcdf(
         snakemake.output.central_heating_forward_temperature_profiles
     )
-    central_heating_temperature_approximator.return_temperature.to_netcdf(
+    return_temperature.to_netcdf(
         snakemake.output.central_heating_return_temperature_profiles
     )
