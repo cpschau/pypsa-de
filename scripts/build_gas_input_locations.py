@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 def read_scigrid_gas(fn):
     df = gpd.read_file(fn)
-    expanded_param = df.param.apply(json.loads).apply(pd.Series)
+    expanded_param = df.param.apply(lambda x: json.loads(x) if isinstance(x, str) else x).apply(pd.Series)
     df = pd.concat([df, expanded_param], axis=1)
     df.drop(["param", "uncertainty", "method"], axis=1, inplace=True)
     df = df.loc[:, ~df.columns.duplicated()]  # duplicated country_code column
