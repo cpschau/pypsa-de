@@ -276,12 +276,17 @@ if __name__ == "__main__":
     if snakemake.params.ptes["clip_network_temperature"]:
         max_top_temperature = snakemake.params.ptes["max_top_temperature"]
         # Clip the computed forward temperature curve at the storage top
-        # temperature (lower clip only) to avoid charging heat that is less
-        # valuable than what the storage can discharge.
-        forward_temperature = forward_temperature.clip(min=max_top_temperature)
+        # temperature (lower clip only) for German nodes, to avoid charging
+        # heat that is less valuable than what the storage can discharge.
+        is_german = forward_temperature.coords["name"].str.startswith("DE")
+        forward_temperature = xr.where(
+            is_german,
+            forward_temperature.clip(min=max_top_temperature),
+            forward_temperature,
+        )
         logger.info(
-            "Clipped forward temperature profile at storage top temperature "
-            f"({max_top_temperature}°C)"
+            "Clipped forward temperature profile for DE nodes at storage top "
+            f"temperature ({max_top_temperature}°C)"
         )
 
     forward_temperature.to_netcdf(

@@ -46,7 +46,15 @@ logger = logging.getLogger(__name__)
 
 # Supply temperatures and PTES configurations
 SUPPLY_TEMPS = ["HighSupplyTemperature", "MidSupplyTemperature", "LowSupplyTemperature"]
-PTES_CONFIGS = ["hpboost", "rhboost", "hpboost_10Cbottom", "noboost"]
+PTES_CONFIGS = ["freeboost", "freecap", "rhboost", "hpboost_10Cbottom"]
+
+# Human-readable labels for PTES configurations
+PTES_CONFIG_LABELS = {
+    "freeboost": "Free\nboosting*",
+    "freecap": "Free\ncapacity*",
+    "rhboost": "Resistive\nboosting",
+    "hpboost_10Cbottom": "Heat pump\nto 10°C",
+}
 
 
 def format_label(label):
@@ -249,11 +257,49 @@ def calculate_german_fraction(n):
     return pd.Series(german_fractions).fillna(default_fraction)
 
 
+def _compute_capex_from_network(n):
+    """Compute annualized CAPEX as capital_cost × optimal_capacity for all components.
+
+    Unlike n.statistics.capex() (which only counts new investment for extendable assets),
+    this includes the full annualized cost for all assets — existing and new.
+    Returns a MultiIndex Series with levels ['component', 'bus', 'carrier'].
+    """
+    all_capex = []
+    component_specs = [
+        ("Generator", n.generators, "bus", "p_nom_opt"),
+        ("Link", n.links, "bus0", "p_nom_opt"),
+        ("StorageUnit", n.storage_units, "bus", "p_nom_opt"),
+        ("Store", n.stores, "bus", "e_nom_opt"),
+        ("Line", n.lines, "bus0", "s_nom_opt"),
+    ]
+    for comp_type, df, bus_col, cap_col in component_specs:
+        if df.empty or "capital_cost" not in df.columns or cap_col not in df.columns:
+            continue
+        active = df[(df["capital_cost"] > 0) & (df[cap_col] > 0)]
+        if active.empty:
+            continue
+        capex = active["capital_cost"] * active[cap_col]
+        mi = pd.MultiIndex.from_arrays(
+            [
+                [comp_type] * len(active),
+                active[bus_col].values,
+                active["carrier"].values,
+            ],
+            names=["component", "bus", "carrier"],
+        )
+        all_capex.append(pd.Series(capex.values, index=mi))
+    if not all_capex:
+        return pd.Series(dtype=float)
+    return pd.concat(all_capex).groupby(level=[0, 1, 2]).sum()
+
+
 def get_system_costs_by_carrier(n, country, exclude_country=False, aggregate_all=False):
     """Calculate total system costs by carrier for all countries modelled, a specified country, or all countries minus a specified country."""
     try:
-        # Get costs for all components using PyPSA statistics API
-        capex = n.statistics.capex(groupby=["bus", "carrier"], nice_names=False)
+        # CAPEX: capital_cost × p_nom_opt for ALL components (existing + new investments)
+        # n.statistics.capex() only counts expansion of extendable assets, so we compute manually.
+        capex = _compute_capex_from_network(n)
+        # OPEX: variable + fixed O&M from statistics API
         opex = n.statistics.opex(groupby=["bus", "carrier"], nice_names=False)
 
         # Apply country filtering based on analysis of component locations
@@ -275,7 +321,14 @@ def get_system_costs_by_carrier(n, country, exclude_country=False, aggregate_all
             opex_others = opex_others.groupby(level=2).sum()
 
             ic_capex_correction = calc_ic_capex_correction(n, country)
+            # Extend before in-place addition to avoid KeyError in newer pandas
+            capex_country = capex_country.reindex(
+                capex_country.index.union(ic_capex_correction.index)
+            ).fillna(0)
             capex_country.loc[ic_capex_correction.index] += ic_capex_correction
+            capex_others = capex_others.reindex(
+                capex_others.index.union(ic_capex_correction.index)
+            ).fillna(0)
             capex_others.loc[ic_capex_correction.index] -= ic_capex_correction
 
             if exclude_country:
@@ -308,20 +361,18 @@ def get_system_costs_by_carrier(n, country, exclude_country=False, aggregate_all
     capex = capex.reindex(union_index).fillna(0)
     opex = opex.reindex(union_index).fillna(0)
 
-    # Create DataFrame
-    total = pd.DataFrame({"capex": capex, "opex": opex})
+    # Return a Series (capex + opex per carrier), consistent with the success path
+    total = capex + opex
 
     if not aggregate_all:
         try:
             ic_capex_correction = calc_ic_capex_correction(
                 n, country, exclude_country=exclude_country
             )
-            for tech in ic_capex_correction.index:
-                if tech in total.index:
-                    total.loc[tech, "capex"] += ic_capex_correction[tech]
-                else:
-                    total.loc[tech, "capex"] = ic_capex_correction[tech]
-                    total.loc[tech, "opex"] = 0
+            total = total.reindex(total.index.union(ic_capex_correction.index)).fillna(
+                0
+            )
+            total.loc[ic_capex_correction.index] += ic_capex_correction
         except Exception as e:
             logger.warning(f"IC correction failed: {e}")
 
@@ -397,6 +448,9 @@ def calculate_german_costs(networks: Dict[str, pypsa.Network]) -> pd.DataFrame:
         german_costs = get_system_costs_by_carrier(
             network, country="DE", exclude_country=False, aggregate_all=False
         )
+        # Ensure Series (older fallback path may return a DataFrame)
+        if isinstance(german_costs, pd.DataFrame):
+            german_costs = german_costs.sum(axis=1)
 
         # Calculate EU countries costs separately (don't use aggregate_all=True to avoid double-counting)
         try:
@@ -404,7 +458,9 @@ def calculate_german_costs(networks: Dict[str, pypsa.Network]) -> pd.DataFrame:
             neighbor_costs_full = get_system_costs_by_carrier(
                 network, country="DE", exclude_country=True, aggregate_all=False
             )
-            neighbor_total = neighbor_costs_full.sum()  # Convert to bn€
+            if isinstance(neighbor_costs_full, pd.DataFrame):
+                neighbor_costs_full = neighbor_costs_full.sum(axis=1)
+            neighbor_total = neighbor_costs_full.sum()  # scalar sum
 
             # Allow very small numerical differences due to floating point precision
             total_expected = get_system_costs_by_carrier(
@@ -465,11 +521,12 @@ def calculate_german_costs(networks: Dict[str, pypsa.Network]) -> pd.DataFrame:
     return costs_df
 
 
-def calculate_ptes_savings(costs_df: pd.DataFrame) -> pd.DataFrame:
+def calculate_ptes_savings(costs_df: pd.DataFrame, supply_temps=None) -> pd.DataFrame:
     """Step 3: Calculate savings relative to NoPTES scenarios."""
     savings_data = []
+    _supply_temps = supply_temps if supply_temps is not None else SUPPLY_TEMPS
 
-    for supply_temp in SUPPLY_TEMPS:
+    for supply_temp in _supply_temps:
         # Find NoPTES baseline for this temperature level (exclude _init suffix)
         baseline_scenario = None
         # First try to find scenario without _init suffix
@@ -635,8 +692,12 @@ def apply_technology_groupings(df: pd.DataFrame) -> pd.DataFrame:
         abs(df.sum().sum() - df_grouped.sum().sum()) < 1e-2
     ), "Grouping of transmission technologies changed total sum!"
 
-    # Group solar technologies -> PV
-    solar_cols = [col for col in df_grouped.columns if col in ["solar-hsat", "solar"]]
+    # Group solar technologies -> PV (solar + solar-hsat + solar rooftop)
+    solar_cols = [
+        col
+        for col in df_grouped.columns
+        if col in ["solar-hsat", "solar", "solar rooftop"]
+    ]
     if solar_cols:
         df_grouped["PV"] = df_grouped[solar_cols].sum(axis=1)
         df_grouped = df_grouped.drop(columns=solar_cols)
@@ -670,6 +731,7 @@ def apply_technology_groupings(df: pd.DataFrame) -> pd.DataFrame:
     assert (
         abs(df.sum().sum() - df_grouped.sum().sum()) < 1e-2
     ), "Grouping of geothermal technologies changed total sum!"
+
     # Group oil primary + gas primary -> fossil primary energy sources
     fossil_cols = [
         col for col in df_grouped.columns if col in ["oil primary", "gas primary"]
@@ -682,10 +744,125 @@ def apply_technology_groupings(df: pd.DataFrame) -> pd.DataFrame:
             col for col in fossil_cols if col != "fossil primary energy sources"
         ]
         df_grouped = df_grouped.drop(columns=fossil_cols)
-
     assert (
         abs(df_grouped.sum().sum() - df.sum().sum()) < 1e-2
     ), "Grouping of fossil primary energy sources changed total sum!"
+
+    # Group PTES (water pits) variants -> PTES
+    ptes_cols = [
+        col
+        for col in df_grouped.columns
+        if "water pits" in str(col).lower() and "ptes" not in str(col).lower()
+    ]
+    if ptes_cols:
+        df_grouped["PTES"] = df_grouped[ptes_cols].sum(axis=1)
+        df_grouped = df_grouped.drop(columns=ptes_cols)
+    assert (
+        abs(df_grouped.sum().sum() - df.sum().sum()) < 1e-2
+    ), "Grouping of PTES technologies changed total sum!"
+
+    # Rename PTES heat pump carrier (keep "PTES heat pump" if already present)
+    ptes_hp_cols = [
+        col for col in df_grouped.columns if "ptes heat pump" in str(col).lower()
+    ]
+    if ptes_hp_cols:
+        df_grouped["PTES heat pump"] = df_grouped[ptes_hp_cols].sum(axis=1)
+        cols_to_drop = [c for c in ptes_hp_cols if c != "PTES heat pump"]
+        if cols_to_drop:
+            df_grouped = df_grouped.drop(columns=cols_to_drop)
+    assert (
+        abs(df_grouped.sum().sum() - df.sum().sum()) < 1e-2
+    ), "Grouping of PTES heat pump changed total sum!"
+
+    # Group TTES (water tanks) variants -> TTES
+    ttes_cols = [col for col in df_grouped.columns if "water tanks" in str(col).lower()]
+    if ttes_cols:
+        df_grouped["TTES"] = df_grouped[ttes_cols].sum(axis=1)
+        df_grouped = df_grouped.drop(columns=ttes_cols)
+    assert (
+        abs(df_grouped.sum().sum() - df.sum().sum()) < 1e-2
+    ), "Grouping of TTES technologies changed total sum!"
+
+    # Group H2 turbine -> H2 OCGT (also consolidates if H2 OCGT already exists as a carrier)
+    h2_ocgt_source_cols = [
+        col
+        for col in df_grouped.columns
+        if col in ["H2 turbine", "H2 OCGT", "H2 retrofit OCGT"]
+    ]
+    if h2_ocgt_source_cols:
+        df_grouped["H2 OCGT"] = df_grouped[h2_ocgt_source_cols].sum(axis=1)
+        cols_to_drop = [c for c in h2_ocgt_source_cols if c != "H2 OCGT"]
+        if cols_to_drop:
+            df_grouped = df_grouped.drop(columns=cols_to_drop)
+    assert (
+        abs(df_grouped.sum().sum() - df.sum().sum()) < 1e-2
+    ), "Grouping of H2 OCGT changed total sum!"
+
+    # Group air heat pump variants -> Air heat pump
+    air_hp_cols = [
+        col
+        for col in df_grouped.columns
+        if "air heat pump" in str(col).lower() and col != "Air heat pump"
+    ]
+    if air_hp_cols:
+        df_grouped["Air heat pump"] = df_grouped[air_hp_cols].sum(axis=1)
+        df_grouped = df_grouped.drop(columns=air_hp_cols)
+    assert (
+        abs(df_grouped.sum().sum() - df.sum().sum()) < 1e-2
+    ), "Grouping of air heat pump changed total sum!"
+
+    # Group resistive heater variants -> Resistive heater
+    rh_cols = [
+        col
+        for col in df_grouped.columns
+        if "resistive heater" in str(col).lower() and col != "Resistive heater"
+    ]
+    if rh_cols:
+        df_grouped["Resistive heater"] = df_grouped[rh_cols].sum(axis=1)
+        df_grouped = df_grouped.drop(columns=rh_cols)
+    assert (
+        abs(df_grouped.sum().sum() - df.sum().sum()) < 1e-2
+    ), "Grouping of resistive heater changed total sum!"
+
+    # Group river water heat pump variants -> River water heat pump (keep destination if already present)
+    rwh_cols = [
+        col
+        for col in df_grouped.columns
+        if "river_water heat pump" in str(col).lower()
+        or "river water heat pump" in str(col).lower()
+    ]
+    if rwh_cols:
+        df_grouped["River water heat pump"] = df_grouped[rwh_cols].sum(axis=1)
+        cols_to_drop = [c for c in rwh_cols if c != "River water heat pump"]
+        if cols_to_drop:
+            df_grouped = df_grouped.drop(columns=cols_to_drop)
+    assert (
+        abs(df_grouped.sum().sum() - df.sum().sum()) < 1e-2
+    ), "Grouping of river water heat pump changed total sum!"
+
+    # Group battery variants -> Battery (includes home battery)
+    battery_cols = [
+        col
+        for col in df_grouped.columns
+        if col
+        in [
+            "Battery",
+            "battery",
+            "battery charger",
+            "battery discharger",
+            "battery storage",
+            "home battery",
+        ]
+    ]
+    if battery_cols:
+        df_grouped["Battery"] = df_grouped[battery_cols].sum(axis=1)
+        cols_to_drop = [c for c in battery_cols if c != "Battery"]
+        if cols_to_drop:
+            df_grouped = df_grouped.drop(columns=cols_to_drop)
+    assert (
+        abs(df_grouped.sum().sum() - df.sum().sum()) < 1e-2
+    ), "Grouping of battery changed total sum!"
+
     return df_grouped
 
 
@@ -729,19 +906,44 @@ def get_colors(networks, technologies):
                 if color:
                     colors[tech] = color
 
-    # Add default colors for special technologies
+    # Add default colors for special technologies and grouped carriers
     default_colors = {
         "EU aggregated": "#cccccc",
         "other technologies": "#999999",
-        "transmission grid": "#00b10fff",  # Blue color for power grid
-        "geothermal heat pumps": "khaki",  # Keep existing geothermal color
-        "fossil primary energy sources": "#8B4513",  # Brown color for fossil fuels
-        "PV": "#FFC629",  # Golden yellow for solar PV
-        "Wind power": "#83D8FF",  # Steel blue for wind power
+        "transmission grid": "#6c9459",  # from config tech_colors: lines / transmission lines
+        "geothermal heat pumps": "khaki",  # from override_tech_colors: geothermal heat pump
+        "fossil primary energy sources": "#8B4513",
+        "PV": "#f9d002",  # solar (from tech_colors)
+        "Wind power": "#83D8FF",  # from override_tech_colors: wind power
+        # PTES / TTES
+        "PTES": "#000F92C1",  # urban central water pits (from override_tech_colors)
+        "PTES heat pump": "#3498db",  # urban central ptes heat pump (from carriers)
+        "TTES": "#4a5cffc1",  # urban central water tanks (from override_tech_colors)
+        # H2
+        "H2 OCGT": "#8A2BE2",  # from override_tech_colors
+        "H2 CHP": "purple",  # from override_tech_colors
+        "H2 Electrolysis": "#ff29d9",  # from tech_colors
+        # Heat technologies
+        "Air heat pump": "#6cfb6b",  # urban central air heat pump
+        "Resistive heater": "#28DBA6",  # from override_tech_colors
+        "River water heat pump": "#FF9A03",  # from override_tech_colors (urban central river_water)
+        # Storage
+        "Battery": "#999999",  # grey (matches reference figure)
     }
 
     for tech, color in default_colors.items():
         if tech in technologies and tech not in colors:
+            colors[tech] = color
+
+    # Grouped technology display colors: always override carrier colors to ensure
+    # consistent appearance regardless of what the network carrier DataFrame contains.
+    grouped_display_colors = {
+        "Wind power": "#83D8FF",        # from override_tech_colors: wind power
+        "geothermal heat pumps": "khaki",  # from override_tech_colors: geothermal heat pump
+        "Battery": "#999999",           # grey (matches reference figure)
+    }
+    for tech, color in grouped_display_colors.items():
+        if tech in technologies:
             colors[tech] = color
 
     return colors
@@ -849,7 +1051,7 @@ def create_plots(
 
     # Create figure with two side-by-side axes for better use of vertical space
     fig, (ax_left, ax_right) = plt.subplots(
-        1, 2, figsize=(10, 7), gridspec_kw={"width_ratios": [0.6, 2.0], "wspace": 0.4}
+        1, 2, figsize=(10, 8), gridspec_kw={"width_ratios": [0.45, 2.0], "wspace": 0.45}
     )
 
     # Plot baseline costs for all supply temperatures on left axis
@@ -1084,9 +1286,9 @@ def create_plots(
     ax_left.set_xlim(-0.5, len(SUPPLY_TEMPS) - 0.5)
     ax_left.set_xticks(range(len(SUPPLY_TEMPS)))
     ax_left.set_xticklabels(
-        temp_labels, rotation=90, ha="center", fontsize=12, fontweight="bold"
+        temp_labels, rotation=90, ha="center", fontsize=13, fontweight="bold"
     )
-    ax_left.set_ylabel("System Costs [bn EUR a$^{-1}$]", labelpad=5)
+    ax_left.set_ylabel("System Costs [bn EUR a$^{-1}$]", labelpad=5, fontsize=11)
     ax_left.grid(True, alpha=0.3)
 
     # Plot all PTES savings on right axis
@@ -1102,9 +1304,9 @@ def create_plots(
             s for s in savings_agg.index if isinstance(s, tuple) and s[0] == supply_temp
         ]
 
-        # Order PTES scenarios as requested: hpboost, rhboost, hpboost_10Cbottom, noboost
+        # Order PTES scenarios as in PTES_CONFIGS: freeboost, freecap, rhboost, hpboost_10Cbottom
         if ptes_scenarios_unsorted and not savings_agg.empty:
-            desired_order = ["hpboost", "rhboost", "hpboost_10Cbottom", "noboost"]
+            desired_order = PTES_CONFIGS
             ptes_scenarios = []
             # First add scenarios in the desired order
             for desired in desired_order:
@@ -1211,29 +1413,15 @@ def create_plots(
             bar_positions,
             total_savings_per_scenario,
             marker="*",
-            s=150,
+            s=200,
             facecolor="white",
             edgecolor="black",
             linewidth=2,
             zorder=10,
-            label=format_label("Net difference"),
+            label=format_label("Net system cost difference"),
         )
 
-        # Add connecting line for star markers
-        if len(total_savings_per_scenario) > 0:
-            # Draw white outline first
-            ax_right.plot(
-                bar_positions,
-                total_savings_per_scenario,
-                "-",
-                color="white",
-                linewidth=2,
-                zorder=8,
-            )
-            # Draw main black line
-            ax_right.plot(
-                bar_positions, total_savings_per_scenario, "k-", linewidth=1, zorder=9
-            )
+        # No connecting line for star markers — discrete scenarios
 
         # Add annotations for relative changes
         if baseline_scenarios and baseline_costs_list:
@@ -1256,36 +1444,75 @@ def create_plots(
                         break
 
                 if baseline_scenario and baseline_costs is not None:
-                    baseline_total_cost = baseline_costs.sum()
                     baseline_german_cost = sum(
                         v for k, v in baseline_costs.items() if k != "EU aggregated"
                     )
-
-                    # Calculate percentage relative to total and German costs
-                    pct_vs_total = (total_saving / baseline_total_cost) * 100
-                    pct_vs_german = (total_saving / baseline_german_cost) * 100
-
-                    # Position annotations higher in the plot area and rotate them
-                    y_position = ax_right.get_ylim()[1] * 0.7
-
-                    annotation_text = (
-                        f"{pct_vs_total:.1f}% (total)\n{pct_vs_german:.1f}% (DE)"
+                    pct_vs_german = (
+                        (total_saving / baseline_german_cost) * 100
+                        if baseline_german_cost
+                        else 0
                     )
 
+                    # Position both annotations in parallel above each bar
+                    y_position_base = ax_right.get_ylim()[1] * 0.85
+
+                    # Black annotation: German system cost % change (left position)
                     ax_right.annotate(
-                        annotation_text,
-                        (pos, y_position),
-                        xytext=(0, 10),
+                        f"{pct_vs_german:+.1f}%",
+                        (pos - 0.15, y_position_base),
+                        xytext=(0, 0),
                         textcoords="offset points",
                         ha="center",
                         va="bottom",
-                        fontsize=7,
+                        fontsize=8,
+                        color="black",
                         rotation=90,
                         zorder=20,
                         path_effects=[
                             path_effects.withStroke(linewidth=2, foreground="white")
                         ],
                     )
+
+                    # Red annotation: ΔDH price % (right position, adjacent to black)
+                    if dh_prices:
+                        bdp = None
+                        for sc in dh_prices:
+                            if (
+                                f"NoPTES_{supply_temp}" in sc
+                                and "_init" not in sc
+                            ):
+                                bdp = dh_prices[sc]
+                                break
+                        if bdp is None:
+                            for sc in dh_prices:
+                                if f"NoPTES_{supply_temp}" in sc:
+                                    bdp = dh_prices[sc]
+                                    break
+                        ptes_sname = (
+                            f"{scenario[0]}_MidDH_{scenario[1]}"
+                            if isinstance(scenario, tuple)
+                            else str(scenario)
+                        )
+                        pdp = dh_prices.get(ptes_sname, None)
+                        if bdp and bdp > 0 and pdp is not None:
+                            dh_pct = ((pdp - bdp) / bdp) * 100
+                            ax_right.annotate(
+                                f"Δ{dh_pct:+.1f}%",
+                                (pos + 0.15, y_position_base),
+                                xytext=(0, 0),
+                                textcoords="offset points",
+                                ha="center",
+                                va="bottom",
+                                fontsize=8,
+                                color="red",
+                                rotation=90,
+                                zorder=20,
+                                path_effects=[
+                                    path_effects.withStroke(
+                                        linewidth=2, foreground="white"
+                                    )
+                                ],
+                            )
 
         # Add vertical separators between temperature groups
         for temp_idx in range(len(SUPPLY_TEMPS) - 1):
@@ -1307,18 +1534,9 @@ def create_plots(
             scenario_name = (
                 scenario[1] if isinstance(scenario, tuple) else scenario.split("_")[-1]
             )
-            if scenario_name == "hpboost":
-                scenario_labels.append("Heat pump\nto 35°C")
-            elif scenario_name == "rhboost":
-                scenario_labels.append("Resistive\nboosting")
-            elif scenario_name == "hpboost_10Cbottom":
-                scenario_labels.append("Heat pump\nto 10°C")
-            elif scenario_name == "noboost":
-                scenario_labels.append("No boosting")
-            else:
-                scenario_labels.append(scenario_name)
+            scenario_labels.append(PTES_CONFIG_LABELS.get(scenario_name, scenario_name))
 
-        ax_right.set_xticklabels(scenario_labels, fontsize=10, rotation=90, ha="center")
+        ax_right.set_xticklabels(scenario_labels, fontsize=11, rotation=90, ha="center")
 
         # Add secondary x-axis for temperature labels
         ax_right_temp = ax_right.twiny()
@@ -1326,20 +1544,26 @@ def create_plots(
         ax_right_temp.set_xticks(temp_group_positions)
         ax_right_temp.set_xticklabels(
             [temp.replace("SupplyTemperature", " ST") for temp in SUPPLY_TEMPS],
-            fontsize=12,
+            fontsize=13,
             fontweight="bold",
         )
         ax_right_temp.tick_params(axis="x", which="major", pad=25)
 
         ax_right.axhline(y=0, color="black", linewidth=0.8)
-        ax_right.set_ylabel("Cost Savings [bn EUR a$^{-1}$]", labelpad=5)
+        ax_right.set_ylabel("Cost Savings [bn EUR a$^{-1}$]", labelpad=5, fontsize=11)
         ax_right.grid(True, alpha=0.3)
-        ax_right.set_xlabel("PTES configurations", fontweight="bold")
+        ax_right.set_xlabel("PTES configurations", fontweight="bold", fontsize=11)
 
-        # Set y-limits
+        # Set y-limits — dynamic, fit all stacked bars plus 10% headroom
         if total_savings_per_scenario:
-            # Set fixed y-limits as requested
-            ax_right.set_ylim(-1.8, 1.2)
+            max_stacked_pos = 0.0
+            min_stacked_neg = 0.0
+            for idx in savings_agg.index:
+                row = savings_agg.loc[idx]
+                max_stacked_pos = max(max_stacked_pos, sum(v for v in row.values if v > 0))
+                min_stacked_neg = min(min_stacked_neg, sum(v for v in row.values if v < 0))
+            y_pad = max(0.10 * (max_stacked_pos - min_stacked_neg), 0.10)
+            ax_right.set_ylim(min_stacked_neg - y_pad, max_stacked_pos + y_pad)
 
     else:
         # If no PTES scenarios, hide the right plot
@@ -1444,14 +1668,25 @@ def create_plots(
                     markeredgewidth=1.5,
                     label="ΔDH price",
                 )
-                # Add connecting line
-                ax_right_dh.plot(bar_positions, dh_deltas, "r-", linewidth=1, alpha=0.7)
+                # No connecting line — markers are discrete (one per scenario)
 
                 ax_right_dh.set_ylabel(
                     "ΔDH Price [EUR MWh$^{-1}$]", color="red", labelpad=5
                 )
                 ax_right_dh.tick_params(axis="y", labelcolor="red")
-                ax_right_dh.set_ylim(-4.5, 3)
+                # Align secondary 0 with primary 0: dh_lo/dh_hi = p_lo/p_hi
+                p_lo, p_hi = ax_right.get_ylim()
+                if p_hi > 0 and p_lo < 0:
+                    max_pos = max((d for d in dh_deltas if d > 0), default=0)
+                    max_neg_mag = max((-d for d in dh_deltas if d < 0), default=0)
+                    dh_hi = max(max_pos, max_neg_mag * p_hi / (-p_lo)) * 1.3
+                    dh_hi = max(dh_hi, 0.5)  # minimum range
+                    dh_lo = dh_hi * p_lo / p_hi
+                else:
+                    dh_abs_max = max((abs(d) for d in dh_deltas), default=1.0)
+                    dh_hi = dh_abs_max * 1.5
+                    dh_lo = -dh_hi
+                ax_right_dh.set_ylim(dh_lo, dh_hi)
                 ax_right_dh.axhline(
                     y=0, color="red", linestyle="--", alpha=0.5, linewidth=1
                 )
@@ -1529,7 +1764,7 @@ def create_plots(
             linestyle="None",
         )
     )
-    labels.append("  " + format_label("Net difference"))
+    labels.append("  " + format_label("Net system cost difference"))
 
     # Add DH price markers
     if dh_prices:
@@ -1549,8 +1784,7 @@ def create_plots(
                 marker="^",
                 color="red",
                 markersize=8,
-                linestyle="-",
-                linewidth=2,
+                linestyle="None",
             )
         )
         labels.append("  " + format_label("ΔDH price"))
@@ -1560,26 +1794,680 @@ def create_plots(
             handles,
             labels,
             loc="lower center",
-            bbox_to_anchor=(0.5, -0.15),
+            bbox_to_anchor=(0.5, 0.01),
             ncol=4,
             frameon=False,
-            columnspacing=1.2,
+            columnspacing=1.5,
+            fontsize=11,
+            handlelength=1.5,
+            handleheight=1.0,
         )
 
     # Add titles with proper positioning
-    ax_left.set_title("NoPTES Baseline Costs", fontweight="bold", pad=20)
-    ax_right.set_title("Net Cost Difference vs NoPTES", fontweight="bold", pad=20)
+    ax_left.set_title("NoPTES Baseline Costs", fontweight="bold", pad=20, fontsize=12)
+    ax_right.set_title("Net Cost Difference vs NoPTES", fontweight="bold", pad=20, fontsize=12)
 
     plt.tight_layout()
-    plt.subplots_adjust(
-        bottom=0.25, left=0.08, right=0.95, top=0.90
-    )  # Adjusted for new layout with more space for legend
+    plt.subplots_adjust(bottom=0.35, left=0.07, right=0.95, top=0.90)
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close()
 
     logger.info(f"Saved plot to: {output_path}")
+
+
+def create_sensitivity_plots(
+    costs_df,
+    savings_df,
+    colors,
+    output_path,
+    dh_prices=None,
+    threshold=0.05,
+    supply_temps=None,
+    temp_labels=None,
+):
+    """Create PTES sensitivity plots grouped by PTES config (not by supply temperature).
+
+    Left panel: NoPTES baseline costs for each supply temperature group.
+    Right panel: 4 groups (one per PTES config), each with N side-by-side bars for
+                 supply temperatures, enabling direct comparison across temperature levels.
+
+    Parameters
+    ----------
+    supply_temps : list of str, optional
+        Ordered list of supply-temperature tokens as they appear in scenario names
+        (e.g. ["TopTSens_85", "MidSupplyTemperature", "TopTSens_95"]).
+        If None, extracted automatically from "SupplyTemperature" substrings.
+    temp_labels : list of str, optional
+        Human-readable x-tick labels matching supply_temps order
+        (e.g. ["85°C", "90°C", "95°C"]).
+        If None, derived by stripping "SupplyTemperature" from supply_temps entries.
+    """
+    logger = logging.getLogger(__name__)
+
+    if costs_df.empty:
+        logger.warning("Empty costs dataframe, cannot create plots")
+        return
+
+    costs_df = costs_df / 1e9
+    if not savings_df.empty:
+        savings_df = savings_df / 1e9
+
+    # Extract supply temperatures (use provided list or auto-detect)
+    if supply_temps is None:
+        temp_candidates = []
+        for s in costs_df.index:
+            for part in s.split("_"):
+                if "SupplyTemperature" in part:
+                    temp_candidates.append(part)
+        temp_order = {
+            "HighSupplyTemperature": 0,
+            "MidSupplyTemperature": 1,
+            "LowSupplyTemperature": 2,
+        }
+        supply_temps = sorted(
+            set(temp_candidates), key=lambda x: temp_order.get(x, 999)
+        )
+
+    if temp_labels is None:
+        temp_labels = [st.replace("SupplyTemperature", " ST") for st in supply_temps]
+
+    # Aggregate technologies
+    costs_agg, savings_agg = aggregate_technologies_by_significance(
+        costs_df, savings_df, threshold
+    )
+
+    all_techs = set(costs_agg.columns)
+    if not savings_agg.empty:
+        all_techs.update(savings_agg.columns)
+
+    # Technology order by baseline contribution
+    baseline_contribution = {}
+    for tech in all_techs:
+        if tech != "EU aggregated":
+            vals = []
+            for st in supply_temps:
+                for sc in costs_agg.index:
+                    if (
+                        f"NoPTES_{st}" in sc
+                        and "_init" not in sc
+                        and tech in costs_agg.columns
+                    ):
+                        vals.append(costs_agg.loc[sc, tech])
+                        break
+            baseline_contribution[tech] = sum(vals) / max(len(vals), 1)
+
+    sorted_techs = sorted(
+        baseline_contribution, key=lambda x: baseline_contribution[x], reverse=True
+    )
+    ordered_techs = list(sorted_techs)
+    if "EU aggregated" in all_techs:
+        ordered_techs.append("EU aggregated")
+    for tech in all_techs:
+        if tech not in ordered_techs:
+            ordered_techs.insert(
+                -1 if "EU aggregated" in ordered_techs else len(ordered_techs), tech
+            )
+
+    fig, (ax_left, ax_right) = plt.subplots(
+        1, 2, figsize=(10, 8), gridspec_kw={"width_ratios": [0.5, 2.0], "wspace": 0.45}
+    )
+
+    # ---- LEFT PANEL (same as create_plots) ----
+    baseline_scenarios = []
+    baseline_costs_list = []
+
+    for supply_temp in supply_temps:
+        for sc in costs_agg.index:
+            if f"NoPTES_{supply_temp}" in sc and "_init" not in sc:
+                baseline_scenarios.append(sc)
+                baseline_costs_list.append(costs_agg.loc[sc])
+                break
+
+    max_german_cost = 0
+    for bc in baseline_costs_list:
+        german_cost = sum(v for k, v in bc.items() if k != "EU aggregated" and v > 0)
+        max_german_cost = max(max_german_cost, german_cost)
+
+    max_total_cost = max_german_cost + max(
+        (bc.get("EU aggregated", 0) for bc in baseline_costs_list), default=0
+    )
+
+    def transform_y_for_break(
+        y_val, break_start=160, break_restart=750, compression_range=50
+    ):
+        if y_val <= break_start:
+            return y_val
+        elif y_val >= break_restart and max_total_cost > break_restart:
+            scale_factor = compression_range / max(1, max_total_cost - break_restart)
+            return break_start + (y_val - break_restart) * scale_factor
+        else:
+            return break_start
+
+    for i, (supply_temp, baseline_scenario, baseline_costs) in enumerate(
+        zip(supply_temps, baseline_scenarios, baseline_costs_list)
+    ):
+        bottom = 0
+        for tech in ordered_techs:
+            if tech in baseline_costs.index and abs(baseline_costs[tech]) > 1e-6:
+                value = baseline_costs[tech]
+                tb = transform_y_for_break(bottom)
+                tt = transform_y_for_break(bottom + value)
+                th = tt - tb
+                if th > 0:
+                    ax_left.bar(
+                        [i],
+                        [th],
+                        bottom=tb,
+                        color=colors.get(tech, "gray"),
+                        label=(format_label(tech) if i == 0 else ""),
+                        edgecolor="none",
+                        width=0.6,
+                    )
+                bottom += value
+
+        total_system_cost = sum(
+            baseline_costs[t]
+            for t in baseline_costs.index
+            if abs(baseline_costs[t]) > 1e-6
+        )
+        de_cost = sum(
+            baseline_costs[t]
+            for t in baseline_costs.index
+            if t != "EU aggregated" and abs(baseline_costs[t]) > 1e-6
+        )
+        y_pos = ax_left.get_ylim()[1] * 0.85
+        ax_left.annotate(
+            f"{total_system_cost:.0f} (total)\n{de_cost:.0f} (DE)",
+            (i, y_pos),
+            xytext=(0, 0),
+            textcoords="offset points",
+            ha="center",
+            va="center",
+            fontsize=10,
+            rotation=90,
+            fontweight="bold",
+            zorder=20,
+            path_effects=[path_effects.withStroke(linewidth=2, foreground="white")],
+        )
+
+    has_eu = any(bc.get("EU aggregated", 0) > 0 for bc in baseline_costs_list)
+    if has_eu:
+        break_start, break_restart, compression_range = 160, 750, 50
+        if max_total_cost > break_restart:
+            scale_factor = compression_range / (max_total_cost - break_restart)
+            upper_limit = break_start + compression_range
+        else:
+            upper_limit = 210
+        ax_left.set_ylim(0, 1.05 * upper_limit)
+        lower_ticks = [0, 50, 100, 160]
+        lower_labels = ["0", "50", "100", "160"]
+        if max_total_cost > break_restart:
+            tp = break_start + (max_total_cost - break_restart) * scale_factor
+            all_ticks = lower_ticks + [tp]
+            all_labels = lower_labels + [f"{max_total_cost:.0f}"]
+        else:
+            all_ticks, all_labels = lower_ticks, lower_labels
+        ax_left.set_yticks(all_ticks)
+        ax_left.set_yticklabels(all_labels)
+        # Axis break indicators
+        break_y = 180
+        for x_offset in [-0.015, 0.015]:
+            ax_left.plot(
+                [x_offset - 0.0075, x_offset + 0.0075],
+                [break_y - 1.5, break_y + 1.5],
+                color="black",
+                linewidth=2,
+                clip_on=False,
+                transform=ax_left.get_yaxis_transform(),
+            )
+    else:
+        ax_left.set_ylim(0, 1.5 * max_german_cost)
+
+    ax_left.set_xlim(-0.5, len(supply_temps) - 0.5)
+    ax_left.set_xticks(range(len(supply_temps)))
+    ax_left.set_xticklabels(
+        temp_labels, rotation=90, ha="center", fontsize=13, fontweight="bold"
+    )
+    ax_left.set_ylabel("System Costs [bn EUR a$^{-1}$]", labelpad=5, fontsize=11)
+    ax_left.set_title("NoPTES Baseline Costs", fontweight="bold", pad=20, fontsize=12)
+    ax_left.grid(True, alpha=0.3)
+
+    # DH prices on left axis
+    ax_left_dh = None
+    baseline_dh_prices = []
+    if dh_prices:
+        ax_left_dh = ax_left.twinx()
+        for i, supply_temp in enumerate(supply_temps):
+            bdp = None
+            for sc in dh_prices:
+                if f"NoPTES_{supply_temp}" in sc and "_init" not in sc:
+                    bdp = dh_prices[sc]
+                    break
+            if bdp is None:
+                for sc in dh_prices:
+                    if f"NoPTES_{supply_temp}" in sc:
+                        bdp = dh_prices[sc]
+                        break
+            if bdp is not None and bdp > 0:
+                baseline_dh_prices.append(bdp)
+                ax_left_dh.plot(
+                    [i],
+                    [bdp],
+                    "o",
+                    color="white",
+                    markersize=6,
+                    markeredgecolor="red",
+                    markeredgewidth=1.5,
+                    label="DH price (baseline)" if i == 0 else "",
+                )
+        if len(baseline_dh_prices) > 1:
+            ax_left_dh.plot(
+                range(len(baseline_dh_prices)),
+                baseline_dh_prices,
+                "r-",
+                linewidth=1,
+                alpha=0.7,
+            )
+        if baseline_dh_prices:
+            ax_left_dh.set_ylabel("DH Price [EUR MWh$^{-1}$]", color="red")
+            ax_left_dh.tick_params(axis="y", labelcolor="red")
+            ax_left_dh.set_ylim(0, max(baseline_dh_prices) * 1.4)
+
+    # ---- RIGHT PANEL: grouped by PTES config ----
+    if savings_agg.empty:
+        ax_right.set_visible(False)
+    else:
+        # Build bar positions: 4 groups (configs) × 3 bars (supply temps), with gaps between groups
+        bar_positions = []
+        config_group_positions = []  # Center of each config group
+        current_pos = 0
+
+        # Determine which PTES configs are available in the savings data
+        available_configs = []
+        for config in PTES_CONFIGS:
+            for idx in savings_agg.index:
+                if isinstance(idx, tuple) and idx[1] == config:
+                    available_configs.append(config)
+                    break
+
+        for ci, config in enumerate(available_configs):
+            group_start = current_pos
+            for st in supply_temps:
+                bar_positions.append((config, st, current_pos))
+                current_pos += 1
+            config_group_positions.append((group_start + current_pos - 1) / 2)
+            if ci < len(available_configs) - 1:
+                current_pos += 1.0  # gap between groups
+
+        # Sort technologies by savings contribution for right plot
+        temp_tech_contributions = {}
+        for tech in ordered_techs:
+            if tech != "EU aggregated":
+                vals = [
+                    abs(savings_agg.loc[idx, tech])
+                    for idx in savings_agg.index
+                    if tech in savings_agg.columns
+                ]
+                temp_tech_contributions[tech] = sum(vals) / max(len(vals), 1)
+        sorted_net_techs = sorted(
+            [t for t in temp_tech_contributions],
+            key=lambda x: temp_tech_contributions[x],
+            reverse=True,
+        )
+        if "EU aggregated" in ordered_techs:
+            sorted_net_techs.append("EU aggregated")
+
+        total_savings_per_bar = []
+        all_bar_x = []
+
+        for config, supply_temp, pos in bar_positions:
+            all_bar_x.append(pos)
+            # Find the savings row for (supply_temp, config)
+            idx = (supply_temp, config)
+            if idx not in savings_agg.index:
+                total_savings_per_bar.append(0)
+                continue
+
+            scenario_savings = savings_agg.loc[idx]
+            bottom_pos = 0
+            bottom_neg = 0
+
+            total_net = sum(
+                scenario_savings[t]
+                for t in scenario_savings.index
+                if abs(scenario_savings[t]) > 1e-6
+            )
+            total_savings_per_bar.append(total_net)
+
+            for tech in sorted_net_techs:
+                if (
+                    tech in scenario_savings.index
+                    and abs(scenario_savings[tech]) > 1e-6
+                ):
+                    value = scenario_savings[tech]
+                    if value > 0:
+                        ax_right.bar(
+                            [pos],
+                            [value],
+                            bottom=bottom_pos,
+                            color=colors.get(tech, "gray"),
+                            edgecolor="none",
+                            width=0.45,
+                        )
+                        bottom_pos += value
+                    else:
+                        ax_right.bar(
+                            [pos],
+                            [value],
+                            bottom=bottom_neg,
+                            color=colors.get(tech, "gray"),
+                            edgecolor="none",
+                            width=0.45,
+                        )
+                        bottom_neg += value
+
+        # Star markers for total savings (discrete — no connecting lines)
+        ax_right.scatter(
+            all_bar_x,
+            total_savings_per_bar,
+            marker="*",
+            s=200,
+            facecolor="white",
+            edgecolor="black",
+            linewidth=2,
+            zorder=10,
+            label=format_label("Net system cost difference"),
+        )
+
+        # Annotations: % vs baseline
+        for (config, supply_temp, pos), total_saving in zip(
+            bar_positions, total_savings_per_bar
+        ):
+            # Find baseline
+            bc = None
+            for sc, bcosts in zip(baseline_scenarios, baseline_costs_list):
+                if f"NoPTES_{supply_temp}" in sc:
+                    bc = bcosts
+                    break
+            if bc is not None:
+                baseline_de = sum(v for k, v in bc.items() if k != "EU aggregated")
+                pct_de = (total_saving / baseline_de) * 100 if baseline_de else 0
+
+                y_range = ax_right.get_ylim()[1] - ax_right.get_ylim()[0]
+                # Place both annotation lines adjacent — shared anchor, offset ±13pt
+                y_annot = ax_right.get_ylim()[0] + y_range * 0.82
+
+                # Black annotation: German system cost % change (upper line)
+                ax_right.annotate(
+                    f"{pct_de:.1f}%",
+                    (pos, y_annot),
+                    xytext=(0, 13),
+                    textcoords="offset points",
+                    ha="center",
+                    va="center",
+                    fontsize=9,
+                    color="black",
+                    rotation=90,
+                    zorder=20,
+                    path_effects=[
+                        path_effects.withStroke(linewidth=2, foreground="white")
+                    ],
+                )
+
+                # Red annotation: ΔDH price % (lower line, adjacent to black)
+                if dh_prices:
+                    bdp = None
+                    for sc in dh_prices:
+                        if f"NoPTES_{supply_temp}" in sc and "_init" not in sc:
+                            bdp = dh_prices[sc]
+                            break
+                    if bdp is None:
+                        for sc in dh_prices:
+                            if f"NoPTES_{supply_temp}" in sc:
+                                bdp = dh_prices[sc]
+                                break
+                    pdp = bdp
+                    for sc in dh_prices:
+                        if (
+                            supply_temp in sc
+                            and f"_{config}" in sc
+                            and "NoPTES" not in sc
+                            and "_init" not in sc
+                        ):
+                            pdp = dh_prices[sc]
+                            break
+                    if bdp and bdp > 0 and pdp is not None:
+                        dh_pct = ((pdp - bdp) / bdp) * 100
+                        ax_right.annotate(
+                            f"Δ{dh_pct:.1f}%",
+                            (pos, y_annot),
+                            xytext=(0, -13),
+                            textcoords="offset points",
+                            ha="center",
+                            va="center",
+                            fontsize=9,
+                            color="red",
+                            rotation=90,
+                            zorder=20,
+                            path_effects=[
+                                path_effects.withStroke(
+                                    linewidth=2, foreground="white"
+                                )
+                            ],
+                        )
+
+        # Vertical separators between config groups
+        for ci in range(len(available_configs) - 1):
+            # Find the boundary between groups
+            last_pos_of_group = [
+                pos for c, _, pos in bar_positions if c == available_configs[ci]
+            ][-1]
+            first_pos_of_next = [
+                pos for c, _, pos in bar_positions if c == available_configs[ci + 1]
+            ][0]
+            sep_x = (last_pos_of_group + first_pos_of_next) / 2
+            ax_right.axvline(x=sep_x, color="gray", linestyle="--", alpha=0.5)
+
+        # Primary x-axis: supply temperature per bar (repeated across groups)
+        ax_right.set_xlim(-0.5, max(all_bar_x) + 0.5)
+        ax_right.set_xticks(all_bar_x)
+        # Repeat supply temp labels for each group
+        xtick_labels = []
+        for config, supply_temp, pos in bar_positions:
+            if supply_temp in supply_temps:
+                xtick_labels.append(temp_labels[supply_temps.index(supply_temp)])
+            else:
+                xtick_labels.append(supply_temp.replace("SupplyTemperature", " ST"))
+        ax_right.set_xticklabels(xtick_labels, fontsize=11, rotation=90, ha="center")
+
+        # Secondary x-axis: PTES config names (one label per group)
+        ax_right_cfg = ax_right.twiny()
+        ax_right_cfg.set_xlim(ax_right.get_xlim())
+        ax_right_cfg.set_xticks(config_group_positions)
+        ax_right_cfg.set_xticklabels(
+            [
+                PTES_CONFIG_LABELS.get(c, c).replace("\n", " ")
+                for c in available_configs
+            ],
+            fontsize=13,
+            fontweight="bold",
+        )
+        ax_right_cfg.tick_params(axis="x", which="major", pad=25)
+
+        ax_right.axhline(y=0, color="black", linewidth=0.8)
+        ax_right.set_ylabel("Cost Savings [bn EUR a$^{-1}$]", labelpad=5, fontsize=11)
+        ax_right.set_xlabel("Supply temperature", fontweight="bold", fontsize=11)
+        ax_right.set_title("Net Cost Difference vs NoPTES", fontweight="bold", pad=20, fontsize=12)
+        ax_right.grid(True, alpha=0.3)
+
+        # Dynamic ylims — fit all stacked bars plus 15 % headroom
+        max_stacked_pos = 0.0
+        min_stacked_neg = 0.0
+        for idx in savings_agg.index:
+            row = savings_agg.loc[idx]
+            max_stacked_pos = max(max_stacked_pos, sum(v for v in row.values if v > 0))
+            min_stacked_neg = min(min_stacked_neg, sum(v for v in row.values if v < 0))
+        y_pad = max(0.15 * (max_stacked_pos - min_stacked_neg), 0.15)
+        ax_right.set_ylim(min_stacked_neg - y_pad, max_stacked_pos + y_pad)
+
+        # DH price deltas on right axis
+        if dh_prices:
+            ax_right_dh = ax_right.twinx()
+            dh_deltas = []
+            for config, supply_temp, pos in bar_positions:
+                bdp = None
+                for sc in dh_prices:
+                    if f"NoPTES_{supply_temp}" in sc and "_init" not in sc:
+                        bdp = dh_prices[sc]
+                        break
+                # Find PTES scenario DH price (search flexibly to handle different naming conventions)
+                ptes_dh = bdp
+                for sc in dh_prices:
+                    if (
+                        supply_temp in sc
+                        and f"_{config}" in sc
+                        and "NoPTES" not in sc
+                        and "_init" not in sc
+                    ):
+                        ptes_dh = dh_prices[sc]
+                        break
+                delta = (ptes_dh - bdp) if bdp and ptes_dh else 0
+                dh_deltas.append(delta)
+
+            ax_right_dh.plot(
+                all_bar_x,
+                dh_deltas,
+                "^",
+                color="white",
+                markersize=8,
+                markeredgecolor="red",
+                markeredgewidth=1.5,
+                label="ΔDH price",
+            )
+            # No connecting line — markers are discrete (one per scenario)
+            ax_right_dh.set_ylabel(
+                "ΔDH Price [EUR MWh$^{-1}$]", color="red", labelpad=5
+            )
+            ax_right_dh.tick_params(axis="y", labelcolor="red")
+            # Align secondary 0 with primary 0: dh_lo/dh_hi = p_lo/p_hi
+            p_lo, p_hi = ax_right.get_ylim()
+            if p_hi > 0 and p_lo < 0:
+                max_pos = max((d for d in dh_deltas if d > 0), default=0)
+                max_neg_mag = max((-d for d in dh_deltas if d < 0), default=0)
+                dh_hi = max(max_pos, max_neg_mag * p_hi / (-p_lo)) * 1.3
+                dh_hi = max(dh_hi, 0.5)
+                dh_lo = dh_hi * p_lo / p_hi
+            else:
+                dh_abs_max = max((abs(d) for d in dh_deltas), default=1.0)
+                dh_hi = dh_abs_max * 1.5
+                dh_lo = -dh_hi
+            ax_right_dh.set_ylim(dh_lo, dh_hi)
+            ax_right_dh.axhline(
+                y=0, color="red", linestyle="--", alpha=0.5, linewidth=1
+            )
+
+    # ---- LEGEND (same structure as create_plots) ----
+    handles, labels = [], []
+
+    german_techs = [
+        t for t in ordered_techs if t not in ("EU aggregated", "other technologies")
+    ]
+    if german_techs:
+        handles.append(plt.Rectangle((0, 0), 1, 1, facecolor="none", edgecolor="none"))
+        labels.append(r"$\mathbf{German\ cost\ components:}$")
+        for tech in german_techs:
+            handles.append(
+                plt.Rectangle(
+                    (0, 0), 1, 1, facecolor=colors.get(tech, "gray"), edgecolor="white"
+                )
+            )
+            labels.append(f"  {format_label(tech)}")
+
+    if "other technologies" in ordered_techs:
+        handles.append(plt.Rectangle((0, 0), 1, 1, facecolor="none", edgecolor="none"))
+        labels.append(r"$\mathbf{Aggregated:}$")
+        handles.append(
+            plt.Rectangle(
+                (0, 0),
+                1,
+                1,
+                facecolor=colors.get("other technologies", "gray"),
+                edgecolor="white",
+            )
+        )
+        labels.append("  " + format_label("other technologies"))
+
+    if "EU aggregated" in ordered_techs:
+        handles.append(plt.Rectangle((0, 0), 1, 1, facecolor="none", edgecolor="none"))
+        labels.append(r"$\mathbf{Other\ countries:}$")
+        handles.append(
+            plt.Rectangle(
+                (0, 0),
+                1,
+                1,
+                facecolor=colors.get("EU aggregated", "gray"),
+                edgecolor="white",
+            )
+        )
+        labels.append("  " + format_label("EU aggregated"))
+
+    handles.append(plt.Rectangle((0, 0), 1, 1, facecolor="none", edgecolor="none"))
+    labels.append(r"$\mathbf{Other\ indicators:}$")
+    handles.append(
+        plt.Line2D(
+            [0],
+            [0],
+            marker="*",
+            color="w",
+            markeredgecolor="black",
+            markeredgewidth=2,
+            markersize=10,
+            markerfacecolor="white",
+            linestyle="None",
+        )
+    )
+    labels.append("  " + format_label("Net system cost difference"))
+    if dh_prices:
+        handles.append(
+            plt.Line2D(
+                [0], [0], marker="o", color="red", markersize=8, linestyle="None"
+            )
+        )
+        labels.append("  " + format_label("DH price (baseline)"))
+        handles.append(
+            plt.Line2D(
+                [0],
+                [0],
+                marker="^",
+                color="red",
+                markersize=8,
+                linestyle="None",
+            )
+        )
+        labels.append("  " + format_label("ΔDH price"))
+
+    if handles:
+        fig.legend(
+            handles,
+            labels,
+            loc="lower center",
+            bbox_to_anchor=(0.5, 0.04),
+            ncol=4,
+            frameon=False,
+            columnspacing=1.5,
+            fontsize=11,
+            handlelength=1.5,
+            handleheight=1.0,
+        )
+
+    plt.tight_layout()
+    plt.subplots_adjust(bottom=0.35, left=0.07, right=0.95, top=0.90)
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close()
+    logger.info(f"Saved sensitivity plot to: {output_path}")
 
 
 def main(snakemake):

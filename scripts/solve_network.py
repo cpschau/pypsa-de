@@ -1048,7 +1048,7 @@ def add_discharger_temperature_boosting_constraints(
 
     ptes_direct_utilisation_profiles = (
         ptes_discharger_temperature_boosting_ratio_dataarray.to_pandas()
-        .loc[n.snapshots, discharger_nodes]
+        .T.loc[n.snapshots, discharger_nodes]
         .dropna(axis=1, how="all")
         .rename(columns=discharger_nodes_to_link)
         .reindex(columns=ptes_discharger)
@@ -1091,7 +1091,7 @@ def add_discharger_temperature_boosting_constraints(
 
         ptes_discharger_temperature_boosting_ratio = (
             ptes_discharger_temperature_boosting_ratio_dataarray.to_pandas()
-            .loc[n.snapshots, booster_nodes]
+            .T.loc[n.snapshots, booster_nodes]
             .dropna(axis=1, how="all")
             .rename(columns=booster_node_to_link)
             .reindex(columns=booster_technologies_links)
@@ -1100,7 +1100,7 @@ def add_discharger_temperature_boosting_constraints(
             cop_booster = (
                 cop.sel(heat_system="urban central", heat_source="ptes")
                 .to_pandas()
-                .loc[n.snapshots, booster_nodes]
+                .T.loc[n.snapshots, booster_nodes]
                 .dropna(axis=1, how="all")
                 .rename(columns=booster_node_to_link)
                 .reindex(columns=booster_technologies_links)

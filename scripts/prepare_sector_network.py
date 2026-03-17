@@ -3287,8 +3287,9 @@ def add_heat(
                 # Load pre-calculated e_max_pu profiles
                 e_max_pu_data = xr.open_dataarray(ptes_e_max_pu_file)
                 e_max_pu = (
-                    e_max_pu_data.sel(name=nodes).to_pandas().reindex(index=n.snapshots)
+                    e_max_pu_data.sel(name=nodes).to_pandas().T.reindex(index=n.snapshots)
                 )
+                e_max_pu.columns = nodes + f" {heat_system} water pits"
 
                 n.add(
                     "Store",
@@ -3452,6 +3453,10 @@ def add_heat(
                         p_nom_max=p_max_source,
                         p_max_pu=p_max_pu,
                     )
+                if heat_source == "geothermal":
+                    m_offset = 0.1  # electricity for source pump
+                else:
+                    m_offset = 0.0
                 # add heat pump converting source heat + electricity to urban central heat
                 n.add(
                     "Link",
@@ -3461,7 +3466,7 @@ def add_heat(
                     bus1=nodes,
                     bus2=nodes + f" {heat_carrier}",
                     carrier=f"{heat_system} {heat_source} heat pump",
-                    efficiency=1 / cop_heat_pump.clip(lower=0.01),
+                    efficiency=1 / cop_heat_pump.clip(lower=0.01) + m_offset,
                     efficiency2=1 - 1 / (cop_heat_pump).clip(lower=0.01),
                     capital_cost=costs.at[costs_name_heat_pump, "capital_cost"]
                     * overdim_factor,
@@ -3482,8 +3487,9 @@ def add_heat(
                             name=nodes,
                         )
                         .to_pandas()
-                        .reindex(index=n.snapshots)
+                        .T.reindex(index=n.snapshots)
                     )
+                    efficiency_direct_utilisation.columns = nodes + f" {heat_system} {heat_source} heat direct utilisation"
                     # add link for direct usage of heat source when source temperature exceeds forward temperature
                     n.add(
                         "Link",
@@ -3547,6 +3553,10 @@ def add_heat(
 
         if options["resistive_heaters"]:
             key = f"{heat_system.central_or_decentral} resistive heater"
+            if heat_system == HeatSystem.URBAN_CENTRAL:
+                marginal_cost = -costs.at[key, "VOM"]
+            else:
+                marginal_cost = 0
 
             n.add(
                 "Link",
@@ -3555,7 +3565,7 @@ def add_heat(
                 bus1=nodes,
                 carrier=f"{heat_system} resistive heater",
                 efficiency=1 / costs.at[key, "efficiency"],
-                marginal_cost=-costs.at[key, "VOM"],
+                marginal_cost=marginal_cost,
                 capital_cost=costs.at[key, "capital_cost"] * overdim_factor,
                 overnight_cost=costs.at[key, "investment"] * overdim_factor,
                 p_max_pu=0,
@@ -3566,6 +3576,10 @@ def add_heat(
 
         if options["boilers"]:
             key = f"{heat_system.central_or_decentral} gas boiler"
+            if heat_system == HeatSystem.URBAN_CENTRAL:
+                marginal_cost = costs.at[key, "VOM"]
+            else:
+                marginal_cost = 0
 
             n.add(
                 "Link",
@@ -3580,7 +3594,7 @@ def add_heat(
                 capital_cost=costs.at[key, "efficiency"]
                 * costs.at[key, "capital_cost"]
                 * overdim_factor,
-                marginal_cost=costs.at[key, "VOM"],
+                marginal_cost=marginal_cost,
                 overnight_cost=costs.at[key, "efficiency"]
                 * costs.at[key, "investment"]
                 * overdim_factor,

@@ -17,6 +17,28 @@ import os
 sys.path.append(os.getcwd())
 
 import matplotlib
+from matplotlib.legend_handler import HandlerPatch
+import matplotlib.patches as mpatches
+
+
+# Define custom handler class for square legend patches
+class HandlerSquare(HandlerPatch):
+    def create_artists(
+        self, legend, orig_handle, xdescent, ydescent, width, height, fontsize, trans
+    ):
+        size = min(width, height)
+        center_x = -xdescent + width / 2
+        center_y = -ydescent + height / 2
+        p = mpatches.Rectangle(
+            (center_x - size / 2, center_y - size / 2),
+            size,
+            size,
+            facecolor=orig_handle.get_facecolor(),
+            edgecolor=orig_handle.get_edgecolor(),
+            transform=trans,
+        )
+        return [p]
+
 
 matplotlib.use("Agg")  # Use non-interactive backend
 import matplotlib.pyplot as plt
@@ -219,7 +241,7 @@ def plot_energy_balance_comparison(
     tuple
         (figure, axes) matplotlib objects
     """
-    plt.rcParams.update({"font.size": 10})
+    plt.rcParams.update({"font.size": 12})
     title = f"Energy Balance Comparison: {scenarios[0]} vs {scenarios[1]}"
 
     def prepare_energy_balance_data(
@@ -464,6 +486,47 @@ def plot_energy_balance_comparison(
 
     dh_demand_series = pd.Series(dh_demand_sort, index=to_plot_rel1.index)
 
+    # Calculate total DH demand for network2 (for pie chart label)
+    dh_demand_sort2 = []
+    for system in to_plot_rel2.index:
+        system_name = system.replace(" urban central heat", "")
+        if subnodes_only:
+            uch_cols2 = [
+                c
+                for c in network2.loads_t.p.columns
+                if c == f"{system_name} urban central heat"
+            ]
+            ind_cols2 = [
+                c
+                for c in network2.loads_t.p.columns
+                if c == f"{system_name} low-temperature heat for industry"
+            ]
+        else:
+            uch_cols2 = network2.loads_t.p.filter(
+                regex=f"{system_name}.*urban central heat"
+            ).columns
+            ind_cols2 = network2.loads_t.p.filter(
+                regex=f"{system_name}.*low-temperature heat for industry"
+            ).columns
+        uch_w2 = (
+            network2.loads_t.p[uch_cols2]
+            .multiply(network2.snapshot_weightings.generators, axis=0)
+            .sum()
+            .sum()
+            if len(uch_cols2) > 0
+            else 0
+        )
+        ind_w2 = (
+            network2.loads_t.p[ind_cols2]
+            .multiply(network2.snapshot_weightings.generators, axis=0)
+            .sum()
+            .sum()
+            if len(ind_cols2) > 0
+            else 0
+        )
+        dh_demand_sort2.append(abs(uch_w2 + ind_w2) / 1e6)
+    dh_demand_series2 = pd.Series(dh_demand_sort2, index=to_plot_rel2.index)
+
     # Sort systems by demand (highest demand first)
     sorted_systems = dh_demand_series.sort_values(ascending=False).index
 
@@ -471,11 +534,39 @@ def plot_energy_balance_comparison(
     to_plot_rel1 = to_plot_rel1.loc[sorted_systems]
     to_plot_rel2 = to_plot_rel2.loc[sorted_systems]
     dh_price_savings = dh_price_savings.loc[sorted_systems]
+    dh_demand_series = dh_demand_series.loc[sorted_systems]
+    dh_demand_series2 = dh_demand_series2.reindex(sorted_systems, fill_value=0)
+
+    # Helper: compute demand-weighted supply mix for pie chart
+    def _pie_supply_mix(to_plot_rel, demand_s):
+        weights = demand_s / demand_s.sum()
+        mix = to_plot_rel.clip(lower=0).multiply(weights, axis=0).sum()
+        exclude = [
+            "District Heating Demand",
+            "heat vent",
+            "charger",
+            "discharger",
+            "losses",
+            "low-temperature",
+        ]
+        mix = mix[
+            [c for c in mix.index if not any(p in c for p in exclude) and mix[c] > 0.5]
+        ]
+        return mix
 
     max_ylim = to_plot_rel2.clip(lower=0).sum(1).max() * 1.05
 
-    # Create subplots with side-by-side layout (smaller width for better proportions)
-    fig, axes = plt.subplots(1, 2, figsize=(5, 20), sharey=True)
+    # Create subplots with side-by-side layout and pie charts below
+    fig = plt.figure(figsize=(10, 12))
+
+    # Main bar plots (top row) - using grid to leave space for legend on right
+    ax_bar1 = plt.subplot2grid((10, 12), (0, 0), rowspan=6, colspan=5)
+    ax_bar2 = plt.subplot2grid((10, 12), (0, 5), rowspan=6, colspan=5, sharey=ax_bar1)
+    axes = [ax_bar1, ax_bar2]
+
+    # Pie charts (bottom row) - positioned to avoid overlap with upper plots
+    ax_pie1 = plt.subplot2grid((10, 12), (7, 0), rowspan=3, colspan=5)
+    ax_pie2 = plt.subplot2grid((10, 12), (7, 5), rowspan=3, colspan=5)
 
     # Plot for Network 1 (left subplot)
     ax1 = axes[0]
@@ -583,9 +674,7 @@ def plot_energy_balance_comparison(
 
     title1 = format_scenario_title(scenarios[0])
     ax1.set_title(title1, fontsize=11, pad=20, ha="center", weight="bold")
-    ax1.set_xlabel(
-        "Share of district heating\nconsumption and supply\n[%]", fontsize=12
-    )
+    ax1.set_xlabel("Demand and supply [%]", fontsize=12)
 
     ax1.axvline(x=0, color="black", linestyle="-")
     ax1.set_xlim(-max_ylim, max_ylim)
@@ -765,9 +854,7 @@ def plot_energy_balance_comparison(
     )
     title2 = format_scenario_title(scenarios[1])
     ax2.set_title(title2, fontsize=11, pad=20, ha="center", weight="bold")
-    ax2.set_xlabel(
-        "Share of district heating\nconsumption and supply\n[%]", fontsize=12
-    )
+    ax2.set_xlabel("Demand and supply [%]", fontsize=12)
     ax2.axvline(x=0, color="black", linestyle="-")
     ax2.set_xlim(-max_ylim, max_ylim)
 
@@ -989,15 +1076,55 @@ def plot_energy_balance_comparison(
     )
     legend_labels.append("  Mean ΔDH Price")
 
+    # Legend to the right of the bar plots
     fig.legend(
         legend_handles,
         legend_labels,
-        bbox_to_anchor=(0.5, 0.05),
-        loc="upper center",
+        bbox_to_anchor=(0.7, 0.72),
+        loc="center left",
         frameon=False,
-        fontsize=10,
-        ncol=3,  # Three columns for better organization
+        fontsize=12,
+        ncol=1,
+        handler_map={mpatches.Patch: HandlerSquare()},
+        handlelength=1.0,
+        handleheight=1.0,
     )
+
+    # ---- Pie charts ----
+    pie_mix1 = _pie_supply_mix(to_plot_rel1, dh_demand_series)
+    pie_mix2 = _pie_supply_mix(to_plot_rel2, dh_demand_series2)
+    total_twh1 = dh_demand_series.sum()
+    total_twh2 = dh_demand_series2.sum()
+
+    for ax_pie, mix, total_twh in [
+        (ax_pie1, pie_mix1, total_twh1),
+        (ax_pie2, pie_mix2, total_twh2),
+    ]:
+        pie_colors = [colors.get(c, "gray") for c in mix.index]
+        wedges, texts, autotexts = ax_pie.pie(
+            mix.values,
+            colors=pie_colors,
+            autopct=lambda p: f"{p:.1f}%" if p > 3 else "",
+            startangle=90,
+            pctdistance=0.65,
+            textprops={"fontsize": 10},
+            wedgeprops={"alpha": 0.8},
+        )
+        for autotext, wedge in zip(autotexts, wedges):
+            autotext.set_color("black")
+            autotext.set_weight("bold")
+            angle = (wedge.theta1 + wedge.theta2) / 2
+            if 90 <= angle <= 270:
+                rotation = angle + 180
+            else:
+                rotation = angle
+            autotext.set_rotation(rotation)
+            autotext.set_horizontalalignment("center")
+            autotext.set_verticalalignment("center")
+        ax_pie.set_aspect("equal")
+        ax_pie.set_title(
+            f"Total: {total_twh:.1f} TWh", fontsize=12, pad=5, weight="bold"
+        )
 
     # Replace DE0 at start of yticks with empty string (now y-axis shows regions)
     # Show city names only on the left side for cleaner appearance
@@ -1027,8 +1154,9 @@ def plot_energy_balance_comparison(
 
     # Adjust layout and save the plot
     plt.tight_layout()
-    # Add space at the bottom for the legend (adjusted for taller figure)
-    plt.subplots_adjust(top=0.96, wspace=0.25, left=0.20, right=0.95, bottom=0.14)
+    plt.subplots_adjust(
+        top=0.95, wspace=0.10, left=0.12, right=0.80, bottom=0.05, hspace=0.15
+    )
     fig.savefig(output_path, bbox_inches="tight")
 
     logger.info(f"Energy balance comparison saved to {output_path}")
@@ -1622,7 +1750,7 @@ def plot_energy_balance_triple_comparison(
 
         # Y-axis formatting
         for tick in ax.get_yticklabels():
-            tick.set_fontsize(7)
+            tick.set_fontsize(9)
 
         if i == 0:  # Only show y-labels on leftmost plot
             ax.tick_params(axis="y", labelleft=True)

@@ -420,10 +420,14 @@ def add_links(
             else n.links.filter(like=heat_source, axis=0).efficiency.mode()
         )
 
-        heat_pump = n.links.filter(
-            regex=f"{subnode['cluster']} urban central.*{heat_source}.*heat pump",
-            axis=0,
-        ).rename_axis("Link").reset_index()
+        heat_pump = (
+            n.links.filter(
+                regex=f"{subnode['cluster']} urban central.*{heat_source}.*heat pump",
+                axis=0,
+            )
+            .rename_axis("Link")
+            .reset_index()
+        )
 
         heat_pump.Link = heat_pump.Link.str.replace(
             rf"{subnode['cluster']} urban central", name, regex=True
@@ -455,10 +459,15 @@ def add_links(
                     **heat_pump,
                 )
         else:
+            if heat_source == "geothermal":
+                m_offset = 0.1  # geothermal heat pumps have a minimum load of 10%
+            else:
+                m_offset = 0.0
             n.add(
                 "Link",
                 heat_pump.index,
-                efficiency=(1 / (cop_heat_pump).clip(lower=0.001)).replace(1000, 0),
+                efficiency=(1 / (cop_heat_pump).clip(lower=0.001)).replace(1000, 0)
+                + m_offset,
                 efficiency2=1 - (1 / cop_heat_pump.clip(lower=0.001)).replace(1000, 0),
                 p_min_pu=-cop_heat_pump / cop_heat_pump.clip(lower=0.001),
                 **heat_pump,
@@ -475,10 +484,14 @@ def add_links(
                 "mean",
             ).to_frame(name=f"{name} {heat_source} heat direct utilisation")
 
-            direct_utilization = n.links.filter(
-                regex=f"{subnode['cluster']} urban central.*{heat_source}.*direct",
-                axis=0,
-            ).rename_axis("Link").reset_index()
+            direct_utilization = (
+                n.links.filter(
+                    regex=f"{subnode['cluster']} urban central.*{heat_source}.*direct",
+                    axis=0,
+                )
+                .rename_axis("Link")
+                .reset_index()
+            )
 
             direct_utilization["Link"] = direct_utilization["Link"].replace(
                 {f"{subnode['cluster']} urban central": name},

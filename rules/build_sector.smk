@@ -614,6 +614,12 @@ rule build_ptes_operations:
             "ptes",
             "dynamic_capacity",
         ),
+        scale_capacity=config_provider(
+            "sector",
+            "district_heating",
+            "ptes",
+            "scale_capacity",
+        ),
     input:
         central_heating_forward_temperature_profiles=resources(
             "central_heating_forward_temperature_profiles_base_s_{clusters}_{planning_horizons}.nc"
