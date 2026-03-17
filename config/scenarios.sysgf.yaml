@@ -26,8 +26,6 @@ H2CHP_init:
     enable: false
   sector:
     district_heating:
-      potential:
-        DE: 0.6
       ptes:
         booster_technologies: ["resistive heater"]
       supply_temperature_approximation:
@@ -50,8 +48,6 @@ NoPTES_H2CHP:
     reference_scenario: H2CHP_init
   sector:
     district_heating:
-      potential:
-        DE: 0.6
       ptes:
         booster_technologies: ["resistive heater"]
       supply_temperature_approximation:
@@ -72,8 +68,6 @@ PTES_H2CHP_10CAPEX:
     reference_scenario: NoPTES_H2CHP
   sector:
     district_heating:
-      potential:
-        DE: 0.6
       ptes:
         booster_technologies: ["resistive heater"]
       supply_temperature_approximation:
@@ -91,8 +85,6 @@ PTES_H2CHP_20CAPEX:
     reference_scenario: NoPTES_H2CHP
   sector:
     district_heating:
-      potential:
-        DE: 0.6
       ptes:
         booster_technologies: ["resistive heater"]
       supply_temperature_approximation:
@@ -110,8 +102,6 @@ PTES_H2CHP_40CAPEX:
     reference_scenario: NoPTES_H2CHP
   sector:
     district_heating:
-      potential:
-        DE: 0.6
       ptes:
         booster_technologies: ["resistive heater"]
       supply_temperature_approximation:
@@ -129,8 +119,6 @@ PTES_H2CHP_80CAPEX:
     reference_scenario: NoPTES_H2CHP
   sector:
     district_heating:
-      potential:
-        DE: 0.6
       ptes:
         booster_technologies: ["resistive heater"]
       supply_temperature_approximation:
@@ -148,8 +136,6 @@ PTES_H2CHP_160CAPEX:
     reference_scenario: NoPTES_H2CHP
   sector:
     district_heating:
-      potential:
-        DE: 0.6
       ptes:
         booster_technologies: ["resistive heater"]
       supply_temperature_approximation:
@@ -175,8 +161,6 @@ CH4CHP_init:
       enable: false
   sector:
     district_heating:
-      potential:
-        DE: 0.6
       ptes:
         booster_technologies: ["resistive heater"]
       supply_temperature_approximation:
@@ -202,8 +186,6 @@ NoPTES_CH4CHP:
       enable: false
   sector:
     district_heating:
-      potential:
-        DE: 0.6
       ptes:
         booster_technologies: ["resistive heater"]
       supply_temperature_approximation:
@@ -227,8 +209,6 @@ PTES_CH4CHP_10CAPEX:
       enable: false
   sector:
     district_heating:
-      potential:
-        DE: 0.6
       ptes:
         booster_technologies: ["resistive heater"]
       supply_temperature_approximation:
@@ -249,8 +229,6 @@ PTES_CH4CHP_20CAPEX:
       enable: false
   sector:
     district_heating:
-      potential:
-        DE: 0.6
       ptes:
         booster_technologies: ["resistive heater"]
       supply_temperature_approximation:
@@ -271,8 +249,6 @@ PTES_CH4CHP_40CAPEX:
       enable: false
   sector:
     district_heating:
-      potential:
-        DE: 0.6
       ptes:
         booster_technologies: ["resistive heater"]
       supply_temperature_approximation:
@@ -293,8 +269,6 @@ PTES_CH4CHP_80CAPEX:
       enable: false
   sector:
     district_heating:
-      potential:
-        DE: 0.6
       ptes:
         booster_technologies: ["resistive heater"]
       supply_temperature_approximation:
@@ -315,8 +289,6 @@ PTES_CH4CHP_160CAPEX:
       enable: false
   sector:
     district_heating:
-      potential:
-        DE: 0.6
       ptes:
         booster_technologies: ["resistive heater"]
       supply_temperature_approximation:
