@@ -997,7 +997,18 @@ def plot_energy_balance_comparison(
         pie_ax.set_aspect("equal")  # Ensure pie chart is circular
 
         # Add total TWh as title below pie chart - smaller gap between label and pie
-        total_twh = sum(values) if grouped_supply else 0
+        # Compute from all DH load columns (demand-side, avoids double-counting supply links)
+        _dh_load_cols = [
+            c for c in network.loads_t.p.columns
+            if re.match(r"DE\d+", c)
+            and ("urban central heat" in c or "low-temperature heat for industry" in c)
+        ]
+        total_twh = (
+            abs(network.loads_t.p[_dh_load_cols]
+                .multiply(network.snapshot_weightings.generators, axis=0)
+                .sum().sum()) / 1e6
+            if _dh_load_cols else sum(values) if grouped_supply else 0
+        )
         pie_ax.set_title(
             f"Total: {total_twh:.1f} TWh", fontsize=12, pad=5, weight="bold"
         )
