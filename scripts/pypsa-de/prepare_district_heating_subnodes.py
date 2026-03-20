@@ -842,6 +842,10 @@ if __name__ == "__main__":
             lat=slice(bounds[1], bounds[3]),  # miny to maxy
         )
 
+        min_bottom_temperature = snakemake.params.district_heating["ptes"]["min_bottom_temperature"]
+        if isinstance(min_bottom_temperature, str):
+            min_bottom_temperature = 35  # fallback to default; "return_T" is handled at runtime
+
         subnodes = add_ptes_limit(
             subnodes,
             snakemake.input.osm_land_cover,
@@ -856,8 +860,8 @@ if __name__ == "__main__":
             snakemake.params.district_heating["subnodes"]["limit_ptes_potential"][
                 "excluder_resolution"
             ],
-            snakemake.params.district_heating["ptes"]["max_top_temperature"],
-            snakemake.params.district_heating["ptes"]["min_bottom_temperature"],
+            max_top_temperature=snakemake.params.district_heating["ptes"]["max_top_temperature"],
+            min_bottom_temperature=min_bottom_temperature,
         )
 
     subnodes.to_file(snakemake.output.district_heating_subnodes, driver="GeoJSON")

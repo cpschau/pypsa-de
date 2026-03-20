@@ -75,7 +75,7 @@ MidSupplyTemperature_MidDH_noboost:
             capital_cost: 1.05
 
 
-MidSupplyTemperature_MidDH_hpboost:
+MidSupplyTemperature_MidDH_hpboost_nocooling:
   fix_foreign_investments:
     reference_scenario: NoPTES_MidSupplyTemperature_MidDH
   sector:
@@ -84,6 +84,7 @@ MidSupplyTemperature_MidDH_hpboost:
         DE: 0.4
       ptes:
         booster_technologies: ["ptes"]
+        min_bottom_temperature: "return_T"
       supply_temperature_approximation:
         relative_annual_temperature_reduction: 0.005
   adjustments:
@@ -249,7 +250,7 @@ LowSupplyTemperature_MidDH_noboost:
       supply_temperature_approximation:
         relative_annual_temperature_reduction: 0.01
 
-LowSupplyTemperature_MidDH_hpboost:
+LowSupplyTemperature_MidDH_hpboost_nocooling:
   fix_foreign_investments:
     reference_scenario: NoPTES_LowSupplyTemperature_MidDH
   sector:
@@ -258,6 +259,7 @@ LowSupplyTemperature_MidDH_hpboost:
         DE: 0.4
       ptes:
         booster_technologies: ["ptes"]
+        min_bottom_temperature: "return_T"
       supply_temperature_approximation:
         relative_annual_temperature_reduction: 0.01
 
@@ -397,7 +399,7 @@ HighSupplyTemperature_MidDH_noboost:
           urban central water tanks:
             capital_cost: 1.2
 
-HighSupplyTemperature_MidDH_hpboost:
+HighSupplyTemperature_MidDH_hpboost_nocooling:
   fix_foreign_investments:
     reference_scenario: NoPTES_HighSupplyTemperature_MidDH
   sector:
@@ -406,6 +408,7 @@ HighSupplyTemperature_MidDH_hpboost:
         DE: 0.4
       ptes:
         booster_technologies: ["ptes"]
+        min_bottom_temperature: "return_T"
       supply_temperature_approximation:
         relative_annual_temperature_reduction: 0.0
   adjustments:
@@ -983,6 +986,27 @@ TopTSens_85_rhboost:
           urban central water tanks:
             capital_cost: 1.05
 
+TopTSens_85_hpboost_nocooling:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_TopTSens_85
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        max_top_temperature: 85
+        booster_technologies: ["ptes"]
+        min_bottom_temperature: "return_T"
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water tanks:
+            capital_cost: 1.05
+
 TopTSens_85_hpboost_10Cbottom:
   fix_foreign_investments:
     reference_scenario: NoPTES_TopTSens_85
@@ -1113,6 +1137,27 @@ TopTSens_95_rhboost:
       ptes:
         max_top_temperature: 95
         booster_technologies: ["resistive heater"]
+      supply_temperature_approximation:
+        relative_annual_temperature_reduction: 0.005
+  adjustments:
+    electricity: false
+    sector:
+      factor:
+        Store:
+          urban central water tanks:
+            capital_cost: 1.05
+
+TopTSens_95_hpboost_nocooling:
+  fix_foreign_investments:
+    reference_scenario: NoPTES_TopTSens_95
+  sector:
+    district_heating:
+      potential:
+        DE: 0.4
+      ptes:
+        max_top_temperature: 95
+        booster_technologies: ["ptes"]
+        min_bottom_temperature: "return_T"
       supply_temperature_approximation:
         relative_annual_temperature_reduction: 0.005
   adjustments:

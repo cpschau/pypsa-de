@@ -46,13 +46,14 @@ logger = logging.getLogger(__name__)
 
 # Supply temperatures and PTES configurations
 SUPPLY_TEMPS = ["HighSupplyTemperature", "MidSupplyTemperature", "LowSupplyTemperature"]
-PTES_CONFIGS = ["freeboost", "freecap", "rhboost", "hpboost_10Cbottom"]
+PTES_CONFIGS = ["freeboost", "freecap", "rhboost", "hpboost_nocooling", "hpboost_10Cbottom"]
 
 # Human-readable labels for PTES configurations
 PTES_CONFIG_LABELS = {
     "freeboost": "Free\nboosting*",
     "freecap": "Free\ncapacity*",
     "rhboost": "Resistive\nboosting",
+    "hpboost_nocooling": "Heat pump\nno cooling",
     "hpboost_10Cbottom": "Heat pump\nto 10°C",
 }
 

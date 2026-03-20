@@ -86,7 +86,9 @@ class PtesTemperatureApproximator:
         xr.DataArray
             The resulting bottom temperature profile for PTES.
         """
-        if "ptes" in self.booster_technologies or self.scale_capacity == False:
+        if self.min_ptes_bottom_temperature == "return_T":
+            return self.return_temperature
+        elif "ptes" in self.booster_technologies or self.scale_capacity == False:
             return self.min_ptes_bottom_temperature
         else:
             return self.return_temperature.clip(min=self.min_ptes_bottom_temperature)

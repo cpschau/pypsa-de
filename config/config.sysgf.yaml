@@ -9,7 +9,7 @@ run:
     - NoPTES_MidSupplyTemperature_MidDH_init
     - NoPTES_MidSupplyTemperature_MidDH
     # - MidSupplyTemperature_MidDH_noboost
-    # - MidSupplyTemperature_MidDH_hpboost
+    - MidSupplyTemperature_MidDH_hpboost_nocooling
     - MidSupplyTemperature_MidDH_rhboost
     - MidSupplyTemperature_MidDH_hpboost_10Cbottom
     - MidSupplyTemperature_MidDH_freeboost
@@ -19,7 +19,7 @@ run:
     - NoPTES_LowSupplyTemperature_MidDH_init
     - NoPTES_LowSupplyTemperature_MidDH
     # - LowSupplyTemperature_MidDH_noboost
-    # - LowSupplyTemperature_MidDH_hpboost
+    - LowSupplyTemperature_MidDH_hpboost_nocooling
     - LowSupplyTemperature_MidDH_rhboost
     - LowSupplyTemperature_MidDH_hpboost_10Cbottom
     - LowSupplyTemperature_MidDH_freeboost
@@ -29,7 +29,7 @@ run:
     - NoPTES_HighSupplyTemperature_MidDH_init
     - NoPTES_HighSupplyTemperature_MidDH
     # - HighSupplyTemperature_MidDH_noboost
-    # - HighSupplyTemperature_MidDH_hpboost
+    - HighSupplyTemperature_MidDH_hpboost_nocooling
     - HighSupplyTemperature_MidDH_rhboost
     - HighSupplyTemperature_MidDH_hpboost_10Cbottom
     - HighSupplyTemperature_MidDH_freeboost
@@ -39,12 +39,14 @@ run:
     - NoPTES_TopTSens_85_init
     - NoPTES_TopTSens_85
     - TopTSens_85_rhboost
+    - TopTSens_85_hpboost_nocooling
     - TopTSens_85_hpboost_10Cbottom
     - TopTSens_85_freeboost
     - TopTSens_85_freecap
     - NoPTES_TopTSens_95_init
     - NoPTES_TopTSens_95
     - TopTSens_95_rhboost
+    - TopTSens_95_hpboost_nocooling
     - TopTSens_95_hpboost_10Cbottom
     - TopTSens_95_freeboost
     - TopTSens_95_freecap
@@ -322,31 +324,31 @@ plotting:
     ]
   scenario_tuples:
     # Original scenarios
-    - ["NoPTES_LowSupplyTemperature", "LowSupplyTemperature_hpboost"]
+    - ["NoPTES_LowSupplyTemperature", "LowSupplyTemperature_hpboost_nocooling"]
     - ["NoPTES_LowSupplyTemperature", "LowSupplyTemperature_rhboost"]
     - ["NoPTES_LowSupplyTemperature", "LowSupplyTemperature_hpboost_10Cbottom"]
     - ["NoPTES_LowSupplyTemperature", "LowSupplyTemperature_noboost"]
-    - ["NoPTES_HighSupplyTemperature", "HighSupplyTemperature_hpboost"]
+    - ["NoPTES_HighSupplyTemperature", "HighSupplyTemperature_hpboost_nocooling"]
     - ["NoPTES_HighSupplyTemperature", "HighSupplyTemperature_rhboost"]
     - ["NoPTES_HighSupplyTemperature", "HighSupplyTemperature_hpboost_10Cbottom"]
     - ["NoPTES_HighSupplyTemperature", "HighSupplyTemperature_noboost"]
     - ["NoPTES_LowDH_LowSupplyTemperature", "LowDH_LowSupplyTemperature_rhboost"]
     - ["NoPTES_HighDH_LowSupplyTemperature", "HighDH_LowSupplyTemperature_rhboost"]
     # Mid Supply Temperature scenarios with Mid DH
-    - ["NoPTES_MidSupplyTemperature_MidDH", "MidSupplyTemperature_MidDH_hpboost"]
+    - ["NoPTES_MidSupplyTemperature_MidDH", "MidSupplyTemperature_MidDH_hpboost_nocooling"]
     - ["NoPTES_MidSupplyTemperature_MidDH", "MidSupplyTemperature_MidDH_rhboost"]
     - ["NoPTES_MidSupplyTemperature_MidDH", "MidSupplyTemperature_MidDH_hpboost_10Cbottom"]
     - ["NoPTES_MidSupplyTemperature_MidDH", "MidSupplyTemperature_MidDH_noboost"]
-    - ["MidSupplyTemperature_MidDH_hpboost", "MidSupplyTemperature_MidDH_noboost"]
-    - ["MidSupplyTemperature_MidDH_hpboost", "MidSupplyTemperature_MidDH_rhboost"]
+    - ["MidSupplyTemperature_MidDH_hpboost_nocooling", "MidSupplyTemperature_MidDH_noboost"]
+    - ["MidSupplyTemperature_MidDH_hpboost_nocooling", "MidSupplyTemperature_MidDH_rhboost"]
     - ["MidSupplyTemperature_MidDH_rhboost", "MidSupplyTemperature_MidDH_noboost"]
     # Low Supply Temperature scenarios with Mid DH
-    - ["NoPTES_LowSupplyTemperature_MidDH", "LowSupplyTemperature_MidDH_hpboost"]
+    - ["NoPTES_LowSupplyTemperature_MidDH", "LowSupplyTemperature_MidDH_hpboost_nocooling"]
     - ["NoPTES_LowSupplyTemperature_MidDH", "LowSupplyTemperature_MidDH_rhboost"]
     - ["NoPTES_LowSupplyTemperature_MidDH", "LowSupplyTemperature_MidDH_hpboost_10Cbottom"]
     - ["NoPTES_LowSupplyTemperature_MidDH", "LowSupplyTemperature_MidDH_noboost"]
     # High Supply Temperature scenarios with Mid DH
-    - ["NoPTES_HighSupplyTemperature_MidDH", "HighSupplyTemperature_MidDH_hpboost"]
+    - ["NoPTES_HighSupplyTemperature_MidDH", "HighSupplyTemperature_MidDH_hpboost_nocooling"]
     - ["NoPTES_HighSupplyTemperature_MidDH", "HighSupplyTemperature_MidDH_rhboost"]
     - ["NoPTES_HighSupplyTemperature_MidDH", "HighSupplyTemperature_MidDH_hpboost_10Cbottom"]
     - ["NoPTES_HighSupplyTemperature_MidDH", "HighSupplyTemperature_MidDH_noboost"]
@@ -355,17 +357,17 @@ plotting:
     - ["NoPTES_MidSupplyTemperature_HighDH", "MidSupplyTemperature_HighDH_rhboost"]
     # Top Temperature Sensitivity (85°C / 95°C)
     - ["NoPTES_TopTSens_85", "TopTSens_85_rhboost"]
-    - ["NoPTES_TopTSens_85", "TopTSens_85_hpboost"]
+    - ["NoPTES_TopTSens_85", "TopTSens_85_hpboost_nocooling"]
     - ["NoPTES_TopTSens_85", "TopTSens_85_freeboost"]
     - ["NoPTES_TopTSens_85", "TopTSens_85_freecap"]
     - ["NoPTES_TopTSens_95", "TopTSens_95_rhboost"]
-    - ["NoPTES_TopTSens_95", "TopTSens_95_hpboost"]
+    - ["NoPTES_TopTSens_95", "TopTSens_95_hpboost_nocooling"]
     - ["NoPTES_TopTSens_95", "TopTSens_95_freeboost"]
     - ["NoPTES_TopTSens_95", "TopTSens_95_freecap"]
   scenario_triples:
-    - ["NoPTES_LowSupplyTemperature_MidDH", "LowSupplyTemperature_MidDH_hpboost", "LowSupplyTemperature_MidDH_noboost"]
-    - ["NoPTES_MidSupplyTemperature_MidDH", "MidSupplyTemperature_MidDH_hpboost", "MidSupplyTemperature_MidDH_noboost"]
-    - ["NoPTES_HighSupplyTemperature_MidDH", "HighSupplyTemperature_MidDH_hpboost", "HighSupplyTemperature_MidDH_noboost"]
+    - ["NoPTES_LowSupplyTemperature_MidDH", "LowSupplyTemperature_MidDH_hpboost_nocooling", "LowSupplyTemperature_MidDH_noboost"]
+    - ["NoPTES_MidSupplyTemperature_MidDH", "MidSupplyTemperature_MidDH_hpboost_nocooling", "MidSupplyTemperature_MidDH_noboost"]
+    - ["NoPTES_HighSupplyTemperature_MidDH", "HighSupplyTemperature_MidDH_hpboost_nocooling", "HighSupplyTemperature_MidDH_noboost"]
   save_png: true
   save_pdf: true
   override_tech_colors:
