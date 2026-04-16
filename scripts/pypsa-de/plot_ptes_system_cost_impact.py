@@ -46,7 +46,13 @@ logger = logging.getLogger(__name__)
 
 # Supply temperatures and PTES configurations
 SUPPLY_TEMPS = ["HighSupplyTemperature", "MidSupplyTemperature", "LowSupplyTemperature"]
-PTES_CONFIGS = ["freeboost", "freecap", "rhboost", "hpboost_nocooling", "hpboost_10Cbottom"]
+PTES_CONFIGS = [
+    "freeboost",
+    "freecap",
+    "rhboost",
+    "hpboost_nocooling",
+    "hpboost_10Cbottom",
+]
 
 # Human-readable labels for PTES configurations
 PTES_CONFIG_LABELS = {
@@ -258,6 +264,45 @@ def calculate_german_fraction(n):
     return pd.Series(german_fractions).fillna(default_fraction)
 
 
+def _compute_opex_from_network(n):
+    """Compute OPEX as marginal_cost × dispatch × snapshot_weight for all components.
+
+    Returns a MultiIndex Series with levels ['component', 'bus', 'carrier'] to match _compute_capex_from_network.
+    """
+    sw = n.snapshot_weightings.generators
+    all_opex = []
+    component_specs = [
+        ("Generator", n.generators, "bus", n.generators_t.p if hasattr(n.generators_t, 'p') else None),
+        ("Link", n.links, "bus0", n.links_t.p0 if hasattr(n.links_t, 'p0') else None),
+        ("StorageUnit", n.storage_units, "bus", n.storage_units_t.p_dispatch if hasattr(n.storage_units_t, 'p_dispatch') else None),
+    ]
+    for comp_type, df, bus_col, dispatch_t in component_specs:
+        if df.empty or dispatch_t is None or dispatch_t.empty:
+            continue
+        mc = df["marginal_cost"] if "marginal_cost" in df.columns else pd.Series(0, index=df.index)
+        # Weighted dispatch sum per asset
+        common = dispatch_t.columns.intersection(df.index)
+        if len(common) == 0:
+            continue
+        weighted_dispatch = dispatch_t[common].mul(sw, axis=0).sum(axis=0).abs()
+        opex = mc.reindex(common).fillna(0) * weighted_dispatch
+        active = opex[opex.abs() > 0]
+        if active.empty:
+            continue
+        mi = pd.MultiIndex.from_arrays(
+            [
+                [comp_type] * len(active),
+                df.loc[active.index, bus_col].values,
+                df.loc[active.index, "carrier"].values,
+            ],
+            names=["component", "bus", "carrier"],
+        )
+        all_opex.append(pd.Series(active.values, index=mi))
+    if not all_opex:
+        return pd.Series(dtype=float)
+    return pd.concat(all_opex).groupby(level=[0, 1, 2]).sum()
+
+
 def _compute_capex_from_network(n):
     """Compute annualized CAPEX as capital_cost × optimal_capacity for all components.
 
@@ -300,8 +345,8 @@ def get_system_costs_by_carrier(n, country, exclude_country=False, aggregate_all
         # CAPEX: capital_cost × p_nom_opt for ALL components (existing + new investments)
         # n.statistics.capex() only counts expansion of extendable assets, so we compute manually.
         capex = _compute_capex_from_network(n)
-        # OPEX: variable + fixed O&M from statistics API
-        opex = n.statistics.opex(groupby=["bus", "carrier"], nice_names=False)
+        # OPEX: marginal_cost × dispatch × snapshot_weight (manual, matches capex MultiIndex)
+        opex = _compute_opex_from_network(n)
 
         # Apply country filtering based on analysis of component locations
         if not aggregate_all:
@@ -733,21 +778,21 @@ def apply_technology_groupings(df: pd.DataFrame) -> pd.DataFrame:
         abs(df.sum().sum() - df_grouped.sum().sum()) < 1e-2
     ), "Grouping of geothermal technologies changed total sum!"
 
-    # Group oil primary + gas primary -> fossil primary energy sources
-    fossil_cols = [
-        col for col in df_grouped.columns if col in ["oil primary", "gas primary"]
-    ]
-    if fossil_cols:
-        df_grouped["fossil primary energy sources"] = df_grouped[fossil_cols].sum(
-            axis=1
-        )
-        fossil_cols = [
-            col for col in fossil_cols if col != "fossil primary energy sources"
-        ]
-        df_grouped = df_grouped.drop(columns=fossil_cols)
-    assert (
-        abs(df_grouped.sum().sum() - df.sum().sum()) < 1e-2
-    ), "Grouping of fossil primary energy sources changed total sum!"
+    # # Group oil primary + gas primary -> fossil primary energy sources
+    # fossil_cols = [
+    #     col for col in df_grouped.columns if col in ["oil primary", "gas primary"]
+    # ]
+    # if fossil_cols:
+    #     df_grouped["fossil primary energy sources"] = df_grouped[fossil_cols].sum(
+    #         axis=1
+    #     )
+    #     fossil_cols = [
+    #         col for col in fossil_cols if col != "fossil primary energy sources"
+    #     ]
+    #     df_grouped = df_grouped.drop(columns=fossil_cols)
+    # assert (
+    #     abs(df_grouped.sum().sum() - df.sum().sum()) < 1e-2
+    # ), "Grouping of fossil primary energy sources changed total sum!"
 
     # Group PTES (water pits) variants -> PTES
     ptes_cols = [
@@ -939,9 +984,9 @@ def get_colors(networks, technologies):
     # Grouped technology display colors: always override carrier colors to ensure
     # consistent appearance regardless of what the network carrier DataFrame contains.
     grouped_display_colors = {
-        "Wind power": "#83D8FF",        # from override_tech_colors: wind power
+        "Wind power": "#83D8FF",  # from override_tech_colors: wind power
         "geothermal heat pumps": "khaki",  # from override_tech_colors: geothermal heat pump
-        "Battery": "#999999",           # grey (matches reference figure)
+        "Battery": "#999999",  # grey (matches reference figure)
     }
     for tech, color in grouped_display_colors.items():
         if tech in technologies:
@@ -1478,10 +1523,7 @@ def create_plots(
                     if dh_prices:
                         bdp = None
                         for sc in dh_prices:
-                            if (
-                                f"NoPTES_{supply_temp}" in sc
-                                and "_init" not in sc
-                            ):
+                            if f"NoPTES_{supply_temp}" in sc and "_init" not in sc:
                                 bdp = dh_prices[sc]
                                 break
                         if bdp is None:
@@ -1561,8 +1603,12 @@ def create_plots(
             min_stacked_neg = 0.0
             for idx in savings_agg.index:
                 row = savings_agg.loc[idx]
-                max_stacked_pos = max(max_stacked_pos, sum(v for v in row.values if v > 0))
-                min_stacked_neg = min(min_stacked_neg, sum(v for v in row.values if v < 0))
+                max_stacked_pos = max(
+                    max_stacked_pos, sum(v for v in row.values if v > 0)
+                )
+                min_stacked_neg = min(
+                    min_stacked_neg, sum(v for v in row.values if v < 0)
+                )
             y_pad = max(0.10 * (max_stacked_pos - min_stacked_neg), 0.10)
             ax_right.set_ylim(min_stacked_neg - y_pad, max_stacked_pos + y_pad)
 
@@ -1806,7 +1852,9 @@ def create_plots(
 
     # Add titles with proper positioning
     ax_left.set_title("NoPTES Baseline Costs", fontweight="bold", pad=20, fontsize=12)
-    ax_right.set_title("Net Cost Difference vs NoPTES", fontweight="bold", pad=20, fontsize=12)
+    ax_right.set_title(
+        "Net Cost Difference vs NoPTES", fontweight="bold", pad=20, fontsize=12
+    )
 
     plt.tight_layout()
     plt.subplots_adjust(bottom=0.35, left=0.07, right=0.95, top=0.90)
@@ -2182,7 +2230,20 @@ def create_sensitivity_plots(
             label=format_label("Net system cost difference"),
         )
 
+        # Set ylim BEFORE annotations so get_ylim() reflects final axis range
+        max_stacked_pos = 0.0
+        min_stacked_neg = 0.0
+        for idx in savings_agg.index:
+            row = savings_agg.loc[idx]
+            max_stacked_pos = max(max_stacked_pos, sum(v for v in row.values if v > 0))
+            min_stacked_neg = min(min_stacked_neg, sum(v for v in row.values if v < 0))
+        y_pad = max(0.10 * (max_stacked_pos - min_stacked_neg), 0.08)
+        ax_right.set_ylim(min_stacked_neg - y_pad, max_stacked_pos + y_pad)
+
         # Annotations: % vs baseline
+        y_range = ax_right.get_ylim()[1] - ax_right.get_ylim()[0]
+        # Anchor in the upper headroom area, below the very top
+        y_annot = ax_right.get_ylim()[1] - y_range * 0.18
         for (config, supply_temp, pos), total_saving in zip(
             bar_positions, total_savings_per_bar
         ):
@@ -2196,18 +2257,14 @@ def create_sensitivity_plots(
                 baseline_de = sum(v for k, v in bc.items() if k != "EU aggregated")
                 pct_de = (total_saving / baseline_de) * 100 if baseline_de else 0
 
-                y_range = ax_right.get_ylim()[1] - ax_right.get_ylim()[0]
-                # Place both annotation lines adjacent — shared anchor, offset ±13pt
-                y_annot = ax_right.get_ylim()[0] + y_range * 0.82
-
-                # Black annotation: German system cost % change (upper line)
+                # Black annotation: German system cost % change (left of bar centre)
                 ax_right.annotate(
                     f"{pct_de:.1f}%",
-                    (pos, y_annot),
-                    xytext=(0, 13),
+                    (pos - 0.25, y_annot),
+                    xytext=(0, 0),
                     textcoords="offset points",
                     ha="center",
-                    va="center",
+                    va="bottom",
                     fontsize=9,
                     color="black",
                     rotation=90,
@@ -2217,7 +2274,7 @@ def create_sensitivity_plots(
                     ],
                 )
 
-                # Red annotation: ΔDH price % (lower line, adjacent to black)
+                # Red annotation: ΔDH price % (right of bar centre)
                 if dh_prices:
                     bdp = None
                     for sc in dh_prices:
@@ -2243,19 +2300,17 @@ def create_sensitivity_plots(
                         dh_pct = ((pdp - bdp) / bdp) * 100
                         ax_right.annotate(
                             f"Δ{dh_pct:.1f}%",
-                            (pos, y_annot),
-                            xytext=(0, -13),
+                            (pos + 0.25, y_annot),
+                            xytext=(0, 0),
                             textcoords="offset points",
                             ha="center",
-                            va="center",
+                            va="bottom",
                             fontsize=9,
                             color="red",
                             rotation=90,
                             zorder=20,
                             path_effects=[
-                                path_effects.withStroke(
-                                    linewidth=2, foreground="white"
-                                )
+                                path_effects.withStroke(linewidth=2, foreground="white")
                             ],
                         )
 
@@ -2300,18 +2355,10 @@ def create_sensitivity_plots(
         ax_right.axhline(y=0, color="black", linewidth=0.8)
         ax_right.set_ylabel("Cost Savings [bn EUR a$^{-1}$]", labelpad=5, fontsize=11)
         ax_right.set_xlabel("Supply temperature", fontweight="bold", fontsize=11)
-        ax_right.set_title("Net Cost Difference vs NoPTES", fontweight="bold", pad=20, fontsize=12)
+        ax_right.set_title(
+            "Net Cost Difference vs NoPTES", fontweight="bold", pad=20, fontsize=12
+        )
         ax_right.grid(True, alpha=0.3)
-
-        # Dynamic ylims — fit all stacked bars plus 15 % headroom
-        max_stacked_pos = 0.0
-        min_stacked_neg = 0.0
-        for idx in savings_agg.index:
-            row = savings_agg.loc[idx]
-            max_stacked_pos = max(max_stacked_pos, sum(v for v in row.values if v > 0))
-            min_stacked_neg = min(min_stacked_neg, sum(v for v in row.values if v < 0))
-        y_pad = max(0.15 * (max_stacked_pos - min_stacked_neg), 0.15)
-        ax_right.set_ylim(min_stacked_neg - y_pad, max_stacked_pos + y_pad)
 
         # DH price deltas on right axis
         if dh_prices:

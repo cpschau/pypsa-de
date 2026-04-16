@@ -47,6 +47,7 @@ from matplotlib.lines import Line2D
 import numpy as np
 import pandas as pd
 import pypsa
+from pypsa.statistics import get_bus_and_carrier_and_bus_carrier
 import re
 import sys
 import os
@@ -55,6 +56,34 @@ sys.path.append(os.path.join(os.getcwd(), "code", "pypsa-de"))
 from scripts._helpers import configure_logging, mock_snakemake
 
 logger = logging.getLogger(__name__)
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
+PTES_EVENTS_FILE = (
+    REPO_ROOT
+    / "code"
+    / "notebooks"
+    / "outputs"
+    / "ptes_discharge_analysis"
+    / "ptes_discharge_events.parquet"
+)
+RING_KEYS = [
+    "Directly served",
+    "TTES-flexibilized",
+    "PTES-flexibilized (no boost)",
+    "PTES-flexibilized (boosted)",
+]
+RING_LEGEND_LABELS = {
+    "Directly served": "Directly\nserved",
+    "TTES-flexibilized": "Shifted by\nTTES",
+    "PTES-flexibilized (no boost)": "Shifted by\nPTES\n(no boost)",
+    "PTES-flexibilized (boosted)": "Shifted by\nPTES\n(boosted)",
+}
+RING_COLORS = {
+    "Directly served": "#D9D9D9",
+    "TTES-flexibilized": "#90CAF9",
+    "PTES-flexibilized (no boost)": "#1976D2",
+    "PTES-flexibilized (boosted)": "#0D47A1",
+}
 
 
 def calc_dh_price_range_subnodes(n, subnodes_only=True):
@@ -100,6 +129,150 @@ def calc_dh_price_range_subnodes(n, subnodes_only=True):
         weighted_average_price_system.index.str.replace(" urban central heat", "")
     )
     return weighted_average_price_system
+
+
+def calc_total_de_dh_demand_twh(n):
+    """Return total weighted German DH demand in TWh.
+
+    Uses final heat loads instead of positive urban-heat-bus energy-balance entries
+    to avoid double counting internal storage and conversion flows.
+    """
+    load_cols = n.loads_t.p.filter(
+        regex=r"^DE\d+ \d+.*(urban central heat|low-temperature heat for industry)$"
+    )
+    if load_cols.empty:
+        return 0.0
+    weighted = load_cols.multiply(n.snapshot_weightings.generators, axis=0).sum().sum()
+    return float(abs(weighted) / 1e6)
+
+
+def _positive_de_heat_supply_twh(network):
+    return _de_heat_balance_by_carrier_twh(network).clip(lower=0)
+
+
+def _de_heat_balance_by_carrier_twh(network):
+    eb = network.statistics.energy_balance(groupby=get_bus_and_carrier_and_bus_carrier)
+    eb_uch = eb.xs("urban central heat", level="bus_carrier")
+    de_mask = eb_uch.index.get_level_values("bus").str.startswith("DE")
+    eb_de = eb_uch[de_mask]
+    by_carrier = eb_de.groupby(level="carrier").sum() / 1e6
+    by_carrier.index = by_carrier.index.str.replace(" CC", "", regex=False)
+    return by_carrier.groupby(level=0).sum()
+
+
+def _storage_discharge_and_losses_twh(network, storage_prefix):
+    by_carrier = _de_heat_balance_by_carrier_twh(network)
+    charge_twh = float(abs(by_carrier.get(f"{storage_prefix} charger", 0.0)))
+    discharge_twh = float(max(by_carrier.get(f"{storage_prefix} discharger", 0.0), 0.0))
+    losses_twh = max(charge_twh - discharge_twh, 0.0)
+    return discharge_twh, losses_twh
+
+
+def _scenario_temp_level(scenario):
+    if "HighSupplyTemperature" in scenario:
+        return "High Temperature"
+    if "MidSupplyTemperature" in scenario:
+        return "Mid Temperature"
+    if "LowSupplyTemperature" in scenario:
+        return "Low Temperature"
+    return None
+
+
+def _scenario_boost_tech(scenario):
+    if "NoPTES" in scenario:
+        return None
+    if "freecap" in scenario:
+        return "Free capacity"
+    if "freeboost" in scenario:
+        return "Free boost"
+    if "rhboost" in scenario:
+        return "RH Boosted"
+    if "hpboost_nocooling" in scenario:
+        return "HP no cooling"
+    if "hpboost" in scenario:
+        return "HP Boosted"
+    return None
+
+
+def _scenario_ptes_supply_breakdown_twh(network, scenario, ptes_events=None):
+    ptes_discharge_twh, ptes_losses_twh = _storage_discharge_and_losses_twh(
+        network, "urban central water pits"
+    )
+    fallback_ptes_twh = ptes_discharge_twh + ptes_losses_twh
+    temp_level = _scenario_temp_level(scenario)
+    boost_tech = _scenario_boost_tech(scenario)
+
+    if boost_tech is None:
+        return 0.0, 0.0
+
+    if ptes_events is None or temp_level is None:
+        return fallback_ptes_twh, 0.0
+
+    events = ptes_events[
+        (ptes_events["temp_level"] == temp_level)
+        & (ptes_events["boost_tech"] == boost_tech)
+    ].copy()
+    if events.empty:
+        return fallback_ptes_twh, 0.0
+
+    boosted_mask = events["boosting_needed"].astype(bool)
+    discharge_without_boost = (
+        events.loc[~boosted_mask, "ptes_discharge_mwh"].sum() / 1e6
+    )
+    discharge_with_boost = events.loc[boosted_mask, "ptes_discharge_mwh"].sum() / 1e6
+    boosting_heat_twh = events.loc[boosted_mask, "boosting_heat_mwh"].sum() / 1e6
+    total_ptes_discharge = discharge_without_boost + discharge_with_boost
+    if total_ptes_discharge > 0:
+        ptes_losses_without_boost = ptes_losses_twh * discharge_without_boost / total_ptes_discharge
+        ptes_losses_with_boost = ptes_losses_twh * discharge_with_boost / total_ptes_discharge
+    else:
+        ptes_losses_without_boost = 0.0
+        ptes_losses_with_boost = 0.0
+    ptes_without_boost = discharge_without_boost + ptes_losses_without_boost
+    ptes_with_boost = discharge_with_boost + boosting_heat_twh + ptes_losses_with_boost
+    return float(ptes_without_boost), float(ptes_with_boost)
+
+
+def _scenario_ring_shares_twh(network, scenario, ptes_events=None):
+    supply = _positive_de_heat_supply_twh(network)
+    total_supply_twh = float(supply.sum())
+    ttes_discharge_twh, ttes_losses_twh = _storage_discharge_and_losses_twh(
+        network, "urban central water tanks"
+    )
+    ttes_twh = ttes_discharge_twh + ttes_losses_twh
+    ptes_without_boost_twh, ptes_with_boost_twh = _scenario_ptes_supply_breakdown_twh(
+        network, scenario, ptes_events
+    )
+    directly_served_twh = max(
+        total_supply_twh - ttes_twh - ptes_without_boost_twh - ptes_with_boost_twh,
+        0.0,
+    )
+    return {
+        "Directly served": directly_served_twh,
+        "TTES-flexibilized": ttes_twh,
+        "PTES-flexibilized (no boost)": ptes_without_boost_twh,
+        "PTES-flexibilized (boosted)": ptes_with_boost_twh,
+    }
+
+
+def _add_outer_ring(ax, shares_twh):
+    values = [shares_twh[key] for key in RING_KEYS]
+    wedges, _, autotexts = ax.pie(
+        values,
+        radius=1.24,
+        startangle=90,
+        colors=[RING_COLORS[key] for key in RING_KEYS],
+        autopct=lambda p: f"{p:.0f}%" if p >= 4 else "",
+        pctdistance=0.90,
+        textprops={"fontsize": 8.6},
+        wedgeprops={"width": 0.23, "edgecolor": "white", "linewidth": 0.8, "alpha": 0.98},
+    )
+    for autotext, wedge in zip(autotexts, wedges):
+        autotext.set_color("black")
+        autotext.set_weight("bold")
+        angle = (wedge.theta1 + wedge.theta2) / 2
+        autotext.set_rotation(angle if angle < 180 else angle - 180)
+        autotext.set_rotation_mode("anchor")
 
 
 def get_colors(networks, override_colors={}):
@@ -277,8 +450,8 @@ def plot_energy_balance_comparison(
             (energy_balance_data, district_heating_prices)
         """
         eb_uch = (
-            network.statistics.energy_balance(groupby=["bus", "carrier", "bus_carrier"])
-            .xs("urban central heat", level=3)
+            network.statistics.energy_balance(groupby=get_bus_and_carrier_and_bus_carrier)
+            .xs("urban central heat", level="bus_carrier")
             .reset_index()
         )
         # Filter for district heating systems
@@ -537,22 +710,46 @@ def plot_energy_balance_comparison(
     dh_demand_series = dh_demand_series.loc[sorted_systems]
     dh_demand_series2 = dh_demand_series2.reindex(sorted_systems, fill_value=0)
 
-    # Helper: compute demand-weighted supply mix for pie chart
-    def _pie_supply_mix(to_plot_rel, demand_s):
-        weights = demand_s / demand_s.sum()
-        mix = to_plot_rel.clip(lower=0).multiply(weights, axis=0).sum()
-        exclude = [
-            "District Heating Demand",
-            "heat vent",
-            "charger",
-            "discharger",
-            "losses",
-            "low-temperature",
+    # Helper: compute total DE-wide DH supply mix in absolute TWh by carrier
+    def _total_de_dh_mix_twh(network):
+        """Absolute DE-wide DH supply mix in TWh across ALL buses, with same groupings."""
+        eb = network.statistics.energy_balance(groupby=get_bus_and_carrier_and_bus_carrier)
+        eb_uch = eb.xs("urban central heat", level="bus_carrier")
+        de_mask = eb_uch.index.get_level_values("bus").str.startswith("DE")
+        eb_de = eb_uch[de_mask]
+        # Sum supply per carrier, convert to TWh
+        by_carrier = eb_de.groupby(level="carrier").sum().clip(lower=0) / 1e6
+        # Remove CC suffix and re-aggregate
+        by_carrier.index = by_carrier.index.str.replace(" CC", "", regex=False)
+        by_carrier = by_carrier.groupby(level=0).sum()
+        # Apply same carrier groupings as main plot
+        if not group_heat_pumps:
+            geo_cols = [c for c in by_carrier.index
+                        if "geothermal heat pump" in c or "geothermal heat direct" in c]
+            if geo_cols:
+                by_carrier["geothermal heat pump"] = by_carrier[geo_cols].sum()
+                by_carrier = by_carrier.drop(geo_cols)
+        if group_chp:
+            chp_cols = [c for c in by_carrier.index
+                        if "chp" in c.lower() or "combined heat" in c.lower()]
+            if chp_cols:
+                by_carrier["CHP"] = by_carrier[chp_cols].sum()
+                by_carrier = by_carrier.drop(chp_cols)
+        if group_heat_pumps:
+            hp_cols = [c for c in by_carrier.index if "heat pump" in c.lower()]
+            if hp_cols:
+                by_carrier["Heat Pumps"] = by_carrier[hp_cols].sum()
+                by_carrier = by_carrier.drop(hp_cols)
+        # Exclude demand, losses, heat venting, storage
+        exclude = ["urban central heat", "low-temperature heat for industry",
+                   "District Heating Demand", "heat vent", "charger", "discharger", "losses"]
+        by_carrier = by_carrier[
+            [c for c in by_carrier.index if not any(p in c for p in exclude)]
         ]
-        mix = mix[
-            [c for c in mix.index if not any(p in c for p in exclude) and mix[c] > 0.5]
-        ]
-        return mix
+        # Drop negligible technologies (< 0.5% of total supply)
+        total = by_carrier.sum()
+        by_carrier = by_carrier[by_carrier > 0.005 * total]
+        return by_carrier
 
     max_ylim = to_plot_rel2.clip(lower=0).sum(1).max() * 1.05
 
@@ -672,8 +869,9 @@ def plot_energy_balance_comparison(
 
         return title
 
-    title1 = format_scenario_title(scenarios[0])
-    ax1.set_title(title1, fontsize=11, pad=20, ha="center", weight="bold")
+    # title removed for paper (will be in figure caption)
+    # title1 = format_scenario_title(scenarios[0])
+    # ax1.set_title(title1, fontsize=11, pad=20, ha="center", weight="bold")
     ax1.set_xlabel("Demand and supply [%]", fontsize=12)
 
     ax1.axvline(x=0, color="black", linestyle="-")
@@ -852,8 +1050,9 @@ def plot_energy_balance_comparison(
         width=0.9,  # Increase bar thickness to reduce white space
         alpha=0.8,  # Match transparency of lower aggregated charts
     )
-    title2 = format_scenario_title(scenarios[1])
-    ax2.set_title(title2, fontsize=11, pad=20, ha="center", weight="bold")
+    # title removed for paper (will be in figure caption)
+    # title2 = format_scenario_title(scenarios[1])
+    # ax2.set_title(title2, fontsize=11, pad=20, ha="center", weight="bold")
     ax2.set_xlabel("Demand and supply [%]", fontsize=12)
     ax2.axvline(x=0, color="black", linestyle="-")
     ax2.set_xlim(-max_ylim, max_ylim)
@@ -898,17 +1097,14 @@ def plot_energy_balance_comparison(
     ax2_price.set_xlabel("ΔDH Price\n[EUR MWh$^{-1}$]", fontsize=12, color="black")
     ax2_price.tick_params(axis="x", labelsize=10, colors="black")
 
-    # Set x-limits for price savings axis with some padding
-    price_min, price_max = dh_price_savings.min(), dh_price_savings.max()
-    price_range = price_max - price_min
-    if price_range > 0:
-        padding = price_range * 0.1  # 10% padding
-        price_xlim = (price_min - padding, price_max + padding)
-    else:
-        # If all savings are the same, add some padding around the value
-        price_xlim = (price_min * 0.95, price_max * 1.05)
-
-    ax2_price.set_xlim(price_xlim)
+    # Zero-align secondary axis with primary axis.
+    # Primary axis is symmetric: set_xlim(-max_ylim, max_ylim) → 0 at 50% width.
+    # For secondary 0 to coincide visually, secondary xlim must also be symmetric.
+    neg_savings = -dh_price_savings
+    max_abs = max(abs(neg_savings).max(), 0.1)
+    padding = max_abs * 0.15
+    sym_lim = max_abs + padding
+    ax2_price.set_xlim(-sym_lim, sym_lim)
 
     # Update fontsize of yticks for both subplots (now that bars are horizontal)
     for tick in ax1.get_yticklabels():
@@ -1091,15 +1287,18 @@ def plot_energy_balance_comparison(
     )
 
     # ---- Pie charts ----
-    pie_mix1 = _pie_supply_mix(to_plot_rel1, dh_demand_series)
-    pie_mix2 = _pie_supply_mix(to_plot_rel2, dh_demand_series2)
-    total_twh1 = dh_demand_series.sum()
-    total_twh2 = dh_demand_series2.sum()
+    ptes_events = pd.read_parquet(PTES_EVENTS_FILE) if PTES_EVENTS_FILE.exists() else None
+    pie_mix1 = _total_de_dh_mix_twh(network1)
+    pie_mix2 = _total_de_dh_mix_twh(network2)
+    ring_mix1 = _scenario_ring_shares_twh(network1, scenarios[0], ptes_events)
+    ring_mix2 = _scenario_ring_shares_twh(network2, scenarios[1], ptes_events)
 
-    for ax_pie, mix, total_twh in [
-        (ax_pie1, pie_mix1, total_twh1),
-        (ax_pie2, pie_mix2, total_twh2),
+    for ax_pie, mix, ring_mix in [
+        (ax_pie1, pie_mix1, ring_mix1),
+        (ax_pie2, pie_mix2, ring_mix2),
     ]:
+        mix = mix.sort_values(ascending=False)
+        total_twh = mix.sum()
         pie_colors = [colors.get(c, "gray") for c in mix.index]
         wedges, texts, autotexts = ax_pie.pie(
             mix.values,
@@ -1121,10 +1320,33 @@ def plot_energy_balance_comparison(
             autotext.set_rotation(rotation)
             autotext.set_horizontalalignment("center")
             autotext.set_verticalalignment("center")
+        _add_outer_ring(ax_pie, ring_mix)
         ax_pie.set_aspect("equal")
         ax_pie.set_title(
             f"Total: {total_twh:.1f} TWh", fontsize=12, pad=5, weight="bold"
         )
+
+    ring_handles = [
+        plt.Rectangle((0, 0), 1, 1, color=RING_COLORS[key]) for key in RING_KEYS
+    ]
+    ring_legend = fig.legend(
+        ring_handles,
+        [RING_LEGEND_LABELS[key] for key in RING_KEYS],
+        bbox_to_anchor=(0.70, 0.22),
+        loc="center left",
+        frameon=False,
+        fontsize=10.4,
+        ncol=1,
+        handler_map={mpatches.Patch: HandlerSquare()},
+        handlelength=1.0,
+        handleheight=1.0,
+        labelspacing=0.8,
+    )
+    ring_legend.set_title("Flexibilization\nby TES")
+    ring_legend.get_title().set_fontsize(11.4)
+    ring_legend.get_title().set_fontweight("bold")
+    ring_legend.get_title().set_multialignment("left")
+    ring_legend._legend_box.align = "left"
 
     # Replace DE0 at start of yticks with empty string (now y-axis shows regions)
     # Show city names only on the left side for cleaner appearance
@@ -1176,6 +1398,8 @@ def plot_energy_balance_triple_comparison(
     group_demands=False,
     drop_losses=False,
     subnodes_only=True,
+    show_titles=True,
+    show_supply_heading=True,
 ):
     """
     Plot comparison of energy balance for district heating between three networks.
@@ -1223,8 +1447,8 @@ def plot_energy_balance_triple_comparison(
     ):
         """Prepare energy balance data for a single network (same as in dual comparison)."""
         eb_uch = (
-            network.statistics.energy_balance(groupby=["bus", "carrier", "bus_carrier"])
-            .xs("urban central heat", level=3)
+            network.statistics.energy_balance(groupby=get_bus_and_carrier_and_bus_carrier)
+            .xs("urban central heat", level="bus_carrier")
             .reset_index()
         )
         # Filter for district heating systems
@@ -1478,13 +1702,13 @@ def plot_energy_balance_triple_comparison(
         )
         axes.append(ax)
 
-    # Sub-charts (bottom row) for aggregated DH mix with shared y-axis
-    sub_axes = []
+    # Pie charts (bottom row) for aggregated DH mix
+    pie_axes = []
     for i in range(3):
-        sub_ax = plt.subplot2grid(
-            (15, 3), (13, i), rowspan=2, sharey=sub_axes[0] if sub_axes else None
+        pie_ax = plt.subplot2grid(
+            (15, 3), (12, i), rowspan=3
         )
-        sub_axes.append(sub_ax)
+        pie_axes.append(pie_ax)
 
     def format_scenario_title(scenario):
         """Format scenario title with proper linebreaks and correct order for NoPTES."""
@@ -1610,7 +1834,8 @@ def plot_energy_balance_triple_comparison(
 
         # Format title and labels
         title = format_scenario_title(scenario)
-        ax.set_title(title, fontsize=11, pad=20, ha="center", weight="bold")
+        if show_titles:
+            ax.set_title(title, fontsize=11, pad=20, ha="center", weight="bold")
         ax.set_xlabel(
             "Share of district heating\nconsumption and supply\n[%]", fontsize=12
         )
@@ -1714,7 +1939,7 @@ def plot_energy_balance_triple_comparison(
             ax_secondary = ax.twiny()
             y_positions = range(len(prices))
             ax_secondary.scatter(
-                prices.values,
+                -prices.values,
                 y_positions,
                 s=30,
                 marker="^",
@@ -1725,7 +1950,7 @@ def plot_energy_balance_triple_comparison(
                 clip_on=False,
             )
             ax_secondary.axvline(
-                x=prices.mean(),
+                x=-prices.mean(),
                 color="black",
                 linestyle="--",
                 linewidth=2,
@@ -1781,247 +2006,92 @@ def plot_energy_balance_triple_comparison(
         for ax_secondary, _ in price_axes:
             ax_secondary.set_xlim(shared_xlim)
 
-    # Create aggregated DH mix sub-charts (without storage technologies)
-    # For aggregated charts, always include both subnodes and mother nodes
-    storage_techs = [
-        "urban central water tanks",
-        "urban central water tanks charger",
-        "urban central water tanks losses",
-        "urban central water pits",
-        "urban central water pits charger",
-        "urban central water pits losses",
-        "TTES",
-        "PTES",
+    def _total_de_dh_mix_twh(network):
+        eb = network.statistics.energy_balance(groupby=get_bus_and_carrier_and_bus_carrier)
+        eb_uch = eb.xs("urban central heat", level="bus_carrier")
+        de_mask = eb_uch.index.get_level_values("bus").str.startswith("DE")
+        eb_de = eb_uch[de_mask]
+        by_carrier = eb_de.groupby(level="carrier").sum().clip(lower=0) / 1e6
+        by_carrier.index = by_carrier.index.str.replace(" CC", "", regex=False)
+        by_carrier = by_carrier.groupby(level=0).sum()
+        if not group_heat_pumps:
+            geo_cols = [
+                c
+                for c in by_carrier.index
+                if "geothermal heat pump" in c or "geothermal heat direct" in c
+            ]
+            if geo_cols:
+                by_carrier["geothermal heat pump"] = by_carrier[geo_cols].sum()
+                by_carrier = by_carrier.drop(geo_cols)
+        if group_chp:
+            chp_cols = [
+                c
+                for c in by_carrier.index
+                if "chp" in c.lower() or "combined heat" in c.lower()
+            ]
+            if chp_cols:
+                by_carrier["CHP"] = by_carrier[chp_cols].sum()
+                by_carrier = by_carrier.drop(chp_cols)
+        if group_heat_pumps:
+            hp_cols = [c for c in by_carrier.index if "heat pump" in c.lower()]
+            if hp_cols:
+                by_carrier["Heat Pumps"] = by_carrier[hp_cols].sum()
+                by_carrier = by_carrier.drop(hp_cols)
+        exclude = [
+            "urban central heat",
+            "low-temperature heat for industry",
+            "District Heating Demand",
+            "heat vent",
+            "charger",
+            "discharger",
+            "losses",
+        ]
+        by_carrier = by_carrier[
+            [c for c in by_carrier.index if not any(p in c for p in exclude)]
+        ]
+        total = by_carrier.sum()
+        by_carrier = by_carrier[by_carrier > 0.005 * total]
+        return by_carrier
+
+    pie_mixes = [
+        _total_de_dh_mix_twh(network1),
+        _total_de_dh_mix_twh(network2),
+        _total_de_dh_mix_twh(network3),
     ]
-
-    # Helper function to get absolute energy values in TWh for aggregation
-    def get_absolute_energy_balance(network, subnodes_only=False):
-        """Get absolute energy balance data in TWh for aggregation."""
-        eb_uch = (
-            network.statistics.energy_balance(groupby=["bus", "carrier", "bus_carrier"])
-            .xs("urban central heat", level=3)
-            .reset_index()
+    for pie_ax, mix in zip(pie_axes, pie_mixes):
+        mix = mix.sort_values(ascending=False)
+        total_twh = mix.sum()
+        pie_colors = [colors.get(c, "gray") for c in mix.index]
+        wedges, texts, autotexts = pie_ax.pie(
+            mix.values,
+            colors=pie_colors,
+            startangle=110,
+            counterclock=False,
+            autopct=lambda p: f"{p:.0f}%" if p >= 5 else "",
+            pctdistance=0.72,
+            wedgeprops={"linewidth": 0.5, "edgecolor": "white"},
+            textprops={"fontsize": 9},
+        )
+        for autotext in autotexts:
+            autotext.set_color("white")
+            autotext.set_fontweight("bold")
+        pie_ax.set_aspect("equal")
+        pie_ax.set_title(
+            f"Total: {total_twh:.1f} TWh", fontsize=12, pad=5, weight="bold"
         )
 
-        # Filter for district heating systems
-        if subnodes_only:
-            eb_uch = eb_uch.loc[eb_uch.bus.str.contains(r"DE\d+ \d+ \w+.*urban"), :]
-        else:
-            eb_uch = eb_uch.loc[eb_uch.bus.str.contains(r"DE\d+ \d+.*urban"), :]
-
-        # Strip 'urban central heat' from the bus index
-        eb_uch["bus"] = eb_uch["bus"].str.replace(" urban central heat", "")
-        eb_uch.drop("component", axis=1, inplace=True)
-
-        # Remove " CC" suffix and aggregate
-        eb_uch["carrier"] = eb_uch["carrier"].str.replace(" CC", "", regex=False)
-        eb_uch = eb_uch.groupby(["bus", "carrier"], as_index=False).sum()
-
-        # Set index and unstack
-        to_plot = eb_uch.set_index(["bus", "carrier"]).unstack(-1)
-        to_plot.columns = to_plot.columns.droplevel(0)
-
-        # Convert from MWh to TWh (energy balance already accounts for snapshot weightings)
-        to_plot_twh = to_plot / 1e6
-        return to_plot_twh.clip(lower=0)
-
-    # Get absolute energy data for aggregation (in TWh)
-    networks = [network1, network2, network3]
-    for i, (network, sub_ax) in enumerate(zip(networks, sub_axes)):
-        # Get absolute energy balance in TWh for all systems (both subnodes and mother nodes)
-        abs_data = get_absolute_energy_balance(network, subnodes_only=False)
-
-        # Remove storage technologies and group by technology type according to configuration
-        grouped_supply = {}
-
-        for col in abs_data.columns:
-            if not any(storage_tech in col for storage_tech in storage_techs):
-                total_value = abs_data[col].sum()  # Sum across all systems in TWh
-                if total_value > 0:
-                    # Apply same grouping logic as main plots
-                    tech_name = col
-
-                    # Group heat pumps if enabled
-                    if group_heat_pumps and "heat pump" in col.lower():
-                        tech_name = "Heat Pumps"
-                    # Group A/WSHP if enabled (and not already grouped with all heat pumps)
-                    elif (
-                        group_ashp_wshp
-                        and not group_heat_pumps
-                        and (
-                            "urban central air heat pump" in col.lower()
-                            or "urban central river_water heat pump" in col.lower()
-                            or "urban central sea_water heat pump" in col.lower()
-                        )
-                    ):
-                        tech_name = "A/WSHP"
-                    # Group CHP if enabled
-                    elif group_chp and (
-                        "chp" in col.lower() or "combined heat" in col.lower()
-                    ):
-                        tech_name = "CHP"
-                    # Group resistive heaters
-                    elif "resistive" in col.lower():
-                        tech_name = "Resistive Heater"
-                    # Clean up other technology names
-                    else:
-                        tech_name = (
-                            col.replace("urban central ", "")
-                            .replace("water pits", "PTES")
-                            .replace("water tanks", "TTES")
-                        )
-
-                    # Add to grouped supply
-                    if tech_name not in grouped_supply:
-                        grouped_supply[tech_name] = 0
-                    grouped_supply[tech_name] += total_value
-
-        # Create stacked bar with proper ordering and colors
-        # Define technology order to match main plots: geothermal -> electrolysis -> A/WSHP -> Resistive heaters -> CHP -> boilers -> storage
-        # Note: for stacked bars, order from top to bottom (reverse of desired visual order)
-        tech_order = [
-            # Other supply (top of stack)
-            "H2 Electrolysis",
-            "Fischer-Tropsch",
-            # Boilers
-            "gas boiler",
-            # CHP technologies (grouped or individual)
-            "waste CHP",
-            "H2 CHP",
-            "oil CHP",
-            "coal CHP",
-            "lignite CHP",
-            "solid biomass CHP",
-            "gas CHP",
-            "CHP",
-            # Resistive heaters
-            "resistive heater",
-            "Resistive Heater",
-            # A/WSHP (grouped or individual)
-            "A/WSHP",
-            "sea_water heat pump",
-            "river_water heat pump",
-            "air heat pump",
-            "ptes heat pump",
-            # Electrolysis excess
-            "electrolysis excess heat pump",
-            # Heat pumps (grouped)
-            "Heat Pumps",
-            # Geothermal at the bottom of stack (last, so it appears at bottom visually)
-            "geothermal heat pump",
-            "geothermal heat",
-        ]
-
-        # Use colors from the main color scheme, with fallbacks for grouped categories
-        tech_colors_map = colors.copy()
-
-        # Create comprehensive color mapping for cleaned technology names
-        for tech, color in colors.items():
-            # Map original tech names to cleaned versions
-            clean_tech = (
-                tech.replace("urban central ", "")
-                .replace("water pits", "PTES")
-                .replace("water tanks", "TTES")
-            )
-            tech_colors_map[clean_tech] = color
-
-        # Add specific mappings for grouped and cleaned names
-        tech_colors_map.update(
-            {
-                "Heat Pumps": colors.get("Heat Pumps", "#FF8C00"),  # Orange
-                "A/WSHP": colors.get("A/WSHP", "#FFA600"),  # Orange variant
-                "Resistive Heater": colors.get(
-                    "urban central resistive heater", "#40E0D0"
-                ),  # Cyan
-                "resistive heater": colors.get(
-                    "urban central resistive heater", "#40E0D0"
-                ),
-                "CHP": colors.get("CHP", "#8B4513"),  # Use same color as main plots
-                "gas boiler": colors.get("urban central gas boiler", "#8B0000"),
-                "gas CHP": colors.get("urban central gas CHP", "#CD853F"),
-                "H2 CHP": colors.get("urban central H2 CHP", "#4169E1"),
-                "solid biomass CHP": colors.get(
-                    "urban central solid biomass CHP", "#228B22"
-                ),
-                "waste CHP": colors.get("waste CHP", "#8B4513"),
-                "geothermal heat pump": colors.get(
-                    "urban central geothermal heat pump", "#B22222"
-                ),
-                "geothermal heat": colors.get(
-                    "urban central geothermal heat", "#B22222"
-                ),
-                "air heat pump": colors.get("urban central air heat pump", "#FF6347"),
-                "sea_water heat pump": colors.get(
-                    "urban central sea_water heat pump", "#4682B4"
-                ),
-                "river_water heat pump": colors.get(
-                    "urban central river_water heat pump", "#20B2AA"
-                ),
-                "ptes heat pump": colors.get("urban central ptes heat pump", "#9932CC"),
-                "electrolysis excess heat pump": colors.get(
-                    "urban central electrolysis excess heat pump", "#FFD700"
-                ),
-                "Fischer-Tropsch": colors.get("Fischer-Tropsch", "#A0522D"),
-                "H2 Electrolysis": colors.get("H2 Electrolysis", "#4169E1"),
-            }
+    # Add single centered title for sub-charts (positioned above the pies)
+    if show_supply_heading:
+        fig.text(
+            0.5,
+            0.28,
+            "Aggregated DH Supply",
+            ha="center",
+            va="center",
+            fontsize=12,
+            weight="bold",
+            transform=fig.transFigure,
         )
-
-        # Filter to only include technologies that exist and have positive values
-        techs = [
-            tech
-            for tech in tech_order
-            if tech in grouped_supply and grouped_supply[tech] > 0
-        ]
-        # Add any remaining technologies not in the predefined order
-        remaining_techs = [
-            tech
-            for tech in grouped_supply.keys()
-            if tech not in techs and grouped_supply[tech] > 0
-        ]
-        techs.extend(sorted(remaining_techs))
-
-        values = [grouped_supply[tech] for tech in techs]
-        tech_colors = [
-            tech_colors_map.get(tech, "#808080") for tech in techs
-        ]  # Gray fallback
-
-        if techs:  # Only create bars if we have data
-            # Reverse the order to flip the stacking (geothermal will now be at top)
-            techs_reversed = list(reversed(techs))
-            values_reversed = list(reversed(values))
-            tech_colors_reversed = list(reversed(tech_colors))
-
-            bottom = 0
-            for tech, value, color in zip(
-                techs_reversed, values_reversed, tech_colors_reversed
-            ):
-                sub_ax.bar(0, value, bottom=bottom, color=color, width=1.0, alpha=0.8)
-                bottom += value
-
-        # Format sub-chart
-        sub_ax.set_xlim(-0.5, 0.5)
-        sub_ax.set_xticks([])
-        if i == 0:  # Only show y-label on leftmost chart
-            sub_ax.set_ylabel("TWh", fontsize=12)
-        sub_ax.tick_params(axis="y", labelsize=10)
-
-        # Remove spines except left
-        for spine in sub_ax.spines.values():
-            spine.set_visible(False)
-        sub_ax.spines["left"].set_visible(True)
-        sub_ax.grid(True, alpha=0.3, axis="y")
-
-    # Add single centered title for sub-charts (positioned above the bars)
-    fig.text(
-        0.5,
-        0.35,
-        "Aggregated DH Supply",
-        ha="center",
-        va="center",
-        fontsize=12,
-        weight="bold",
-        transform=fig.transFigure,
-    )
 
     # Create comprehensive legend with all technologies and categorization
     legend_handles = []
