@@ -141,16 +141,10 @@ class PtesTemperatureApproximator:
         xr.DataArray
             The resulting fraction of PTES charge that must be further heated.
         """
-        if "ptes" in self.booster_technologies:
-            return (
-                (self.top_temperature - self.return_temperature)
-                / (self.top_temperature - self.bottom_temperature)
-            ).where(self.forward_temperature > self.top_temperature, 0)
-        else:
-            return (
-                (self.top_temperature - self.bottom_temperature)
-                / (self.forward_temperature - self.top_temperature)
-            ).where(self.forward_temperature > self.top_temperature, 0)
+        return (
+            (self.top_temperature - self.return_temperature)
+            / (self.forward_temperature - self.top_temperature)
+        ).where(self.forward_temperature > self.top_temperature, 0)
 
     @property
     def charger_temperature_boosting_ratio(self) -> xr.DataArray:

@@ -80,9 +80,25 @@ RING_LEGEND_LABELS = {
 }
 RING_COLORS = {
     "Directly served": "#D9D9D9",
-    "TTES-flexibilized": "#90CAF9",
+    "TTES-flexibilized": "#BBDEFB",
     "PTES-flexibilized (no boost)": "#1976D2",
     "PTES-flexibilized (boosted)": "#0D47A1",
+}
+
+FIGURE_COLOR_OVERRIDES = {
+    "urban central river_water heat pump": "#26C6DA",
+    "urban central sea_water heat pump": "#66BB6A",
+    "urban central air heat pump": "#DCE775",
+    "urban central electrolysis excess heat pump": "#F48FB1",
+    "urban central electrolysis excess heat direct utilisation": "#F8BBD0",
+    "urban central geothermal heat pump": "#7CB342",
+    "urban central geothermal heat direct utilisation": "#AED581",
+    "urban central resistive heater": "#00897B",
+    "urban central water tanks charger": "#BBDEFB",
+    "urban central water tanks discharger": "#BBDEFB",
+    "urban central water pits charger": "#1565C0",
+    "urban central water pits discharger": "#1565C0",
+    "District Heating Demand": "#D9D9D9",
 }
 
 
@@ -977,7 +993,7 @@ def plot_energy_balance_comparison(
     # )
 
     # Set labels for demand axis
-    ax1_demand.set_xlabel("DH Demand\n[TWh]", fontsize=12)
+    ax1_demand.set_xlabel("District heating demand\n[TWh]", fontsize=12)
     ax1_demand.tick_params(axis="x", labelsize=10)
 
     # Set x-limits for demand axis with some padding
@@ -1108,9 +1124,9 @@ def plot_energy_balance_comparison(
 
     # Update fontsize of yticks for both subplots (now that bars are horizontal)
     for tick in ax1.get_yticklabels():
-        tick.set_fontsize(7)
+        tick.set_fontsize(9.2)
     for tick in ax2.get_yticklabels():
-        tick.set_fontsize(7)
+        tick.set_fontsize(8.5)
 
     # Organize legend by categories
     legend_handles = []
@@ -1118,13 +1134,8 @@ def plot_energy_balance_comparison(
 
     # Define technology categories
     supply_techs = [
-        "Heat Pumps",
-        "geothermal heat pump",
-        "electrolysis excess heat pump",
-        "air heat pump",
-        "river_water heat pump",
-        "sea_water heat pump",
-        "ptes heat pump",
+        "heat pump",
+        "waste-heat",
         "CHP",
         "resistive heater",
         "gas boiler",
@@ -1135,14 +1146,23 @@ def plot_energy_balance_comparison(
 
     # Helper function to clean labels
     def clean_label(label):
-        label = re.sub(
-            "urban central heat$", "heat for residential and services", label
-        )
+        label = re.sub("urban central heat$", "district heating demand", label)
         label = label.replace("urban central ", "")
         label = label.replace("water pits", "PTES")
         label = label.replace("water tanks", "TTES")
         label = label.replace(" charger", "").replace(" discharger", "")
         label = label.replace("A/WSHP", "Air and water sourced heat pumps")
+        label = label.replace("river_water", "river-water")
+        label = label.replace("sea_water", "sea-water")
+        label = label.replace("electrolysis excess", "electrolysis waste-heat")
+        label = label.replace(
+            "electrolysis waste-heat heat pump", "electrolysis waste-heat pump"
+        )
+        label = label.replace("air heat pump", "air-sourced heat pump")
+        label = label.replace("river-water heat pump", "river-water-sourced heat pump")
+        label = label.replace("sea-water heat pump", "sea-water-sourced heat pump")
+        label = label.replace("District Heating Demand", "District heating demand")
+        label = label.replace("DH Demand", "District heating demand")
 
         # Handle PTES capitalization specifically
         if label.lower().startswith("ptes"):
@@ -1227,23 +1247,7 @@ def plot_energy_balance_comparison(
             linestyle="None",
         )
     )
-    legend_labels.append("  DH Demand [TWh]")
-
-    # Mean DH demand line
-    legend_handles.append(
-        Line2D(
-            [0],
-            [0],
-            color="white",
-            linestyle=":",
-            linewidth=3,
-            path_effects=[
-                matplotlib.patheffects.Stroke(linewidth=4, foreground="black"),
-                matplotlib.patheffects.Normal(),
-            ],
-        )
-    )
-    legend_labels.append("  Mean DH Demand")
+    legend_labels.append("  District heating demand [TWh]")
 
     # DH price savings marker
     legend_handles.append(
@@ -1292,12 +1296,18 @@ def plot_energy_balance_comparison(
     pie_mix2 = _total_de_dh_mix_twh(network2)
     ring_mix1 = _scenario_ring_shares_twh(network1, scenarios[0], ptes_events)
     ring_mix2 = _scenario_ring_shares_twh(network2, scenarios[1], ptes_events)
+    pie_order = (
+        pie_mix1.add(pie_mix2, fill_value=0.0)
+        .sort_values(ascending=False)
+        .index
+        .tolist()
+    )
 
     for ax_pie, mix, ring_mix in [
         (ax_pie1, pie_mix1, ring_mix1),
         (ax_pie2, pie_mix2, ring_mix2),
     ]:
-        mix = mix.sort_values(ascending=False)
+        mix = mix.reindex([carrier for carrier in pie_order if carrier in mix.index]).dropna()
         total_twh = mix.sum()
         pie_colors = [colors.get(c, "gray") for c in mix.index]
         wedges, texts, autotexts = ax_pie.pie(
@@ -1350,13 +1360,16 @@ def plot_energy_balance_comparison(
 
     # Replace DE0 at start of yticks with empty string (now y-axis shows regions)
     # Show city names only on the left side for cleaner appearance
-    yticks = [label.get_text().replace("DE0 ", "") for label in ax1.get_yticklabels()]
+    yticks = [
+        re.sub(r"^\d+\s+", "", label.get_text().replace("DE0 ", ""))
+        for label in ax1.get_yticklabels()
+    ]
     ax1.set_yticklabels(yticks)
 
     # Only show y-tick labels on the left subplot and add y-axis label
     ax1.tick_params(axis="y", labelleft=True)
     ax2.tick_params(axis="y", labelleft=False, labelright=False)
-    ax1.set_ylabel("District heating system", fontsize=14)
+    ax1.set_ylabel("")
 
     # Add light horizontal grid lines for easier comparison (extended beyond borders)
     ax1.grid(True, axis="y", alpha=0.3, linestyle="-", linewidth=0.5)
@@ -1923,7 +1936,7 @@ def plot_energy_balance_triple_comparison(
             #     alpha=1,
             #     zorder=6,
             # )
-            ax_secondary.set_xlabel("DH Demand\n[TWh]", fontsize=12, color="black")
+            ax_secondary.set_xlabel("District heating demand\n[TWh]", fontsize=12, color="black")
             ax_secondary.tick_params(axis="x", labelsize=10, colors="black")
 
             demand_min, demand_max = dh_demand.min(), dh_demand.max()
@@ -1979,10 +1992,11 @@ def plot_energy_balance_triple_comparison(
 
         if i == 0:  # Only show y-labels on leftmost plot
             ax.tick_params(axis="y", labelleft=True)
-            ax.set_ylabel("District heating system", fontsize=14, weight="bold")
+            ax.set_ylabel("")
             # Clean y-tick labels
             yticks = [
-                label.get_text().replace("DE0 ", "") for label in ax.get_yticklabels()
+                re.sub(r"^\d+\s+", "", label.get_text().replace("DE0 ", ""))
+                for label in ax.get_yticklabels()
             ]
             ax.set_yticklabels(yticks)
         else:
@@ -2099,13 +2113,8 @@ def plot_energy_balance_triple_comparison(
 
     # Define technology categories
     supply_techs = [
-        "Heat Pumps",
-        "geothermal heat pump",
-        "electrolysis excess heat pump",
-        "air heat pump",
-        "river_water heat pump",
-        "sea_water heat pump",
-        "ptes heat pump",
+        "heat pump",
+        "waste-heat",
         "CHP",
         "resistive heater",
         "gas boiler",
@@ -2116,14 +2125,23 @@ def plot_energy_balance_triple_comparison(
 
     # Helper function to clean labels
     def clean_label(label):
-        label = re.sub(
-            "urban central heat$", "heat for residential and services", label
-        )
+        label = re.sub("urban central heat$", "district heating demand", label)
         label = label.replace("urban central ", "")
         label = label.replace("water pits", "PTES")
         label = label.replace("water tanks", "TTES")
         label = label.replace(" charger", "").replace(" discharger", "")
         label = label.replace("A/WSHP", "Air and water sourced heat pumps")
+        label = label.replace("river_water", "river-water")
+        label = label.replace("sea_water", "sea-water")
+        label = label.replace("electrolysis excess", "electrolysis waste-heat")
+        label = label.replace(
+            "electrolysis waste-heat heat pump", "electrolysis waste-heat pump"
+        )
+        label = label.replace("air heat pump", "air-sourced heat pump")
+        label = label.replace("river-water heat pump", "river-water-sourced heat pump")
+        label = label.replace("sea-water heat pump", "sea-water-sourced heat pump")
+        label = label.replace("District Heating Demand", "District heating demand")
+        label = label.replace("DH Demand", "District heating demand")
 
         # Handle PTES capitalization specifically
         if label.lower().startswith("ptes"):
@@ -2213,19 +2231,7 @@ def plot_energy_balance_triple_comparison(
             linestyle="None",
         )
     )
-    legend_labels.append("  DH Demand [TWh]")
-
-    # Mean DH demand line (black)
-    legend_handles.append(
-        Line2D(
-            [0],
-            [0],
-            color="black",
-            linestyle="--",
-            linewidth=2,
-        )
-    )
-    legend_labels.append("  Mean DH Demand")
+    legend_labels.append("  District heating demand [TWh]")
 
     # DH price savings marker
     legend_handles.append(
@@ -2329,6 +2335,7 @@ def main(snakemake):
 
     # Get color mapping
     colors = get_colors(networks, override_colors)
+    colors.update(FIGURE_COLOR_OVERRIDES)
 
     # Add default colors for grouped categories
     default_group_colors = {

@@ -1105,14 +1105,26 @@ def add_discharger_temperature_boosting_constraints(
                 .rename(columns=booster_node_to_link)
                 .reindex(columns=booster_technologies_links)
             )
+
             lhs = (
-                -(cop_booster - 1)
-                * (p.loc[:, booster_technologies_links])
-                / (1 - ptes_discharger_temperature_boosting_ratio)
+                -cop_booster
+                * p.loc[:, booster_technologies_links]
+                * ptes_discharger_temperature_boosting_ratio
             )
             n.model.add_constraints(
-                lhs == rhs, name="ptes_discharger_temperature_boosting"
+                lhs == rhs,
+                name="ptes_discharger_temperature_boosting",
             )
+            # When α = 0 (T_fwd ≤ T_top) the main constraint becomes 0 = 0,
+            # leaving the HP unconstrained.  Explicitly force p_HP = 0 at those
+            # (snapshot, node) pairs so the HP cannot run as a generic heat source.
+            no_boost_mask = ptes_discharger_temperature_boosting_ratio == 0
+            if no_boost_mask.any().any():
+                n.model.add_constraints(
+                    p.loc[:, booster_technologies_links] == 0,
+                    mask=no_boost_mask,
+                    name="ptes_hp_no_dispatch_when_no_boost",
+                )
         else:
             # efficiency = n.links.efficiency[booster_technologies_links]
             lhs = -(

@@ -150,10 +150,17 @@ if __name__ == "__main__":
 
             if heat_source == "ptes":
                 if "ptes" in snakemake.params.ptes["booster_technologies"]:
-                    source_outlet_temperature_celsius = (
-                        central_heating_return_temperature
-                        - snakemake.params.heat_source_cooling_central_heating
+                    bottom_temperature = (
+                        snakemake.params.ptes["min_bottom_temperature"]
+                        if isinstance(
+                            snakemake.params.ptes["min_bottom_temperature"],
+                            (int, float),
+                        )
+                        else central_heating_return_temperature
                     )
+                    source_outlet_temperature_celsius = (
+                        central_heating_return_temperature + bottom_temperature
+                    ) / 2 - snakemake.params.heat_source_cooling_central_heating
                 else:
                     source_outlet_temperature_celsius = (
                         central_heating_return_temperature - 1
