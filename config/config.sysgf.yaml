@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: CC0-1.0
 
 run:
-  prefix: 20260612_all_scenarios
+  prefix: 20260324_all_scenarios
   name:
     # Mid DH – Mid Supply
     - NoPTES_MidSupplyTemperature_MidDH_init
@@ -84,6 +84,9 @@ run:
     - build_industry_sector_ratios   # This is necessary to save build_industry_sector_ratios_data.log in the correct folder
     - modify_existing_heating
 
+remote:
+  ssh: "z1"
+  path: "/home/htc/cschauss/scratch/pypsa-de-paper1"
 foresight: myopic
 
 scenario:

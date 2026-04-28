@@ -778,17 +778,8 @@ def apply_technology_groupings(df: pd.DataFrame) -> pd.DataFrame:
         abs(df.sum().sum() - df_grouped.sum().sum()) < 1e-2
     ), "Grouping of geothermal technologies changed total sum!"
 
-    # Group oil primary + gas primary -> fossil fuels
-    fossil_cols = [
-        col for col in df_grouped.columns if col in ["oil primary", "gas primary"]
-    ]
-    if fossil_cols:
-        df_grouped["fossil fuels"] = df_grouped[fossil_cols].sum(axis=1)
-        fossil_cols = [col for col in fossil_cols if col != "fossil fuels"]
-        df_grouped = df_grouped.drop(columns=fossil_cols)
-    assert (
-        abs(df_grouped.sum().sum() - df.sum().sum()) < 1e-2
-    ), "Grouping of fossil fuels changed total sum!"
+    # Keep oil primary and gas primary separate so the downstream plots reflect
+    # the underlying primary energy carriers directly.
 
     # Group PTES (water pits) variants -> PTES
     ptes_cols = [

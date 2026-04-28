@@ -47,7 +47,14 @@ from matplotlib.lines import Line2D
 import numpy as np
 import pandas as pd
 import pypsa
-from pypsa.statistics import get_bus_and_carrier_and_bus_carrier
+try:
+    from pypsa.statistics import get_bus_and_carrier_and_bus_carrier
+except ImportError:
+    from pypsa.statistics import groupers
+
+    get_bus_and_carrier_and_bus_carrier = groupers[
+        ["bus", "carrier", "bus_carrier"]
+    ]
 import re
 import sys
 import os
@@ -398,6 +405,8 @@ def plot_energy_balance_comparison(
     group_demands=False,
     drop_losses=False,
     subnodes_only=True,
+    show_titles=False,
+    panel_titles=None,
 ):
     """
     Plot comparison of energy balance for district heating between two networks.
@@ -424,6 +433,11 @@ def plot_energy_balance_comparison(
         If True, drop loss columns from the plot (default: False)
     subnodes_only : bool, optional
         If True, only show district heating systems with city names (subnodes) (default: True)
+    show_titles : bool, optional
+        If True, show scenario titles above the two panels (default: False)
+    panel_titles : list, optional
+        Explicit titles for the two panels. If omitted, titles are derived from
+        the scenario names.
 
     Returns:
     --------
@@ -885,9 +899,9 @@ def plot_energy_balance_comparison(
 
         return title
 
-    # title removed for paper (will be in figure caption)
-    # title1 = format_scenario_title(scenarios[0])
-    # ax1.set_title(title1, fontsize=11, pad=20, ha="center", weight="bold")
+    if show_titles:
+        title1 = panel_titles[0] if panel_titles is not None else format_scenario_title(scenarios[0])
+        ax1.set_title(title1, fontsize=11, pad=20, ha="center", weight="bold")
     ax1.set_xlabel("Demand and supply [%]", fontsize=12)
 
     ax1.axvline(x=0, color="black", linestyle="-")
@@ -1066,9 +1080,9 @@ def plot_energy_balance_comparison(
         width=0.9,  # Increase bar thickness to reduce white space
         alpha=0.8,  # Match transparency of lower aggregated charts
     )
-    # title removed for paper (will be in figure caption)
-    # title2 = format_scenario_title(scenarios[1])
-    # ax2.set_title(title2, fontsize=11, pad=20, ha="center", weight="bold")
+    if show_titles:
+        title2 = panel_titles[1] if panel_titles is not None else format_scenario_title(scenarios[1])
+        ax2.set_title(title2, fontsize=11, pad=20, ha="center", weight="bold")
     ax2.set_xlabel("Demand and supply [%]", fontsize=12)
     ax2.axvline(x=0, color="black", linestyle="-")
     ax2.set_xlim(-max_ylim, max_ylim)

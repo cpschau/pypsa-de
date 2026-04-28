@@ -354,12 +354,13 @@ rule doc:
 rule sync:
     params:
         cluster=f"{config['remote']['ssh']}:{config['remote']['path']}",
+        run=config["run"]["prefix"],
     shell:
         """
         rsync -uvarh --ignore-missing-args --files-from=.sync-send . {params.cluster}
-        rsync -uvarh --no-g {params.cluster}/resources . || echo "No resources directory, skipping rsync"
-        rsync -uvarh --no-g {params.cluster}/results . || echo "No results directory, skipping rsync"
-        rsync -uvarh --no-g {params.cluster}/logs . || echo "No logs directory, skipping rsync"
+        rsync -uvarh --no-g {params.cluster}/resources/{params.run} ./resources || echo "No resources directory, skipping rsync"
+        rsync -uvarh --no-g {params.cluster}/results/{params.run} ./results || echo "No results directory, skipping rsync"
+        rsync -uvarh --no-g {params.cluster}/logs/{params.run} ./logs || echo "No logs directory, skipping rsync"
         """
 
 

@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: CC0-1.0
 
 master
-
+/_archive
 .snakemake*
 .ipynb_checkpoints
 __pycache__
