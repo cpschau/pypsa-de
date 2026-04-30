@@ -509,18 +509,30 @@ def input_heat_source_temperature(
     }
 
 
+def input_seawater_temperature(w):
+    from scripts._helpers import get_snapshots
+
+    snapshots = get_snapshots(config_provider("snapshots")(w))
+    unique_years = snapshots.year.unique()
+
+    return {
+        f"seawater_temperature_{year}": f"data/seawater_temperature_{year}.nc"
+        for year in unique_years
+    }
+
+
 rule build_sea_heat_potential:
     params:
         drop_leap_day=config_provider("enable", "drop_leap_day"),
         snapshots=config_provider("snapshots"),
         dh_area_buffer=config_provider("sector", "district_heating", "dh_area_buffer"),
     input:
+        unpack(input_seawater_temperature),
         regions_onshore=lambda w: (
             resources("regions_onshore_base-extended_s_{clusters}.geojson")
             if config_provider("sector", "district_heating", "subnodes", "enable")(w)
             else resources("regions_onshore_base_s_{clusters}.geojson")
         ),
-        seawater_temperature="data/seawater_temperature.nc",
         dh_areas=lambda w: resources(
             "dh_areas_base_s_{clusters}-modified.geojson"
         ) if config_provider("sector", "district_heating", "subnodes", "enable")(w) else "data/dh_areas.gpkg",

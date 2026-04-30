@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_regional_result(
-    seawater_temperature_fn: str, region: gpd.GeoSeries, dh_areas: gpd.GeoDataFrame
+    seawater_temperature_fn, region: gpd.GeoSeries, dh_areas: gpd.GeoDataFrame
 ) -> dict:
     # Clip the region to the district heating areas
     region.geometry = gpd.overlay(
@@ -31,7 +31,7 @@ def get_regional_result(
     minx, miny, maxx, maxy = region.total_bounds
 
     water_temperature = (
-        xr.open_dataset(
+        xr.open_mfdataset(
             seawater_temperature_fn,
             chunks={
                 "time": "auto",
@@ -117,7 +117,11 @@ if __name__ == "__main__":
         region = gpd.GeoSeries(regions_onshore.loc[region_name].copy(deep=True))
         futures.append(
             get_regional_result(
-                seawater_temperature_fn=snakemake.input["seawater_temperature"],
+                seawater_temperature_fn=[
+                    value
+                    for key, value in dict(snakemake.input).items()
+                    if key.startswith("seawater_temperature")
+                ],
                 region=region,
                 dh_areas=dh_areas,
             )

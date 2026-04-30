@@ -728,18 +728,21 @@ if config["enable"]["retrieve"]:
         run:
             move(input[0], output[0])
 
-    rule seawater_temperature:
+    rule retrieve_seawater_temperature:
         output:
-            seawater_temperature="data/seawater_temperature.nc",
+            seawater_temperature="data/seawater_temperature_{year}.nc",
         log:
-            "logs/retrieve_seawater_data.log",
+            "logs/retrieve_seawater_temperature_{year}.log",
         resources:
             mem_mb=10000,
+        params:
+            default_cutout=config_provider("atlite", "default_cutout"),
+            test_data_url="https://zenodo.org/records/15198744/files/seawater_temperature.nc",
         retries: 2
-        shell:
-            """
-            wget -nv -c https://zenodo.org/records/15198744/files/seawater_temperature.nc -O {output.seawater_temperature}
-            """
+        conda:
+            "../envs/environment.yaml"
+        script:
+            "../scripts/retrieve_seawater_temperature.py"
 
     # dynamic inputs/outputs for hera data retrieval
     if config["atlite"]["default_cutout"] == "be-03-2013-era5":
