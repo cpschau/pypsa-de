@@ -141,6 +141,8 @@ class PtesTemperatureApproximator:
         xr.DataArray
             The resulting fraction of PTES charge that must be further heated.
         """
+        if self.booster_technologies and "ptes" in self.booster_technologies:
+            return (self.top_temperature - self.return_temperature + 6) / (6)
         return (
             (self.top_temperature - self.return_temperature)
             / (self.forward_temperature - self.top_temperature)

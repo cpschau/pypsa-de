@@ -196,7 +196,7 @@ MidSupplyTemperature_MidDH_freeboost_freescale:
             capital_cost: 1.05
 
 # Low Supply Temperature scenarios with Mid DH (0.4)
-NoPTES_LowSupplyTemperature_MidDH_init:
+NoPTES_ lyTemperature_MidDH_init:
   fix_foreign_investments:
     enable: false
   sector:

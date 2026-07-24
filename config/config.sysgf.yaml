@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: CC0-1.0
 
 run:
-  prefix: 20260324_all_scenarios
+  prefix: 20260523_all_scenarios
   name:
     # Mid DH – Mid Supply
     - NoPTES_MidSupplyTemperature_MidDH_init
